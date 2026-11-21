@@ -16,10 +16,11 @@ Measured during research by downloading the packages (compressed sizes are gzip 
 
 | Component | Unpacked | Compressed | Tier |
 |---|---|---|---|
-| CodeMirror 6, basic | 0.4 MB | 0.1 MB | — |
-| **Monaco, core only** | 2.4 MB | 0.6 MB | Base |
-| Monaco, everything (all languages and workers) | 24.4 MB | 5.5 MB | Base, loaded in pieces |
-| — of which the TypeScript worker | 6.7 MB | — | Loaded only for TS/JS files |
+| **CodeMirror 6**, basic | 0.4 MB | 0.1 MB | Base |
+| CodeMirror 6 with six languages | 0.6 MB | 0.2 MB | Base |
+| Monaco, core only (for comparison) | 2.4 MB | 0.6 MB | Not used |
+| Monaco, everything (for comparison) | 24.4 MB | 5.5 MB | Not used |
+| TypeScript language service worker | 6.7 MB | — | Loaded only for TS/JS files on desktop |
 | **PDF.js**, complete | 5.4 MB | 2.6 MB | Base |
 | PDFium WASM (EmbedPDF) | 4.4 MB | 2.1 MB | Alternative to PDF.js |
 | SQLite WASM | 0.8 MB | 0.4 MB | Base |
@@ -40,7 +41,7 @@ Two things stand out:
 **Base app** — installed by default, always fast:
 
 - Shell, tabs, palette, file pipeline.
-- Text and code editor (Monaco core plus lazily loaded languages).
+- Text and code editor (CodeMirror 6 plus lazily loaded languages).
 - PDF viewer, annotation and page tools.
 - CSV in a light grid (see below).
 - Search.
@@ -63,7 +64,7 @@ How packs stay compatible with "local-first, fully offline":
 
 **Consequence for CSV.** Opening a small CSV should not load a 100 MB engine. CSV moves to a light text-typed grid in the base app, which also suits its need for exact dialect preservation. "Open in spreadsheet editor" remains one click away for charts and formulas. This revises the earlier plan in `02-format-engines.md`.
 
-## Shell: decided by operating system
+## Shell: Tauri, and what the numbers say
 
 The only reproducible current benchmark found (an empty app, automated single runs, updated October–November 2026):
 
@@ -90,19 +91,15 @@ What the system webview means per platform:
 Other facts that bear on it:
 
 - Tauri has no built-in print-to-PDF (the upstream change has been a draft since 2024). On Windows it can be reached through WebView2's native API with custom code. Office-to-PDF does not depend on it, because that goes through the office converter.
-- Tauri's backend is Rust; Electron's is Node. Language servers, ripgrep and git are external processes either way.
+- Tauri's backend is Rust; Electron's is Node. Language servers and git are external programs either way, and exist on desktop only.
 
-**Recommendation:**
+**Decision: Tauri v2 on every platform.** The requirement to run on Android and iOS settles it, because Electron does not run on phones (`12-platforms-and-mobile.md`). The numbers above still matter for two reasons:
 
-| Your daily OS | Shell | Why |
-|---|---|---|
-| Windows only | **Tauri v2** | Chromium-based system webview removes most of the risk, and the base app drops from hundreds of megabytes to tens |
-| macOS only | **Decide by spike** | Tauri if the office editors run correctly in WKWebView; otherwise Electron |
-| Linux, or more than one OS | **Electron** | One known browser engine everywhere outweighs the size cost |
+- They show what is gained: a base app of a few megabytes instead of hundreds.
+- They show the one cost to watch: Tauri's slower start in this benchmark. Launch time is a budget below and is measured in spike S13.
 
-To keep this decision reversible, the interface code never calls the shell directly. All platform access (files, dialogs, windows, processes, printing) goes through one small `platform` interface with an Electron implementation and a Tauri implementation. This also makes the shell bake-off in Phase 0 cheap.
+The interface code never calls the shell directly. All platform access goes through one small `platform` interface, so a different shell can be used on any single platform if it is ever needed — for example Electron on macOS if the office editors do not behave in Apple's webview.
 
-**This is the main reason your operating system is the first open question.**
 
 ## Budgets
 
@@ -127,7 +124,8 @@ Proposed targets, to be confirmed or adjusted by measurement in Phase 0. They ar
 
 | State | Target |
 |---|---|
-| App open with ten text tabs | under 300 MB on a system-webview shell, under 500 MB on Electron |
+| App open with ten text tabs | under 300 MB on desktop |
+| On a phone, one document open | under 250 MB, so the system does not kill the app in the background |
 | Each additional text tab | a few MB |
 | Each live office tab | to be measured; cap live office tabs at 2–3 and hibernate the rest |
 
@@ -135,7 +133,7 @@ Proposed targets, to be confirmed or adjusted by measurement in Phase 0. They ar
 
 | Artifact | Target |
 |---|---|
-| Base installer | under 15 MB on a system-webview shell; under 120 MB on Electron |
+| Base installer | under 15 MB on desktop; under 25 MB on mobile |
 | Office pack | under 80 MB download |
 | Runtime npm dependencies of the base app | fewer than 40 direct, each one justified |
 
@@ -193,8 +191,8 @@ A budget that is not measured is a wish.
 
 | # | Question | Experiment |
 |---|---|---|
-| S13 | Which shell on your OS? | The same minimal shell on Electron and on Tauri: launch time, memory, installer size, with Monaco and PDF.js loaded |
-| S14 | Do the office editors run correctly in your system webview? | Load the office engine inside Tauri on your OS; edit and save all three formats (only if S13 favours Tauri) |
+| S13 | Is Tauri on Windows fast enough? | A minimal shell with CodeMirror and PDF.js loaded: launch time, memory, installer size, against the budgets. Electron measured alongside as a reference |
+| S14 | Do the office editors run correctly in WebView2 under Tauri? | Load the office engine; edit and save all three formats |
 | S15 | How small can the office pack get? | Remove unused locales, the mobile interface and unneeded editors; measure size and confirm nothing breaks |
 | S16 | What does a live office tab cost? | Memory and time-to-interactive per office tab; hibernate and restore timing |
 | S17 | Are the speed budgets realistic? | Measure every row of the speed table on the prototype |
@@ -203,7 +201,8 @@ A budget that is not measured is a wish.
 
 | Risk | Response |
 |---|---|
-| The office engine misbehaves in a non-Chromium webview | S14 before committing; Electron remains the fallback; the `platform` interface keeps the switch cheap |
+| The office engine misbehaves in Apple's webview | Device spikes M6–M8 before the Apple phase; Electron on macOS as a fallback; a native converter library on iOS |
+| Phones kill the app for memory | One live heavy editor at a time; file-size ceilings; state saved continuously |
 | Pruning the office pack breaks features | Prune conservatively; the fidelity suite runs against the pruned pack |
 | First office open still feels slow | Idle pre-warming; honest one-line progress; measure against the 4 s budget |
 | Many office tabs exhaust memory | Hibernation and a live-tab cap |

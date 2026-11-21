@@ -9,7 +9,7 @@ One section per format family: what the format demands, the engine chosen, what 
 Office files are ZIP packages of many XML parts. An editor that reads a file into its own simplified model and writes a brand-new file loses everything it did not model. The research found this to be the single biggest source of corruption across docx, xlsx and pptx. Every engine in this plan either:
 
 - is a full engine that models the whole format (ONLYOFFICE), or
-- edits the original bytes in place and passes through what it does not understand (Monaco for text, incremental saves for PDF).
+- edits the original bytes in place and passes through what it does not understand (CodeMirror for text, incremental saves for PDF).
 
 ---
 
@@ -37,10 +37,10 @@ Office files are ZIP packages of many XML parts. An editor that reads a file int
 
 Planned in full in `06-code-and-text-editor.md`. In summary:
 
-- **Engine: Monaco**, the editor component inside VS Code, for every text-based file. The text on disk is the source of truth and is never reformatted.
+- **Engine: CodeMirror 6** for every text-based file, on every platform including phones. The text on disk is the source of truth and is never reformatted.
 - **Highlighting** for about 260 languages through the same grammars VS Code uses, with VS Code themes.
 - **Built-in intelligence** for TypeScript, JavaScript, JSON, CSS, HTML, YAML, TOML and Markdown; other languages through any language server already installed on the machine.
-- **Markdown** gets a rendered, scroll-synced preview beside the source, with math and diagrams. A Typora-style live-preview writing mode is a later option.
+- **Markdown** renders in place as you type, in the style of Typora and Obsidian, with an optional side-by-side preview, math and diagrams.
 - **Left out on purpose:** debugger, test runner, extension marketplace, remote development.
 
 ---
@@ -144,9 +144,12 @@ Planned in full in `06-code-and-text-editor.md`. In summary:
 | Open, New from templates, Auto-save, Save As | File pipeline | Us |
 | Export docs, sheets, slides to PDF | x2t, print-to-PDF | Engine + glue |
 | Command palette | Shell command registry | Us |
-| Rich-text toolbar, headings, lists, tables, images, word count | ONLYOFFICE (docx), Monaco (md) | Engine / us |
-| Distraction-free Markdown and text modes | Monaco + focus mode | Us |
-| Any text or code file, VS Code-level editing | Monaco, Shiki, language servers | Engine + us |
+| Rich-text toolbar, headings, lists, tables, images, word count | ONLYOFFICE (docx), CodeMirror (md) | Engine / us |
+| Distraction-free Markdown and text modes | CodeMirror + focus mode | Us |
+| Any text or code file, VS Code-level editing | CodeMirror 6, Shiki, language servers | Engine + us |
+| Links, backlinks and search across formats | Local index; links stored in the files | Us (`09`) |
+| Export anything to anything | Converter registry | Engines + us (`10`) |
+| Use across devices | Synced folder, per-device state | Us (`11`, `12`) |
 | Multi-sheet, formulas, sort, filter, formatting, freeze panes, charts | ONLYOFFICE | Engine |
 | Slide navigator, canvas editor, notes, full-screen presenting | ONLYOFFICE | Engine + shell full-screen |
 | PDF zoom, scroll, text selection, annotations, signatures | PDF.js | Engine + UI |

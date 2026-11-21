@@ -8,30 +8,30 @@ Every choice below is a starting position backed by the research in `../research
 
 | Layer | Choice | Why |
 |---|---|---|
-| Desktop shell | **Decided by operating system (spike S13):** Tauri v2 on Windows, Electron for Linux or cross-platform, macOS by test | The system webview makes the app about a hundred times smaller, but only Windows' is Chromium. See `08-performance-and-footprint.md`. |
-| Platform layer | A small `platform` interface (files, dialogs, windows, processes, printing) with one implementation per shell | Keeps the shell choice reversible; interface code never calls the shell directly. |
-| Language / build | TypeScript, Vite, pnpm workspace | One language for the interface on either shell. |
+| Shell | **Tauri v2 on every platform** (Windows, Android, macOS, iOS) | The only shell that reaches desktop and phones from one project, and it uses the system webview, so the base app is a few megabytes. See `12-platforms-and-mobile.md`. |
+| Core | One Rust core: files, search index, conversion jobs, sync state | Runs on every platform, including phones where helper programs are not allowed. |
+| Platform layer | A small `platform` interface (document handles, dialogs, windows, share, printing, pen, OCR) with one implementation per platform | Keeps the shell replaceable and hides the differences between desktop paths and mobile file permissions. |
+| Language / build | TypeScript and React for the interface, Rust for the core, Vite, pnpm workspace | One interface for every platform, responsive from phone to desktop. |
 | Shell UI | React, shadcn/ui components, `cmdk` for the palette | Small, unopinionated, easy to keep minimal. See `07-ux-ui-design.md`. |
 | Tabs / split view | `dockview` (simple tab strip first, splits later) | Side-by-side tabs without writing a docking system. |
 | docx / xlsx / pptx | **ONLYOFFICE editors (sdkjs + web-apps) with the x2t converter compiled to WebAssembly**, running fully client-side, shipped as an on-demand **pack** **(spike)** | The only open-source engine shown to edit all three at near-commercial fidelity with no server. About 100 MB compressed, so it loads only when an office file is opened. |
-| Any text or code file | **Monaco** (VS Code's editor component), with Shiki grammars and a language-server client | VS Code-level editing; keeps files byte-identical. See `06-code-and-text-editor.md`. |
+| Any text or code file | **CodeMirror 6**, with Shiki grammars and a language-server client | VS Code-level editing that also works on touch; keeps files byte-identical. See `06-code-and-text-editor.md`. |
 | csv | A light text-typed grid in the base app, with Papa Parse for dialect detection; "open in spreadsheet editor" on request | Opening a small CSV should not load the office engine, and CSV needs exact dialect preservation. |
 | pdf view / annotate / sign | **PDF.js** viewer and annotation editors **(spike vs EmbedPDF)** | Mature, Apache-2.0, monthly releases. |
 | pdf page tools | `@cantoo/pdf-lib` in-process; `qpdf` sidecar for repair/linearize/encrypt | Maintained pdf-lib fork with incremental save. |
-| Conversions | x2t (office ↔ pdf and between office formats), the webview's print-to-PDF (text → pdf), Pandoc WASM as an optional pack (md ↔ docx/html) | Each pair uses the tool that is best at it. |
-| Search | ripgrep for folders; SQLite FTS5 (WebAssembly or built-in build, no native module) for open and recent files | Fast and dependency-light. |
+| Conversions | A registry of converters with route-finding: x2t, Pandoc, the PDF engine, data converters, platform OCR | Any format to any sensible format. See `10-universal-export.md`. |
+| Search and links | A local index in the Rust core (SQLite FTS5): full text with locations, links, backlinks, tags | Works on every platform; rebuildable from the files. See `09-differentiators-and-interconnection.md`. |
+| Sync | None built in at first: the app works inside a synced folder and carries its state in a hidden folder there | See `11-sync-and-continuity.md`. |
 | Tests | Vitest, Playwright, Python fidelity harness, performance and size budgets in CI | See `04-verification.md` and `08-performance-and-footprint.md`. |
 
-### Electron or Tauri
+### Why Tauri
 
-This was first settled as Electron, then reopened by the requirement that the finished app be small and fast. The full comparison, with measured numbers, is in `08-performance-and-footprint.md`. In short:
+- It is the only mainstream shell that targets Windows, macOS, Android and iOS from one project. Electron does not run on phones.
+- It uses the system webview, so an empty app is about 3–5 MB against Electron's 270–370 MB.
+- On Windows and Android, the first two targets, the system webview is Chromium-based, which is what the editors are built for.
+- Its weak points are known and planned around: mobile support is younger than desktop, there is no built-in print-to-PDF, and Apple's webview is unproven for the office editors. The `platform` interface keeps a different shell possible on any one platform (Electron on macOS, Capacitor or a native host on mobile).
 
-- **Tauri** uses the operating system's webview, so an empty app is about 3–5 MB against Electron's 270–370 MB. On Windows that webview is Chromium-based, which removes most of the compatibility risk.
-- **Electron** bundles Chromium, so every editor runs in one known browser on every OS. Tauri's own documentation warns of slow canvas paths on Linux, and no evidence was found of the ONLYOFFICE editors running inside macOS's or Linux's system webview.
-- Tauri has no built-in print-to-PDF; on Windows it is reachable with custom code.
-- The office engine is the same size on either shell, which is why it becomes an on-demand pack.
-
-Where the rest of this document says "main process", read it as "the shell's backend": Electron's main process or Tauri's Rust core.
+Where the rest of this document says "main process", read it as the Rust core.
 
 ### Why ONLYOFFICE and not the alternatives
 
@@ -57,7 +57,7 @@ Where the rest of this document says "main process", read it as "the shell's bac
 │ Shell renderer  (app://shell)                 │   │ Sidecars (optional)       │
 │ tabs · palette · command registry · sidebar   │   │ qpdf · soffice --headless │
 │ status bar · settings · light editors:        │   └───────────────────────────┘
-│   Monaco (text/code), PDF.js, CSV grid        │
+│   CodeMirror (text/code), PDF.js, grid       │
 │                                               │
 │  ┌─────────────────────────────────────────┐  │
 │  │ Engine frame  (engine://onlyoffice)     │  │  one per office tab,
@@ -68,7 +68,8 @@ Where the rest of this document says "main process", read it as "the shell's bac
 
 - **Main process owns the disk.** Renderers never touch the file system; they ask over a small typed IPC surface.
 - **Heavy third-party engines run in a separate origin** served by a custom protocol (`engine://`), so Chromium places them in their own process and a crash or hang in one tab cannot take the shell down. Starting position is a sandboxed iframe per tab, because the shell can draw the command palette over an iframe. **(spike)** If isolation or memory proves inadequate, fall back to one `WebContentsView` per tab with the palette in its own overlay view.
-- **Light editors** (Monaco, PDF.js, the CSV grid) run in the shell renderer directly. All text tabs share one Monaco instance and swap models, so each extra text tab costs very little.
+- **Light editors** (CodeMirror, PDF.js, the CSV grid) run in the shell renderer directly. Text tabs share one editor core, so each extra text tab costs very little.
+- **On phones**, only one heavy editor is live at a time.
 - **Tab hibernation:** background office tabs that are clean and idle are unloaded and restored on focus, to bound memory.
 - **Security defaults:** `contextIsolation` on, `nodeIntegration` off, renderer sandbox on, strict CSP, all engine assets vendored and served locally, and outbound network blocked for engine frames.
 
@@ -78,7 +79,7 @@ Every format plugs into the shell through one interface, modelled on VS Code's c
 
 ```ts
 interface EditorProvider {
-  id: string;                              // "onlyoffice", "monaco", "pdfjs"
+  id: string;                              // "onlyoffice", "codemirror", "pdfjs"
   selector: FileSelector[];                // extensions + MIME types it claims
   create(host: EditorHost, doc: DocumentHandle): Promise<EditorInstance>;
   templates?: Template[];                  // starter files for "New"
@@ -107,8 +108,9 @@ Rules that keep this honest:
 
 ## File pipeline
 
-- **Open:** file dialog, drag-and-drop, OS "Open with", recent files, palette. The provider is picked by extension, then confirmed by sniffing the first bytes.
-- **Save:** write to a temp file in the same folder, flush, rename over the original. Never truncate in place.
+- **Document handles, not paths.** The interface and engines never see a file path. They hold an opaque handle; the platform layer turns it into a path on desktop or a permission-bound reference on Android and iOS.
+- **Open:** file dialog, drag-and-drop, OS "Open with", share-to-app on phones, recent files, palette. The provider is picked by extension, then confirmed by sniffing the first bytes.
+- **Save:** on desktop, write to a temp file in the same folder, flush, rename over the original. On mobile, write through the handle and verify. Never leave a half-written file.
 - **Auto-save:**
   - `md`, `txt`, `csv`: write to the real file shortly after typing stops.
   - `docx`, `xlsx`, `pptx`, `pdf`: write a **recovery snapshot** to the app's data folder about a second after edits stop, and write the real file on explicit save or on a configurable interval. Serializing a large office file on every keystroke is slow and makes every mistake permanent.
@@ -166,8 +168,9 @@ productivity-tool/
 │           └── settings/
 ├── packages/
 │   ├── editor-api/              # EditorProvider contract, shared types
-│   ├── platform/                # platform interface + Electron and Tauri implementations
-│   ├── engine-text/             # Monaco: any text or code file; previews; language services
+│   ├── platform/                # platform interface + per-platform implementations
+│   ├── core/                    # Rust core: document handles, index, links, conversion registry, sync state
+│   ├── engine-text/             # CodeMirror 6: any text or code file; previews; language services
 │   ├── engine-csv/              # light text-typed grid with dialect preservation
 │   ├── engine-pdf/              # PDF.js viewer, annotations, page tools
 │   ├── engine-office/           # adapter around the ONLYOFFICE frame (docx/xlsx/pptx)
@@ -180,6 +183,7 @@ productivity-tool/
 │   ├── corpus/                  # sample files per format (small, committed)
 │   ├── e2e/                     # Playwright: open → edit → save → reload
 │   ├── perf/                    # startup, latency, memory and size budgets
+│   └── flows/                   # one end-to-end test per user flow ID (see docs/flows)
 │   └── fidelity/                # Python harness: validate, diff, render-compare
 ├── scripts/                     # fetch-vendor, build-engine, make-corpus
 └── docs/

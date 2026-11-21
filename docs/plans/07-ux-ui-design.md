@@ -2,6 +2,8 @@
 
 Status: draft for review · Last updated: 2026-11-21
 
+This document describes the desktop-size interface and the principles that hold at every size. How each element changes on tablets and phones, and the touch model per format, is in `12-platforms-and-mobile.md`. The step-by-step user flows are mapped as diagrams in `../flows/`.
+
 The design problem: one calm, simple interface for editors that each have hundreds of features, some of them third-party engines with their own toolbars. No precedent was found for a single shell unifying an office engine, a code editor, Markdown and PDF, so this plan leans on patterns that are proven separately and on early prototyping.
 
 ## Design principles
@@ -140,11 +142,11 @@ The same word means the same thing in every format, and lives in the same place.
 
 ## Visual system
 
-- **Tokens first:** colour, spacing, radius, type scale and motion defined once as CSS variables; light, dark and follow-system themes; a high-contrast variant.
+- **Tokens first:** colour, spacing, radius, type scale and motion defined once in the Design Tokens format (stable since late 2025) and generated into CSS variables; light, dark and follow-system themes; a high-contrast variant.
 - **Type:** the operating system's UI font for chrome; a single monospaced font for code; documents use their own fonts.
 - **Components:** shadcn/ui on Base UI (its default since mid-2026) for menus, dialogs, tooltips and popovers; `cmdk` for the palette. Only the components actually used are included.
 - **Icons:** Lucide for the shell, one consistent weight.
-- **Native feel:** native window controls and title-bar behaviour on each platform, native menus on macOS, native context menus where possible.
+- **Native feel:** one product, dressed for each platform. Windows: Mica title bar, snap layouts, system accent. Android: Material styling, edge-to-edge, dynamic colour, predictive back. Apple: system toolbars and menus; the translucent "Liquid Glass" style is left to the system's own bars and never imitated. The document area and the app's structure are identical everywhere.
 - **Motion:** under 150 ms, none if the system asks for reduced motion.
 - **Density:** comfortable by default, with a compact setting.
 
@@ -159,10 +161,11 @@ The same word means the same thing in every format, and lives in the same place.
 Design is done before the corresponding build phase, not during it.
 
 1. **Principles and inventory** (this document), agreed.
-2. **Wireframes** for the eight key screens: home, each of the five format views, palette, version history.
-3. **Clickable prototype** of the shell in the browser with fake documents: tabs, palette, toolbar switching, sidebar, focus mode. This is cheap and answers most layout questions before any engine is integrated.
+2. **User flow maps** (`../flows/`): 42 flows inventoried, the important ones drawn as diagrams, each with a target number of steps.
+3. **Clickable prototype** of the shell in the browser with fake documents, at desktop and phone width: tabs, palette, toolbar switching, sidebar, focus mode, and the P1 flows walked end to end. This is cheap and answers most layout questions before any engine is integrated.
 4. **Self-test script** run after every phase: twelve everyday tasks (open a file, find a word, add a table, export to PDF, sign a PDF, …) timed and counted in keystrokes and clicks, on the keyboard only and on the mouse only.
 5. **Consistency review** per format against the shared-vocabulary table and the reserved shortcuts.
+6. **Step counts against the incumbents.** For the top twenty tasks, count keystrokes and clicks here and in Word, Excel, PowerPoint or Acrobat, and record both in the flow maps. This is what makes "better" checkable.
 
 ## Risks
 

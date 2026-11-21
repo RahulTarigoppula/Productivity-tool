@@ -58,7 +58,7 @@ A "this file needs to be repaired" prompt in any Microsoft app is an automatic f
 
 ## End-to-end automation
 
-- Playwright drives the packaged app (directly on Electron; through WebDriver on Tauri): launch, open a corpus file, perform the scripted edit through the real UI, save, close, reopen, assert.
+- Automated tests drive the packaged app (through WebDriver on Tauri desktop; on-device test runners on Android and iOS), one test per flow ID in `../flows/`: launch, open a corpus file, perform the scripted edit through the real UI, save, close, reopen, assert.
 - The Python harness then runs layers 1–4 on the output.
 - Both run in CI on every change, with the engine build pinned so a failure always points at a code change.
 - Engine upgrades (ONLYOFFICE, PDF.js) are their own pull requests and must pass the full suite before merging.
@@ -70,6 +70,12 @@ Testing lowers the risk; these contain what is left:
 - First-save `.bak` copy and rolling snapshots (see `01-architecture.md`).
 - After every office save, the app reopens the written bytes in a hidden instance and confirms they load before replacing the original.
 - A warning before any save the provider reports as lossy.
+
+## Across devices
+
+- A file edited on one platform must pass the same four layers when reopened on another. The corpus is edited on Android and iOS and re-checked on Windows.
+- Sync scenarios are scripted: concurrent edits to a text file (must merge), concurrent edits to an office file (must keep both), and a device coming back online after days.
+- Every user flow in `../flows/` has an end-to-end test carrying its ID, at desktop and phone width.
 
 ## Harness layout
 

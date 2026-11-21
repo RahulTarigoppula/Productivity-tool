@@ -108,6 +108,7 @@ Rules that keep this honest:
   - `md`, `txt`, `csv`: write to the real file shortly after typing stops.
   - `docx`, `xlsx`, `pptx`, `pdf`: write a **recovery snapshot** to the app's data folder about a second after edits stop, and write the real file on explicit save or on a configurable interval. Serializing a large office file on every keystroke is slow and makes every mistake permanent.
 - **Version history:** keep the last N snapshots per file, plus a one-time `.bak` copy the first time this app ever saves over a file. This is the main safety net against any engine bug.
+- **Trust levels:** until a format has passed the fidelity suite in `04-verification.md` on the personal corpus, saving an office file defaults to "save a copy" beside the original. Overwriting in place is switched on per format once it has earned it.
 - **Crash recovery:** on launch, offer to restore any snapshot newer than its file.
 - **External changes:** watch open files; if a clean file changes on disk, reload it; if a dirty one does, ask.
 - **Lock files:** respect and create the same lock files Office (`~$name`) and LibreOffice (`.~lock.name#`) use, and open read-only when another app holds one.

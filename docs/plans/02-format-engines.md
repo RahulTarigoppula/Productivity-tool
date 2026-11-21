@@ -9,7 +9,7 @@ One section per format family: what the format demands, the engine chosen, what 
 Office files are ZIP packages of many XML parts. An editor that reads a file into its own simplified model and writes a brand-new file loses everything it did not model. The research found this to be the single biggest source of corruption across docx, xlsx and pptx. Every engine in this plan either:
 
 - is a full engine that models the whole format (ONLYOFFICE), or
-- edits the original bytes in place and passes through what it does not understand (CodeMirror for text, incremental saves for PDF).
+- edits the original bytes in place and passes through what it does not understand (Monaco for text, incremental saves for PDF).
 
 ---
 
@@ -33,24 +33,15 @@ Office files are ZIP packages of many XML parts. An editor that reads a file int
 
 ---
 
-## Markdown and plain text — `.md`, `.txt`
+## Text, Markdown and code — any text-based file
 
-**What the formats demand.** Almost nothing structurally, which is the point: the file on disk must stay exactly what the user typed. Rich-text Markdown editors (Milkdown, Tiptap, Lexical, BlockNote) parse and re-serialize, which silently rewrites list markers, spacing and tables.
+Planned in full in `06-code-and-text-editor.md`. In summary:
 
-**Engine: CodeMirror 6** for both formats. The Markdown text is the source of truth; live preview is drawn as decorations on top and never written back.
-
-**What we build.**
-- Live-preview mode in the style of Typora and Obsidian: headings, emphasis, links, images, tables, task lists, code blocks with highlighting, math (KaTeX) and Mermaid diagrams render in place and reveal their syntax when the cursor enters.
-- Source mode and optional split preview.
-- Formatting toolbar and shortcuts that insert Markdown syntax.
-- Focus mode, typewriter scrolling, outline sidebar, word and character count.
-- Encoding, byte-order mark and line-ending detection and preservation.
-- Large plain-text files handled without freezing.
-- Offline spelling and grammar via Harper (English only).
-
-**Reference to study:** `@atomic-editor/editor`, an MIT CodeMirror 6 live-preview component.
-
-**Risk.** Live-preview editing of tables is the fiddly part; ship raw table syntax with a formatter first.
+- **Engine: Monaco**, the editor component inside VS Code, for every text-based file. The text on disk is the source of truth and is never reformatted.
+- **Highlighting** for about 260 languages through the same grammars VS Code uses, with VS Code themes.
+- **Built-in intelligence** for TypeScript, JavaScript, JSON, CSS, HTML, YAML, TOML and Markdown; other languages through any language server already installed on the machine.
+- **Markdown** gets a rendered, scroll-synced preview beside the source, with math and diagrams. A Typora-style live-preview writing mode is a later option.
+- **Left out on purpose:** debugger, test runner, extension marketplace, remote development.
 
 ---
 
@@ -64,6 +55,8 @@ Office files are ZIP packages of many XML parts. An editor that reads a file int
 
 **What we build.** The adapter, palette commands, status-bar selection summary (sum, average, count), templates (blank, budget, tracker).
 
+**Weight.** The office engine is about 100 MB compressed, so it ships as an on-demand pack and loads only when an office file is opened (`08-performance-and-footprint.md`).
+
 **Alternatives and why not now.**
 - **Univer:** best open grid to hack on, but xlsx import/export, charts and pivots are commercial.
 - **IronCalc:** permissive Rust/WASM engine with its own xlsx reader and writer, but pre-1.0, no charts, no pivots. The most likely long-term replacement if a lighter native grid is ever wanted.
@@ -73,15 +66,15 @@ Office files are ZIP packages of many XML parts. An editor that reads a file int
 
 **What the format demands.** CSV has no standard dialect. Opening one in a spreadsheet and saving it back commonly changes the delimiter, quoting, encoding and line endings, and mangles values: leading zeros vanish, long numbers become scientific notation, and text that looks like a date becomes one.
 
-**Engine: ONLYOFFICE sheet editor behind a dialect-preserving wrapper.**
+**Engine: a light, text-typed grid in the base app.** Opening a small CSV should not load the 100 MB office engine, and a simple grid that treats every cell as text is the surest way to leave the file exactly as it was.
 
 **What we build.**
 - Detect delimiter, quoting, encoding, byte-order mark and line ending on open (Papa Parse) and reapply them on save.
-- Load every column as text by default so values are not reinterpreted; offer type conversion as an explicit action.
-- Warn when the sheet contains things CSV cannot hold (formatting, formulas, multiple sheets) and offer Save As xlsx.
-- A raw-text view of the same file in CodeMirror, one click away.
+- Every cell is text; nothing is reinterpreted. Sorting, filtering, column resize, find and replace, add and remove rows and columns.
+- A raw-text view of the same file in the text editor, one click away.
+- "Open in spreadsheet editor" for formulas and charts, with a clear note that saving from there goes to xlsx unless exported back.
 
-**Risk.** If the ONLYOFFICE CSV path cannot be made non-destructive, CSV moves to a small dedicated grid (IronCalc or Univer core are the candidates). This is a Phase 0 spike.
+**Risk.** Very large CSV files need a virtualised grid and streamed parsing; covered by the performance budgets.
 
 ---
 
@@ -137,8 +130,8 @@ Office files are ZIP packages of many XML parts. An editor that reads a file int
 | Need | Choice |
 |---|---|
 | Office → PDF, office ↔ office | x2t (the ONLYOFFICE converter) |
-| md / txt → PDF | Electron `printToPDF` with a print stylesheet |
-| md ↔ docx / html | Pandoc WASM (official since Pandoc 3.9; about 16 MB; GPL) |
+| Text / Markdown → PDF | The webview's print-to-PDF with a print stylesheet |
+| md ↔ docx / html | Pandoc WASM as an optional pack (official since Pandoc 3.9; about 12 MB compressed, 56 MB unpacked; GPL) |
 | Fuzzy matching in the palette | uFuzzy or fzf-for-js |
 | Full-text search | SQLite FTS5; text comes from each provider's `extractText()` |
 | Fonts | Bundle metric-compatible open fonts (Carlito, Caladea, Liberation) so documents lay out the same without Microsoft fonts |
@@ -149,10 +142,11 @@ Office files are ZIP packages of many XML parts. An editor that reads a file int
 |---|---|---|
 | Multi-tab single window, side by side | Shell + dockview | Us |
 | Open, New from templates, Auto-save, Save As | File pipeline | Us |
-| Export docs, sheets, slides to PDF | x2t, printToPDF | Engine + glue |
+| Export docs, sheets, slides to PDF | x2t, print-to-PDF | Engine + glue |
 | Command palette | Shell command registry | Us |
-| Rich-text toolbar, headings, lists, tables, images, word count | ONLYOFFICE (docx), CodeMirror (md) | Engine / us |
-| Distraction-free Markdown and text modes | CodeMirror 6 | Us |
+| Rich-text toolbar, headings, lists, tables, images, word count | ONLYOFFICE (docx), Monaco (md) | Engine / us |
+| Distraction-free Markdown and text modes | Monaco + focus mode | Us |
+| Any text or code file, VS Code-level editing | Monaco, Shiki, language servers | Engine + us |
 | Multi-sheet, formulas, sort, filter, formatting, freeze panes, charts | ONLYOFFICE | Engine |
 | Slide navigator, canvas editor, notes, full-screen presenting | ONLYOFFICE | Engine + shell full-screen |
 | PDF zoom, scroll, text selection, annotations, signatures | PDF.js | Engine + UI |

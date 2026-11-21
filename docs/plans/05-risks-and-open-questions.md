@@ -8,13 +8,16 @@ These change the plan and only you can answer them. Each has a default that the 
 
 | # | Question | Default assumed | Why it matters |
 |---|---|---|---|
-| 1 | Which operating system do you use day to day? | Build and test on one primary OS first; Electron keeps the others possible | Packaging, fonts, file associations and which apps we verify against |
+| 1 | **Which operating system do you use day to day?** | Undecided; the shell is chosen by spike S13 | It decides the shell: Tauri on Windows makes the base app about a hundred times smaller; Linux or cross-platform points to Electron. Also packaging, fonts and which apps we verify against |
 | 2 | Is this repository public, and will you ever share the app? | Private use only, never distributed | The office engine is AGPL; see below |
 | 3 | Have you tried ONLYOFFICE Desktop Editors? | Not yet; try it before Phase 1 | It already does tabbed docx/xlsx/pptx/pdf. Your reaction tells us what the shell must do better |
 | 4 | Is the ONLYOFFICE toolbar acceptable inside office tabs for v1? | Yes, in compact mode, themed as far as it allows | A fully custom toolbar is a large extra project |
 | 5 | Do you have Microsoft Office available for verification? | Use the free web versions plus LibreOffice | Checking for "repair" prompts is the strongest corruption test |
 | 6 | Auto-save for office files: write the real file on a timer, or only snapshots until you press save? | Snapshots continuously, real file on save | Trade-off between never losing work and never overwriting by accident |
 | 7 | What do your real files look like? Heavy pivots, macros, tracked changes, large decks? | Typical personal documents | Sets the personal corpus and the performance targets |
+| 8 | Slim app that fetches the office pack once on request, or one full installer with everything? | Full installer for your own machine; packs still load only when needed | "No huge dependencies" versus "works offline from the first minute" |
+| 9 | Which programming languages do you work in? | None assumed | Decides which language servers and previews get tested first |
+| 10 | Is a side-by-side Markdown preview enough, or do you want Typora-style in-place rendering? | Side-by-side first | In-place rendering needs a second text engine |
 
 ## Risk register
 
@@ -29,7 +32,11 @@ These change the plan and only you can answer them. Each has a default that the 
 | EmbedPDF API churn (3.0 is weeks old) or PDF.js annotation gaps | Medium | Low | Decide in S6; the contract isolates the choice |
 | CSV values silently altered | High if untreated | High | Text-by-default loading, dialect wrapper, byte-equality test, fallback grid |
 | Documents lay out differently because Microsoft fonts are missing | High | Low–Medium | Bundle metric-compatible fonts; warn on missing fonts |
-| Scope creep: rebuilding toolbars, adding formats, chasing parity | High | High | The phase exit checks; "Later, optional" stays later |
+| Scope creep: rebuilding toolbars, adding formats, chasing parity, drifting toward a full IDE | High | High | The phase exit checks; "Later, optional" stays later; the "Never" list in `06-code-and-text-editor.md` |
+| The office engine does not run correctly in a non-Chromium system webview | Unknown | High | Spike S14 before committing to Tauri; Electron is the fallback; the `platform` interface keeps the switch cheap |
+| The app feels slow or grows heavy over time | Medium | High | Budgets in `08-performance-and-footprint.md`, enforced in CI |
+| Office tabs look and behave differently from the rest of the app | High | Medium | Compact themed engine toolbar in the shell's toolbar position; shell owns everything outside it (`07-ux-ui-design.md`) |
+| npm supply-chain attacks (repeated through 2025–2026) | Medium | High | Dependency budget, exact pinning, install scripts off, no extension code ever executed |
 | An engine bug corrupts a real file | Low–Medium | High | `.bak` on first save, snapshots, verify-after-save, fidelity suite |
 | Research items that could not be verified first-hand | — | Medium | Listed below; each is resolved by a spike or a direct check |
 
@@ -44,7 +51,8 @@ Not legal advice; this is a plain reading of the licence texts.
 | SuperDoc (if chosen) | AGPL-3.0 or commercial | Same |
 | Pandoc WASM | GPL-2.0-or-later | Same pattern: free for private use |
 | qpdf | Apache-2.0 | None |
-| Electron, React, CodeMirror 6, PDF.js, EmbedPDF, `@cantoo/pdf-lib`, dockview, cmdk, Papa Parse, Harper | MIT / Apache-2.0 | None |
+| Electron, Tauri, React, Monaco, Shiki, CodeMirror 6, PDF.js, EmbedPDF, `@cantoo/pdf-lib`, dockview, cmdk, Papa Parse, xterm.js, ripgrep | MIT / Apache-2.0 / Unlicense | None |
+| Microsoft's VS Code Marketplace and its proprietary extensions (Pylance, C/C++, Remote) | Proprietary | Cannot be used outside Microsoft's own products; this plan does not depend on them |
 
 Practical consequences:
 
@@ -66,7 +74,11 @@ Several vendor sites (onlyoffice.com, collaboraonline.com, electronjs.org, docs.
 | PDF.js 6.5's exact annotation coverage and whether existing annotations can be edited | S6 |
 | Cross-reader behaviour of written annotations | S6 |
 | Whether ONLYOFFICE supports slicers, macros and `LAMBDA` | Check during Phase 3 if your files need them |
-| Per-tab memory for every engine | S2 |
+| Per-tab memory for every engine | S2, S16 |
+| Whether the office editors work in macOS's or Linux's system webview | S14 |
+| Size of the pinned upstream office build (measured on an unofficial build of the same architecture) | S15 |
+| Whether ONLYOFFICE's free build honours the toolbar-hiding options documented as paid | S4 |
+| How complete Monaco's built-in language-server client is | S11 |
 | dockview's current major version and what its paid tier holds back | Check at scaffold time; a plain tab strip is the fallback |
 
 ## Things to watch over time

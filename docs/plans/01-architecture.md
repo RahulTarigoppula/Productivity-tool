@@ -8,25 +8,30 @@ Every choice below is a starting position backed by the research in `../research
 
 | Layer | Choice | Why |
 |---|---|---|
-| Desktop shell | **Electron** (current stable; 45.x in Nov 2026) | Bundled Chromium gives every embedded editor one known browser on every OS. `printToPDF` is built in. |
-| Language / build | TypeScript, Vite (`electron-vite`), pnpm workspace | One language end to end. |
-| Shell UI | React, Radix/shadcn components, `cmdk` for the palette | Small, unopinionated, easy to keep minimal. |
+| Desktop shell | **Decided by operating system (spike S13):** Tauri v2 on Windows, Electron for Linux or cross-platform, macOS by test | The system webview makes the app about a hundred times smaller, but only Windows' is Chromium. See `08-performance-and-footprint.md`. |
+| Platform layer | A small `platform` interface (files, dialogs, windows, processes, printing) with one implementation per shell | Keeps the shell choice reversible; interface code never calls the shell directly. |
+| Language / build | TypeScript, Vite, pnpm workspace | One language for the interface on either shell. |
+| Shell UI | React, shadcn/ui components, `cmdk` for the palette | Small, unopinionated, easy to keep minimal. See `07-ux-ui-design.md`. |
 | Tabs / split view | `dockview` (simple tab strip first, splits later) | Side-by-side tabs without writing a docking system. |
-| docx / xlsx / pptx | **ONLYOFFICE editors (sdkjs + web-apps) with the x2t converter compiled to WebAssembly**, running fully client-side **(spike)** | The only open-source engine shown to edit all three at near-commercial fidelity with no server. |
-| md / txt | **CodeMirror 6** | Keeps the file byte-identical; live preview is drawn on top, never written back. |
-| csv | ONLYOFFICE sheet editor plus a dialect-preserving wrapper (Papa Parse) **(spike)** | One grid for all tabular files; the wrapper keeps delimiter, encoding and line endings. |
+| docx / xlsx / pptx | **ONLYOFFICE editors (sdkjs + web-apps) with the x2t converter compiled to WebAssembly**, running fully client-side, shipped as an on-demand **pack** **(spike)** | The only open-source engine shown to edit all three at near-commercial fidelity with no server. About 100 MB compressed, so it loads only when an office file is opened. |
+| Any text or code file | **Monaco** (VS Code's editor component), with Shiki grammars and a language-server client | VS Code-level editing; keeps files byte-identical. See `06-code-and-text-editor.md`. |
+| csv | A light text-typed grid in the base app, with Papa Parse for dialect detection; "open in spreadsheet editor" on request | Opening a small CSV should not load the office engine, and CSV needs exact dialect preservation. |
 | pdf view / annotate / sign | **PDF.js** viewer and annotation editors **(spike vs EmbedPDF)** | Mature, Apache-2.0, monthly releases. |
 | pdf page tools | `@cantoo/pdf-lib` in-process; `qpdf` sidecar for repair/linearize/encrypt | Maintained pdf-lib fork with incremental save. |
-| Conversions | x2t (office ↔ pdf and between office formats), Electron `printToPDF` (md/txt → pdf), Pandoc WASM (md ↔ docx/html) | Each pair uses the tool that is best at it. |
-| Search index | SQLite FTS5 (`better-sqlite3`) | Full-text search over open and recent files. |
-| Tests | Vitest, Playwright for Electron, Python fidelity harness | See `04-verification.md`. |
+| Conversions | x2t (office ↔ pdf and between office formats), the webview's print-to-PDF (text → pdf), Pandoc WASM as an optional pack (md ↔ docx/html) | Each pair uses the tool that is best at it. |
+| Search | ripgrep for folders; SQLite FTS5 (WebAssembly or built-in build, no native module) for open and recent files | Fast and dependency-light. |
+| Tests | Vitest, Playwright, Python fidelity harness, performance and size budgets in CI | See `04-verification.md` and `08-performance-and-footprint.md`. |
 
-### Why Electron and not Tauri
+### Electron or Tauri
 
-- Tauri uses the operating system's webview. Its own documentation warns that canvas and WebGL on Linux's WebKitGTK can fall onto a slow path, and no evidence was found of ONLYOFFICE running correctly inside WKWebView or WebKitGTK.
-- Tauri has no programmatic print-to-PDF, which the export pipeline needs.
-- Tauri's size advantage disappears once a full office engine is bundled.
-- ONLYOFFICE Desktop, Obsidian and VS Code all bundle Chromium for the same reasons.
+This was first settled as Electron, then reopened by the requirement that the finished app be small and fast. The full comparison, with measured numbers, is in `08-performance-and-footprint.md`. In short:
+
+- **Tauri** uses the operating system's webview, so an empty app is about 3–5 MB against Electron's 270–370 MB. On Windows that webview is Chromium-based, which removes most of the compatibility risk.
+- **Electron** bundles Chromium, so every editor runs in one known browser on every OS. Tauri's own documentation warns of slow canvas paths on Linux, and no evidence was found of the ONLYOFFICE editors running inside macOS's or Linux's system webview.
+- Tauri has no built-in print-to-PDF; on Windows it is reachable with custom code.
+- The office engine is the same size on either shell, which is why it becomes an on-demand pack.
+
+Where the rest of this document says "main process", read it as "the shell's backend": Electron's main process or Tauri's Rust core.
 
 ### Why ONLYOFFICE and not the alternatives
 
@@ -43,16 +48,16 @@ Every choice below is a starting position backed by the research in `../research
 ## Process and isolation model
 
 ```
-┌──────────────────────────── Electron main process ────────────────────────────┐
+┌──────────────────────────── shell backend process ────────────────────────────┐
 │ window · file I/O · atomic save · snapshots · file watcher · recent files     │
 │ conversion jobs · search index · protocol handlers · menus · OS integration   │
 └───────────────▲──────────────────────────────────────────────▲────────────────┘
-                │ typed IPC (contextBridge)                      │
+                │ typed IPC                                      │
 ┌───────────────┴───────────────────────────────┐   ┌───────────┴───────────────┐
 │ Shell renderer  (app://shell)                 │   │ Sidecars (optional)       │
 │ tabs · palette · command registry · sidebar   │   │ qpdf · soffice --headless │
 │ status bar · settings · light editors:        │   └───────────────────────────┘
-│   CodeMirror (md/txt), PDF.js (pdf)           │
+│   Monaco (text/code), PDF.js, CSV grid        │
 │                                               │
 │  ┌─────────────────────────────────────────┐  │
 │  │ Engine frame  (engine://onlyoffice)     │  │  one per office tab,
@@ -63,7 +68,7 @@ Every choice below is a starting position backed by the research in `../research
 
 - **Main process owns the disk.** Renderers never touch the file system; they ask over a small typed IPC surface.
 - **Heavy third-party engines run in a separate origin** served by a custom protocol (`engine://`), so Chromium places them in their own process and a crash or hang in one tab cannot take the shell down. Starting position is a sandboxed iframe per tab, because the shell can draw the command palette over an iframe. **(spike)** If isolation or memory proves inadequate, fall back to one `WebContentsView` per tab with the palette in its own overlay view.
-- **Light editors** (CodeMirror, PDF.js) run in the shell renderer directly.
+- **Light editors** (Monaco, PDF.js, the CSV grid) run in the shell renderer directly. All text tabs share one Monaco instance and swap models, so each extra text tab costs very little.
 - **Tab hibernation:** background office tabs that are clean and idle are unloaded and restored on focus, to bound memory.
 - **Security defaults:** `contextIsolation` on, `nodeIntegration` off, renderer sandbox on, strict CSP, all engine assets vendored and served locally, and outbound network blocked for engine frames.
 
@@ -73,7 +78,7 @@ Every format plugs into the shell through one interface, modelled on VS Code's c
 
 ```ts
 interface EditorProvider {
-  id: string;                              // "onlyoffice", "codemirror", "pdfjs"
+  id: string;                              // "onlyoffice", "monaco", "pdfjs"
   selector: FileSelector[];                // extensions + MIME types it claims
   create(host: EditorHost, doc: DocumentHandle): Promise<EditorInstance>;
   templates?: Template[];                  // starter files for "New"
@@ -119,10 +124,10 @@ Rules that keep this honest:
 | From → To | pdf | docx | md | html | xlsx | csv | pptx | images |
 |---|---|---|---|---|---|---|---|---|
 | docx | x2t | — | Pandoc | Pandoc | | | | |
-| md | printToPDF | Pandoc | — | built-in | | | | |
-| txt | printToPDF | Pandoc | rename | | | | | |
+| md | print-to-PDF | Pandoc | — | built-in | | | | |
+| txt | print-to-PDF | Pandoc | rename | | | | | |
 | xlsx | x2t | | | | — | x2t | | |
-| csv | x2t | | | | x2t | — | | |
+| csv | office pack | | | | office pack | — | | |
 | pptx | x2t | | | | | | — | x2t |
 | pdf | page tools | later | later (text) | | | | | PDF.js |
 
@@ -141,6 +146,7 @@ An optional LibreOffice headless sidecar can be added later as a second converte
 - One shell theme (light and dark), one typeface, one status bar (word count, selection sum, page number, zoom, save state).
 - Embedded engines are themed to match as far as their own theming allows. ONLYOFFICE's toolbar is kept in its compact mode at first; replacing it with a native shell toolbar is a later, optional project.
 - Focus mode hides everything except the document.
+- The full design is in `07-ux-ui-design.md`.
 
 ## Directory layout
 
@@ -148,9 +154,9 @@ An optional LibreOffice headless sidecar can be added later as a second converte
 productivity-tool/
 ├── apps/
 │   └── desktop/
-│       ├── src/main/            # Electron main: window, IPC, protocols, menus
+│       ├── src/main/            # shell backend: window, IPC, protocols, menus
 │       │   ├── files/           # open, atomic save, snapshots, watcher, locks, recents
-│       │   ├── convert/         # export jobs: x2t, pandoc, printToPDF, sidecars
+│       │   ├── convert/         # export jobs: x2t, pandoc, print-to-PDF, sidecars
 │       │   └── search/          # SQLite FTS index
 │       ├── src/preload/         # contextBridge API (typed)
 │       └── src/renderer/        # shell UI
@@ -160,17 +166,20 @@ productivity-tool/
 │           └── settings/
 ├── packages/
 │   ├── editor-api/              # EditorProvider contract, shared types
-│   ├── engine-text/             # CodeMirror 6: md + txt
+│   ├── platform/                # platform interface + Electron and Tauri implementations
+│   ├── engine-text/             # Monaco: any text or code file; previews; language services
+│   ├── engine-csv/              # light text-typed grid with dialect preservation
 │   ├── engine-pdf/              # PDF.js viewer, annotations, page tools
-│   ├── engine-office/           # adapter around the ONLYOFFICE frame (docx/xlsx/pptx/csv)
+│   ├── engine-office/           # adapter around the ONLYOFFICE frame (docx/xlsx/pptx)
 │   ├── file-kit/                # sniffing, encoding, csv dialect, lock files
 │   └── ui/                      # shared components and theme tokens
-├── vendor/
-│   └── onlyoffice/              # pinned sdkjs + web-apps + x2t-wasm build (fetched by script, not committed)
+├── packs/                       # on-demand bundles: office, convert, terminal (built by script, not committed)
+│   └── office/                  # pinned, pruned sdkjs + web-apps + x2t-wasm build
 ├── templates/                   # blank and starter files per format
 ├── tests/
 │   ├── corpus/                  # sample files per format (small, committed)
 │   ├── e2e/                     # Playwright: open → edit → save → reload
+│   ├── perf/                    # startup, latency, memory and size budgets
 │   └── fidelity/                # Python harness: validate, diff, render-compare
 ├── scripts/                     # fetch-vendor, build-engine, make-corpus
 └── docs/
@@ -178,4 +187,4 @@ productivity-tool/
     └── research/
 ```
 
-Vendored engine builds are downloaded by a pinned script instead of being committed, which keeps the repository small and keeps AGPL code out of the tree.
+Engine packs are built by a pinned script instead of being committed, which keeps the repository small and keeps AGPL code out of the tree.

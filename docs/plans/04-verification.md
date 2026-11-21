@@ -23,7 +23,7 @@ Every file in the corpus goes through each of these:
 
 Rules:
 
-- **Text formats (`md`, `txt`, `csv`) are held to byte equality** on the no-op round trip.
+- **Every text-based format (text, Markdown, code, config, `csv`) is held to byte equality** on the no-op round trip.
 - **PDF incremental saves must leave the original bytes as an exact prefix** of the new file.
 - **Office formats are held to layers 1–4**, with a short, reviewed allow-list of harmless differences (for example a changed "last modified by" property or a regenerated calculation chain).
 - Both sides of a visual comparison are rendered by the same tool, so the test measures change, not the renderer's own inaccuracy.
@@ -38,6 +38,7 @@ Rules:
 | xlsx | Several sheets, formulas across sheets (`SUM`, `AVERAGE`, `IF`, `VLOOKUP`, `XLOOKUP`), number and date formats, merged cells, freeze panes, a filter, conditional formatting, data validation, a named range, a table, a chart, a pivot table |
 | pptx | A custom master and layouts, text placeholders, shapes, a grouped shape, an image, a table, a chart, speaker notes, a transition, an animation |
 | pdf | Text pages, a scanned page, an outline, a fillable form, existing annotations, mixed page sizes and rotations |
+| code and config | One file per common language and config format; mixed line endings; a minified single-line file; a 20,000-line source file |
 | md | Front matter, every CommonMark and GFM construct, math, a Mermaid block, unusual but legal formatting (mixed list markers, trailing spaces, hard tabs) |
 | txt | UTF-8 with and without BOM, UTF-16, Latin-1, LF and CRLF, a file with no final newline, a 100 MB file |
 | csv | Comma, semicolon and tab delimiters, quoted fields with newlines, leading zeros, 20-digit IDs, date-like strings, Latin-1, CRLF |
@@ -57,7 +58,7 @@ A "this file needs to be repaired" prompt in any Microsoft app is an automatic f
 
 ## End-to-end automation
 
-- Playwright drives the packaged Electron app: launch, open a corpus file, perform the scripted edit through the real UI, save, close, reopen, assert.
+- Playwright drives the packaged app (directly on Electron; through WebDriver on Tauri): launch, open a corpus file, perform the scripted edit through the real UI, save, close, reopen, assert.
 - The Python harness then runs layers 1–4 on the output.
 - Both run in CI on every change, with the engine build pinned so a failure always points at a code change.
 - Engine upgrades (ONLYOFFICE, PDF.js) are their own pull requests and must pass the full suite before merging.

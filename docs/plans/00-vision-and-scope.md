@@ -4,7 +4,7 @@ Status: draft for review · Last updated: 2026-11-21
 
 ## The problem
 
-Editing a `.txt`, `.md`, `.docx`, `.xlsx`, `.pptx` or `.pdf` today means a different app for each one, each with its own window, shortcuts and habits. The goal is one fast, local, distraction-free app, for personal use, that opens every one of them in tabs and leaves nothing out.
+Editing a `.txt`, `.md`, `.docx`, `.xlsx`, `.pptx` or `.pdf` today means a different app for each one, each with its own window, shortcuts and habits. The goal is one fast, light, plain and simple local app, for personal use, that opens every one of them in tabs and leaves nothing out.
 
 ## The key finding that shapes everything
 
@@ -23,18 +23,21 @@ Before the build starts, it is worth using ONLYOFFICE Desktop Editors for a few 
 
 1. One window, many tabs: any supported file opens in the same workspace.
 2. Full-depth editing for office formats by embedding a real office engine, not a lookalike.
-3. Markdown and plain text that feel like a dedicated writing app, and never reformat the file.
+3. A general text and code editor at VS Code's editing level: any text-based file, any language, and never reformats the file (see `06-code-and-text-editor.md`).
 4. PDF viewing, annotation, signing and page tools.
 5. Open, New (from templates), Auto-save, Save As, and export across formats.
 6. Command palette (`Ctrl/Cmd+K`) for files, tabs, search and commands in every format.
 7. No corruption: a file saved by this app opens cleanly in Word, Excel, PowerPoint, Acrobat and Preview, with nothing lost that the user did not touch.
 8. Fully offline. No server, no account, no telemetry.
+9. Plain and simple to use: one consistent interface across every format (see `07-ux-ui-design.md`).
+10. Fast and light: instant launch and tab switching, a small base app, and heavy engines loaded only when needed (see `08-performance-and-footprint.md`).
 
 ## Non-goals
 
 - Real-time collaboration, cloud sync, sharing, accounts.
 - Mobile or web versions.
 - Writing our own docx, xlsx or pptx engine.
+- Becoming a full IDE: no debugger, test runner, extension marketplace or remote development.
 - Distributing the app to other people (this keeps licensing simple; see `05-risks-and-open-questions.md`).
 - Macros/VBA execution, Power Query, mail merge to external data — whatever the embedded engine supports comes for free, nothing more is promised.
 - True reflowing text edits inside PDFs in the first version.
@@ -43,7 +46,7 @@ Before the build starts, it is worth using ONLYOFFICE Desktop Editors for a few 
 
 | Family | Formats (v1) | Likely later |
 |---|---|---|
-| Text | `.txt`, `.md` | `.json`, `.yaml`, code files |
+| Text and code | `.txt`, `.md`, and any text-based file: config (`.json`, `.yaml`, `.toml`, `.xml`, `.ini`), logs, HTML/CSS, source code in any language | Notebooks (read-only), multi-gigabyte logs |
 | Documents | `.docx` | `.odt`, `.rtf`, `.doc` (import) |
 | Spreadsheets | `.xlsx`, `.csv` | `.tsv`, `.ods`, `.xls` (import) |
 | Presentations | `.pptx` | `.odp`, `.ppt` (import) |
@@ -51,6 +54,7 @@ Before the build starts, it is worth using ONLYOFFICE Desktop Editors for a few 
 
 ## What "done" looks like for v1
 
-- All seven formats open in tabs, edit, save and reopen without loss.
+- All formats above open in tabs, edit, save and reopen without loss.
 - The verification suite in `04-verification.md` passes on the sample corpus and on a personal corpus of real files.
-- Daily work for one week happens only in this app, with no need to open Word, Excel, PowerPoint, a Markdown editor or a PDF tool.
+- Daily work for one week happens only in this app, with no need to open Word, Excel, PowerPoint, a text or code editor, or a PDF tool.
+- The speed and size budgets in `08-performance-and-footprint.md` are met on your own machine.

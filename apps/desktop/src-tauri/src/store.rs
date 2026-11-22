@@ -66,6 +66,24 @@ impl Store {
         self.root.join("recovery")
     }
 
+    /// Append a line to logs/app.log (kept under 1 MB: the old log is kept as app.old.log).
+    pub fn log(&self, level: &str, message: &str) {
+        use std::io::Write;
+        let dir = self.root.join("logs");
+        if fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        let path = dir.join("app.log");
+        if fs::metadata(&path).map(|m| m.len() > 1_000_000).unwrap_or(false) {
+            let _ = fs::rename(&path, dir.join("app.old.log"));
+        }
+        let level: String = level.chars().filter(|c| c.is_ascii_alphabetic()).take(8).collect();
+        let message: String = message.chars().take(8000).collect();
+        if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&path) {
+            let _ = writeln!(f, "{} {} {}", now_ms(), level, message.replace('\n', "\n  "));
+        }
+    }
+
     pub fn state_get(&self, name: &str) -> Option<String> {
         fs::read_to_string(self.state_dir().join(format!("{}.json", safe_name(name)))).ok()
     }
@@ -189,6 +207,19 @@ pub fn snapshot_before_overwrite(store: &Store, path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn log_appends_and_rotates() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().to_path_buf());
+        store.log("error", "first\nsecond");
+        let text = fs::read_to_string(dir.path().join("logs/app.log")).unwrap();
+        assert!(text.contains("error first\n  second"));
+        fs::write(dir.path().join("logs/app.log"), vec![b'x'; 1_100_000]).unwrap();
+        store.log("info", "after");
+        assert!(dir.path().join("logs/app.old.log").exists());
+        assert!(fs::read_to_string(dir.path().join("logs/app.log")).unwrap().contains("info after"));
+    }
 
     #[test]
     fn snapshots_are_kept_newest_first_and_deduplicated() {

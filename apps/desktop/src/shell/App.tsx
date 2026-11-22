@@ -13,6 +13,7 @@ import { Palette } from "./Palette";
 import { Dialogs, Toasts } from "./Dialogs";
 import { DocPane } from "./DocPane";
 import { MenuHost } from "./Menu";
+import { Boundary } from "./Boundary";
 
 function useTheme() {
   const theme = useStore((s) => s.settings.theme);
@@ -98,21 +99,21 @@ export function App() {
       onDragLeave={(e) => e.currentTarget === e.target && setDragOver(false)}
       onDrop={onDrop}
     >
-      <TabBar />
-      {tabs.length ? <Toolbar /> : <div className="toolbar empty" aria-hidden />}
+      <Boundary name="tab bar"><TabBar /></Boundary>
+      {tabs.length ? <Boundary name="toolbar"><Toolbar /></Boundary> : <div className="toolbar empty" aria-hidden />}
       <div className="main">
-        {leftOpen && !focusMode && <Sidebar />}
+        {leftOpen && !focusMode && <Boundary name="sidebar"><Sidebar /></Boundary>}
         <main className="doc-area">
           {tabs.map((t) => <DocPane key={t.id} tab={t} active={t.id === activeId} />)}
-          {!tabs.length && <Home />}
+          {!tabs.length && <Boundary name="home screen"><Home /></Boundary>}
         </main>
-        {rightOpen && !focusMode && tabs.length > 0 && <RightPanel />}
+        {rightOpen && !focusMode && tabs.length > 0 && <Boundary name="side panel"><RightPanel /></Boundary>}
       </div>
-      <StatusBar />
-      <Palette />
-      <Dialogs />
-      <Toasts />
-      <MenuHost />
+      <Boundary name="status bar"><StatusBar /></Boundary>
+      <Boundary name="command palette" variant="silent"><Palette /></Boundary>
+      <Boundary name="dialog" variant="silent"><Dialogs /></Boundary>
+      <Boundary name="notifications" variant="silent"><Toasts /></Boundary>
+      <Boundary name="menu" variant="silent"><MenuHost /></Boundary>
     </div>
   );
 }

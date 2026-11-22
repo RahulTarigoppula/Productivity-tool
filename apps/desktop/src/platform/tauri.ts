@@ -40,6 +40,20 @@ const MIME: Record<string, string> = {
   odp: "application/vnd.oasis.opendocument.presentation",
 };
 
+/** Base64 helpers: Android's IPC carries binary data as JSON, where base64 is far lighter than a
+ *  number array. */
+function toBase64(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+function fromBase64(b64: string): Uint8Array {
+  const s = atob(b64);
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out;
+}
+
 const learn = (files: DocInfo[]) => files.map((f) => (rememberName(f.uri, f.name), f.uri));
 
 export function createTauriPlatform(): Platform {
@@ -68,9 +82,12 @@ export function createTauriPlatform(): Platform {
       window.removeEventListener("focus", run);
     };
   };
+  // Binary request bodies: raw bytes on desktop, base64 JSON on Android.
+  const bin = (bytes: Uint8Array) => (android ? { b64: toBase64(bytes) } : bytes);
   const self: Platform = {
     kind: "tauri",
     folders: !android,
+    log: (level, message) => invoke("log_event", { level, message }),
     officePack: () => invoke<OfficePackInfo>("office_pack_info"),
     officeUrl: (path, session) => {
       // convertFileSrc encodes its whole argument, so keep the query string out of it.
@@ -81,10 +98,11 @@ export function createTauriPlatform(): Platform {
       return url;
     },
     async readFile(path) {
+      if (android) return fromBase64(await invoke<string>("read_file_b64", { path }));
       return toBytes(await invoke("read_file", { path }));
     },
     async writeFile(path, bytes, opts) {
-      const meta = await invoke<FileMeta>("write_file", bytes, {
+      const meta = await invoke<FileMeta>("write_file", bin(bytes), {
         headers: { "x-path": enc(path), "x-snapshot": opts?.snapshot ? "1" : "0" },
       });
       // Android documents: report what the storage provider now says, so the next check for
@@ -171,9 +189,9 @@ export function createTauriPlatform(): Platform {
       return toBytes(await invoke("snapshot_read", { path, id }));
     },
     snapshotWrite: (path, bytes, reason) =>
-      invoke<SnapshotInfo>("snapshot_write", bytes, { headers: { "x-path": enc(path), "x-reason": enc(reason) } }),
+      invoke<SnapshotInfo>("snapshot_write", bin(bytes), { headers: { "x-path": enc(path), "x-reason": enc(reason) } }),
     recoveryWrite: (id, meta, bytes) =>
-      invoke("recovery_write", bytes, { headers: { "x-id": enc(id), "x-meta": enc(meta) } }),
+      invoke("recovery_write", bin(bytes), { headers: { "x-id": enc(id), "x-meta": enc(meta) } }),
     recoveryList: () => invoke<RecoveryInfo[]>("recovery_list"),
     async recoveryRead(id) {
       return toBytes(await invoke("recovery_read", { id }));

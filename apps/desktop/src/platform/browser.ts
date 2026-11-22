@@ -59,6 +59,10 @@ export function createBrowserPlatform(): Platform {
   const platform: Platform = {
     kind: "browser",
     folders: true,
+    log: async (level, message) => {
+      (window as unknown as { __log?: string[] }).__log ??= [];
+      (window as unknown as { __log: string[] }).__log.push(`${level} ${message}`);
+    },
     async officePack() {
       return { available: !!officeBase() };
     },

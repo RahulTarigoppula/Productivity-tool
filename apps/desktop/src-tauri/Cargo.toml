@@ -23,6 +23,7 @@ sha2 = "0.10"
 open = "5"
 url = "2"
 tauri-plugin-fs = "2"
+base64 = "0.22"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"
@@ -34,5 +35,6 @@ tempfile = "3"
 codegen-units = 1
 lto = true
 opt-level = "s"
-panic = "abort"
+# Unwind (not abort): a panic inside one command fails that command instead of closing the app.
+panic = "unwind"
 strip = true

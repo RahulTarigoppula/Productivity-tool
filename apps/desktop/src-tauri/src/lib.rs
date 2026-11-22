@@ -61,8 +61,27 @@ fn body_bytes(request: &Request<'_>) -> Result<Vec<u8>, String> {
     }
 }
 
+/// Binary bodies that arrive as JSON (Android's IPC): `{"b64": "..."}` from the interface, or a
+/// plain array of numbers.
 fn json_bytes(v: &serde_json::Value) -> Option<Vec<u8>> {
+    use base64::Engine;
+    if let Some(b64) = v.get("b64").and_then(|b| b.as_str()) {
+        return base64::engine::general_purpose::STANDARD.decode(b64).ok();
+    }
     v.as_array()?.iter().map(|v| v.as_u64().filter(|n| *n <= 255).map(|n| n as u8)).collect()
+}
+
+/// Android: file contents as base64 text, much lighter through its IPC than raw bytes
+/// (which travel as a JSON array of numbers).
+#[tauri::command]
+async fn read_file_b64(path: String, app: tauri::AppHandle) -> Result<String, String> {
+    use base64::Engine;
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = if uri::is_content_uri(&path) { uri::read(&app, &path)? } else { files::read(Path::new(&path))? };
+        Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -213,13 +232,13 @@ fn watch_file(path: String, state: tauri::State<'_, AppState>) -> Result<(), Str
     }
     let p = PathBuf::from(&path);
     let Some(dir) = p.parent().map(|d| d.to_path_buf()) else { return Ok(()) };
-    let mut watched = state.watched.lock().unwrap();
+    let mut watched = state.watched.lock().unwrap_or_else(|e| e.into_inner());
     if !watched.insert(p) {
         return Ok(());
     }
     let already = watched.iter().filter(|f| f.parent() == Some(dir.as_path())).count() > 1;
     if !already {
-        if let Some(w) = state.watcher.lock().unwrap().as_mut() {
+        if let Some(w) = state.watcher.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
             w.watch(&dir, RecursiveMode::NonRecursive).map_err(|e| e.to_string())?;
         }
     }
@@ -229,11 +248,11 @@ fn watch_file(path: String, state: tauri::State<'_, AppState>) -> Result<(), Str
 #[tauri::command]
 fn unwatch_file(path: String, state: tauri::State<'_, AppState>) {
     let p = PathBuf::from(&path);
-    let mut watched = state.watched.lock().unwrap();
+    let mut watched = state.watched.lock().unwrap_or_else(|e| e.into_inner());
     if watched.remove(&p) {
         if let Some(dir) = p.parent() {
             if !watched.iter().any(|f| f.parent() == Some(dir)) {
-                if let Some(w) = state.watcher.lock().unwrap().as_mut() {
+                if let Some(w) = state.watcher.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
                     let _ = w.unwatch(dir);
                 }
             }
@@ -256,6 +275,12 @@ fn self_test_dir(app: tauri::AppHandle) -> Option<String> {
     std::env::var("PRODUCTIVITY_SELF_TEST").ok().filter(|s| !s.is_empty())
 }
 
+/// The interface's error log (unexpected errors, for diagnosis; stays on this computer).
+#[tauri::command]
+fn log_event(level: String, message: String, state: tauri::State<'_, AppState>) {
+    state.store.log(&level, &message);
+}
+
 #[tauri::command]
 fn office_pack_info(app: tauri::AppHandle) -> office::PackInfo {
     office::info(&app)
@@ -263,7 +288,7 @@ fn office_pack_info(app: tauri::AppHandle) -> office::PackInfo {
 
 #[tauri::command]
 fn launch_files(state: tauri::State<'_, AppState>) -> Vec<String> {
-    std::mem::take(&mut *state.launch_files.lock().unwrap())
+    std::mem::take(&mut *state.launch_files.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
 /// File types that run code when opened. "Open in default app" refuses them, so a document
@@ -420,6 +445,13 @@ pub fn run() {
                 })
                 .build()?;
             let data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir().join("productivity"));
+            // A panic in the core is written to the log before anything else happens.
+            let crash_store = Store::new(data_dir.clone());
+            let default_hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| {
+                crash_store.log("panic", &info.to_string());
+                default_hook(info);
+            }));
             let handle = app.handle().clone();
             let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
                 if let Ok(event) = res {
@@ -443,6 +475,7 @@ pub fn run() {
         })
         .invoke_handler(guarded(tauri::generate_handler![
             read_file,
+            read_file_b64,
             file_meta,
             write_file,
             list_dir,
@@ -464,6 +497,7 @@ pub fn run() {
             office_pack_info,
             reveal_in_folder,
             open_external,
+            log_event,
             android::android_pick,
             android::android_create,
             android::android_info,
@@ -504,6 +538,8 @@ mod tests {
         assert_eq!(json_bytes(&serde_json::json!([-1])), None);
         assert_eq!(json_bytes(&serde_json::json!({"a": 1})), None);
         assert_eq!(json_bytes(&serde_json::json!([])), Some(vec![]));
+        assert_eq!(json_bytes(&serde_json::json!({"b64": "AGj/"})), Some(vec![0, 104, 255]));
+        assert_eq!(json_bytes(&serde_json::json!({"b64": "not base64!"})), None);
     }
 
     #[test]

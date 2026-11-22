@@ -2,6 +2,8 @@ import { createRoot } from "react-dom/client";
 import "./styles/tokens.css";
 import "./styles/app.css";
 import { App } from "./shell/App";
+import { Boundary } from "./shell/Boundary";
+import { installErrorHandlers } from "./app/errors";
 import { platform } from "./platform";
 
 // No document content may navigate the app window: links go through the app's own link handling
@@ -48,4 +50,9 @@ if (platform.kind === "tauri") {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+installErrorHandlers();
+createRoot(document.getElementById("root")!).render(
+  <Boundary name="window" variant="page">
+    <App />
+  </Boundary>,
+);

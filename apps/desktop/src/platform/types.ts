@@ -58,6 +58,8 @@ export interface OfficePackInfo {
 
 export interface Platform {
   kind: "tauri" | "browser";
+  /** Append a line to the app's local log file (no network). */
+  log(level: "error" | "warn" | "info", message: string): Promise<void>;
   /** False on Android: documents come one at a time from the system picker, with no folders. */
   folders: boolean;
   /** Whether the Office editing pack is installed. */

@@ -16,9 +16,17 @@ async function seedCorpus(dir: string) {
 }
 
 export async function runSelfTest(dir: string) {
-  if (!platform.folders) await seedCorpus(dir);
+  // Android: progress goes to the system log, so a hang shows where it happened.
+  const androidLog = async (message: string) => {
+    if (platform.folders) return;
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("android_log", { message }).catch(() => {});
+  };
+  await androidLog(`SELFTEST start ${dir}`);
+  if (!platform.folders) await seedCorpus(dir).catch((e) => androidLog(`SELFTEST seed failed: ${e}`));
   const results: { name: string; ok: boolean; detail?: string }[] = [];
   const t = async (name: string, fn: () => Promise<void>) => {
+    await androidLog(`SELFTEST step ${name}`);
     try {
       await fn();
       results.push({ name, ok: true });

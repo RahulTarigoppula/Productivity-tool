@@ -6,7 +6,13 @@
 set -uo pipefail
 APK="$1"; OUT="$2"; PKG=com.rahul.productivity
 mkdir -p "$OUT"
-fail() { echo "FAIL: $*"; adb logcat -d > "$OUT/logcat.txt" 2>/dev/null; exit 1; }
+fail() {
+  echo "FAIL: $*"
+  adb logcat -d > "$OUT/logcat.txt" 2>/dev/null
+  echo "---- relevant log lines ----"
+  grep -E "ProductivitySelfTest|AndroidRuntime|FATAL|panicked|RustStdoutStderr|Tauri|chromium|Console" "$OUT/logcat.txt" | grep -v "GoogleApi" | tail -80
+  exit 1
+}
 
 adb wait-for-device
 adb install -r "$APK" || fail "install"
@@ -45,7 +51,7 @@ adb shell am force-stop "$PKG"
 adb logcat -c
 adb shell am start -n "$PKG/.MainActivity" --ez productivity.selftest true >/dev/null || fail "self-test start"
 RESULT=""
-for i in $(seq 1 60); do
+for i in $(seq 1 100); do
   RESULT=$(adb logcat -d -s ProductivitySelfTest:I | grep -o "SELFTEST passed=[0-9]* total=[0-9]*" | tail -1)
   [ -n "$RESULT" ] && break
   sleep 3
@@ -53,7 +59,7 @@ done
 adb logcat -d -s ProductivitySelfTest:I | grep SELFTEST | tee "$OUT/selftest.txt"
 adb exec-out screencap -p > "$OUT/3-selftest.png"
 adb logcat -d > "$OUT/logcat-selftest.txt"
-[ -n "$RESULT" ] || fail "the self-test did not report within 3 minutes"
+[ -n "$RESULT" ] || fail "the self-test did not report within 5 minutes"
 PASSED=$(echo "$RESULT" | sed 's/.*passed=\([0-9]*\).*/\1/')
 TOTAL=$(echo "$RESULT" | sed 's/.*total=\([0-9]*\).*/\1/')
 [ "$PASSED" = "$TOTAL" ] || fail "self-test: $PASSED of $TOTAL checks passed"

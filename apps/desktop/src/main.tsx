@@ -51,6 +51,7 @@ if (platform.kind === "tauri") {
 }
 
 installErrorHandlers();
+void import("./shell/tooltips").then((m) => m.installTooltips());
 createRoot(document.getElementById("root")!).render(
   <Boundary name="window" variant="page">
     <App />

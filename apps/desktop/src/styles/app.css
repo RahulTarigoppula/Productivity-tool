@@ -451,3 +451,10 @@ a { color: var(--accent); }
 .crash-page p { margin: 0; color: var(--text-2); max-width: 460px; }
 .crash-page pre { max-width: min(640px, 90vw); overflow: auto; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; color: var(--text-2); }
 .crash-page .acts { display: flex; gap: 8px; }
+
+/* Tooltips (src/shell/tooltips.ts) */
+.tooltip { position: fixed; left: 0; top: 0; z-index: 90; display: flex; align-items: center; gap: 8px; max-width: 320px; padding: 5px 9px; border-radius: 7px;
+  background: #1f1f26; color: #f2f2f6; font-size: 12px; line-height: 1.35; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22); pointer-events: none; opacity: 0; transition: opacity 90ms ease-out; }
+.tooltip.show { opacity: 1; }
+.tooltip-key { padding: 0 5px; border-radius: 4px; background: rgba(255, 255, 255, 0.14); color: #d9d9e3; font-size: 11px; white-space: nowrap; }
+:root[data-theme="dark"] .tooltip { background: #3a3a44; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); }

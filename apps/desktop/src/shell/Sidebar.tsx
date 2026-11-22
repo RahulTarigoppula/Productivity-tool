@@ -143,7 +143,7 @@ function SearchView() {
       </div>
       {err && <div className="empty-note" style={{ color: "var(--danger)" }}>{err}</div>}
       {hits && !hits.length && !err && <div className="empty-note">No results.</div>}
-      {hits && hits.length > 0 && <div className="empty-note" style={{ padding: "0 8px 6px" }}>{hits.length}{hits.length >= 2000 ? "+" : ""} results in {byFile.size} files</div>}
+      {hits && hits.length > 0 && <div className="empty-note" style={{ padding: "0 8px 6px" }}>{hits.length}{hits.length >= 2000 ? "+" : ""} {hits.length === 1 ? "result" : "results"} in {byFile.size} {byFile.size === 1 ? "file" : "files"}</div>}
       {[...byFile.entries()].map(([path, hs]) => (
         <div key={path}>
           <div className="hit-file"><KindIcon kind={kindFromName(path)} name={path} className="" />{basename(path)}</div>

@@ -27,8 +27,8 @@ export function reportError(where: string, e: unknown, opts: { quiet?: boolean }
   const now = Date.now();
   if (now - lastToast > 8000) {
     lastToast = now;
-    const short = (e instanceof Error ? e.message : msg).split("\n")[0].slice(0, 140);
-    toast(`Something went wrong (${where}): ${short}`, "error");
+    // Plain words for people; the technical detail goes to the log.
+    toast(`Something went wrong in the ${where === "window" || where === "task" ? "app" : where}. Your work is safe; the details are in the app's log.`, "error");
   }
 }
 

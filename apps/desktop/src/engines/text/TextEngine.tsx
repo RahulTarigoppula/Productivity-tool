@@ -95,16 +95,16 @@ export default function TextEngine({ host }: { host: EngineHost }) {
   useEffect(() => {
     const decoded = host.bytes.length ? decodeText(host.bytes) : { text: "", format: formatRef.current, lossless: true };
     formatRef.current = decoded.format;
-    if (decoded.format.encoding === "windows-1252" && host.bytes.length) host.toast("This file is not valid UTF-8, so it was opened as Windows 1252. If letters look wrong, the file may be damaged.");
+    if (decoded.format.encoding === "windows-1252" && host.bytes.length) host.toast(`${host.name} is not valid UTF-8, so it was opened as Windows 1252. If letters look wrong, the file may be damaged.`);
     if (decoded.format.mixedEol) {
       formatDirty.current = false;
-      host.toast("This file mixes line-ending styles. Saving will use one style consistently.");
+      host.toast(`${host.name} mixes line-ending styles. Saving will use one style consistently.`);
     }
     const text = decoded.text;
     // Extremely deep nesting (hostile or broken files) is shown as plain text: the Markdown
     // parser would exhaust the stack on it.
     const tooDeep = isMd && (/^(?:[ \t]*>){200}/m.test(text) || /^[ \t]{400,}(?:[-*+]|\d+[.)]) /m.test(text));
-    if (tooDeep) host.toast("This Markdown file is nested too deeply to format, so it is shown as plain text.");
+    if (tooDeep) host.toast(`${host.name} is nested too deeply to format, so it is shown as plain text.`);
     const large = text.length > LARGE || tooDeep;
     const indent = detectIndent(text, getState().settings.tabSize);
     const c = comps.current;
@@ -332,7 +332,7 @@ export default function TextEngine({ host }: { host: EngineHost }) {
         { id: "md.quote", title: "Quote", group: "Format", run: md((v) => toggleLinePrefix(v, "> ")) },
         { id: "md.link", title: "Insert link", group: "Insert", shortcut: "Ctrl+Shift+K", run: md((v) => insertLink(v)) },
         { id: "md.linkFile", title: "Insert link to a file…", group: "Insert", run: () => void linkToFile() },
-        { id: "md.table", title: "Insert table", group: "Insert", run: md((v) => insertBlock(v, "| Column | Column |\n| --- | --- |\n|  |  |\n", 2)) },
+        { id: "md.table", title: "Insert table", group: "Insert", run: md((v) => insertBlock(v, "| Column | Column |\n| --- | --- |\n|  |  |\n", 2, 6)) },
         { id: "md.codeblock", title: "Insert code block", group: "Insert", run: md((v) => insertBlock(v, "```\n\n```\n", 4)) },
         { id: "md.hr", title: "Insert divider", group: "Insert", run: md((v) => insertBlock(v, "---\n")) },
         { id: "md.preview", title: "Toggle side-by-side preview", group: "View", run: () => togglePreview() },
@@ -371,7 +371,7 @@ export default function TextEngine({ host }: { host: EngineHost }) {
           g("task", "Task list", <ListTodo />, md((v) => toggleLinePrefix(v, "- [ ] ")), "c"),
           g("quote", "Quote", <Quote />, md((v) => toggleLinePrefix(v, "> ")), "c", { overflow: true }),
           g("link", "Insert link", <Link2 />, md((v) => insertLink(v)), "d", { shortcut: "Ctrl+Shift+K" }),
-          g("table", "Insert table", <Table />, md((v) => insertBlock(v, "| Column | Column |\n| --- | --- |\n|  |  |\n", 2)), "d", { overflow: true }),
+          g("table", "Insert table", <Table />, md((v) => insertBlock(v, "| Column | Column |\n| --- | --- |\n|  |  |\n", 2, 6)), "d", { overflow: true }),
           g("hr", "Insert divider", <Minus />, md((v) => insertBlock(v, "---\n")), "d", { overflow: true }),
           g("preview", "Side-by-side preview", <Columns2 />, togglePreview, "e", { active: previewOpen.current }),
         ]);

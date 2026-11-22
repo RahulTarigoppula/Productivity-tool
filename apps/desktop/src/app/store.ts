@@ -83,7 +83,7 @@ export interface State {
   dialog: null | { kind: "export" | "settings" | "signature" | "about" | "newFile" };
   focusMode: boolean;
   toasts: Toast[];
-  closed: { path: string; kind: Kind }[];
+  closed: { path: string; kind: Kind; index?: number }[];
   /** Engine-provided UI per tab. */
   toolbar: Record<string, ToolbarItem[]>;
   status: Record<string, StatusItem[]>;
@@ -152,6 +152,8 @@ export const knownMeta = new Map<string, { size: number; modified: number }>();
 
 let nextToast = 1;
 export function toast(text: string, tone: "info" | "error" = "info", action?: Toast["action"]) {
+  // The same message twice in a row is shown once.
+  if (state.toasts.some((t) => t.text === text)) return;
   const id = nextToast++;
   setState((s) => ({ toasts: [...s.toasts, { id, text, tone, action }].slice(-4) }));
   setTimeout(() => setState((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), tone === "error" ? 8000 : 4500);

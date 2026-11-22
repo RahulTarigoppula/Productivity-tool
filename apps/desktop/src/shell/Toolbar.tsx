@@ -9,6 +9,8 @@ export function Toolbar() {
   const items = useStore((s) => (s.activeId ? s.toolbar[s.activeId] : undefined)) ?? [];
   const tab = useStore((s) => s.tabs.find((t) => t.id === s.activeId));
   if (!activeId || !tab) return <div className="toolbar" />;
+  // A file that could not be opened has nothing to edit or export.
+  if (tab.error || tab.loading) return <div className="toolbar empty" aria-hidden />;
   // Office files bring their own ribbon; an empty app toolbar above it would only take space.
   if (!items.length && (tab.kind === "docx" || tab.kind === "xlsx" || tab.kind === "pptx")) return <div className="toolbar empty" aria-hidden />;
 

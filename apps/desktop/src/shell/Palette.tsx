@@ -1,5 +1,5 @@
 import { Command as Cmdk } from "cmdk";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Terminal, Hash, CornerDownRight, FolderSearch, Keyboard, FileClock } from "lucide-react";
 import { useStore, setState, getState, handles } from "../app/store";
 import { allCommands } from "../app/commands";
@@ -67,6 +67,24 @@ export function Palette() {
   const active = s.tabs.find((t) => t.id === s.activeId);
   const commands = useMemo(() => (open ? allCommands() : []), [open, q]);
 
+  // Focus returns to where the person was when the palette closes (Esc or after a choice that
+  // does not move focus itself).
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const focusBefore = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (open) {
+      focusBefore.current = document.activeElement as HTMLElement | null;
+      return;
+    }
+    const prev = focusBefore.current;
+    focusBefore.current = null;
+    window.setTimeout(() => {
+      if (document.activeElement && document.activeElement !== document.body) return;
+      if (prev && prev.isConnected && prev !== document.body) prev.focus();
+      else document.querySelector<HTMLElement>("section.doc-pane:not([hidden]) .cm-content, section.doc-pane:not([hidden]) [tabindex='0']")?.focus();
+    }, 0);
+  }, [open]);
+
   if (!open) return null;
 
   const run = (f: () => void) => {
@@ -116,6 +134,8 @@ export function Palette() {
     for (const h of hits) byFile.set(h.path, [...(byFile.get(h.path) ?? []), h]);
     body = !workspace ? (
       <Cmdk.Empty>Open a folder to search inside its files.</Cmdk.Empty>
+    ) : term.length < 2 ? (
+      <Cmdk.Empty>Type at least two letters to search inside the files of {basename(workspace)}.</Cmdk.Empty>
     ) : (
       [...byFile.entries()].slice(0, 40).map(([path, hs]) => (
         <Cmdk.Group key={path} heading={basename(path)}>
@@ -130,7 +150,9 @@ export function Palette() {
       ))
     );
   } else if (mode === "?") {
-    const r = rank(commands.filter((c) => c.shortcut), term, (c) => c.title, undefined, 200);
+    const seen = new Set<string>();
+    const unique = commands.filter((c) => c.shortcut && !seen.has(c.shortcut) && (seen.add(c.shortcut), true));
+    const r = rank(unique, term, (c) => c.title, undefined, 200);
     body = (
       <Cmdk.Group heading="Keyboard shortcuts">
         {r.map(({ item }) => (
@@ -186,7 +208,7 @@ export function Palette() {
               <Cmdk.Item key={item} value={`f-${item}`} onSelect={() => run(() => void openPath(item))}>
                 <KindIcon kind={kindFromName(item)} name={item} className="" />
                 <span className="label"><Hl text={basename(item)} match={match} /></span>
-                <span className="hint">{workspace ? dirname(item).slice(workspace.length) || "/" : dirname(item)}</span>
+                <span className="hint">{workspace ? dirname(item).slice(workspace.length).replace(/^[\\/]/, "") || basename(workspace) : dirname(item)}</span>
               </Cmdk.Item>
             ))}
           </Cmdk.Group>
@@ -220,9 +242,9 @@ export function Palette() {
   }
 
   return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && close()}>
+    <div className="overlay" ref={overlayRef} onMouseDown={(e) => e.target === e.currentTarget && close()}>
       <Cmdk className="palette" shouldFilter={false} loop label="Search files and commands" onKeyDown={(e) => e.key === "Escape" && close()}>
-        <Cmdk.Input autoFocus value={q} onValueChange={setQ} placeholder="Search files and commands — type > for commands, # to search in files, : to go to, @ for headings" />
+        <Cmdk.Input autoFocus value={q} onValueChange={setQ} placeholder="Search files and commands" />
         <Cmdk.List>
           <Cmdk.Empty>No matches.</Cmdk.Empty>
           {body}

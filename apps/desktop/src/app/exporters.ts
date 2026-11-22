@@ -217,6 +217,13 @@ export function buildRegistry(): ConversionRegistry {
     return one(enc((div.innerText || div.textContent || "").replace(/\n{3,}/g, "\n\n").trim() + "\n"));
   }, "Formatting such as headings, bold and links becomes plain text."));
   r.register(c("txt", "pdf", "exact", async ({ bytes, name }) => one(await textToPdf(textOf(bytes), stem(name)))));
+  // Markdown straight to PDF is a plain-text PDF; the formatted route is Print.
+  r.register(c("md", "pdf", "text", async ({ bytes, name }) => {
+    const html = await markdownToHtml(textOf(bytes));
+    const div = document.createElement("div");
+    div.innerHTML = html;
+    return one(await textToPdf((div.innerText || div.textContent || "").replace(/\n{3,}/g, "\n\n").trim() + "\n", stem(name)));
+  }, "Plain text only. For a formatted PDF, use Print and save as PDF."));
   r.register(c("txt", "html", "exact", async ({ bytes, name }) => one(enc(htmlDocument(stem(name), `<pre>${escHtml(textOf(bytes))}</pre>`)))));
   // Tables
   const table = (b: Uint8Array, ext: string) => toTable(loadCsv(b, ext));
@@ -224,6 +231,17 @@ export function buildRegistry(): ConversionRegistry {
     r.register(c(src, "json", "exact", async ({ bytes }) => one(enc(tableToJson(table(bytes, src)))), undefined));
     r.register(c(src, "md", "good", async ({ bytes }) => one(enc(tableToMarkdown(table(bytes, src))))));
     r.register(c(src, "html", "good", async ({ bytes, name }) => one(enc(htmlDocument(stem(name), tableToHtml(table(bytes, src)))))));
+  }
+  for (const src of ["csv", "tsv"]) {
+    // Tables as aligned plain text, and as a PDF of that text.
+    const aligned = (b: Uint8Array) => {
+      const rows = table(b, src);
+      const widths: number[] = [];
+      for (const r of rows) r.forEach((cell, i) => (widths[i] = Math.min(40, Math.max(widths[i] ?? 0, cell.length))));
+      return rows.map((r) => r.map((cell, i) => cell.slice(0, 40).padEnd(widths[i])).join("  ").trimEnd()).join("\n") + "\n";
+    };
+    r.register(c(src, "txt", "good", async ({ bytes }) => one(enc(aligned(bytes))), "Columns are lined up with spaces; very long cells are shortened."));
+    r.register(c(src, "pdf", "good", async ({ bytes, name }) => one(await textToPdf(aligned(bytes), stem(name))), "A plain table in a fixed-width font; very long cells are shortened."));
   }
   r.register(c("csv", "tsv", "exact", async ({ bytes }) => one(enc(tableToDelimited(table(bytes, "csv"), "\t")))));
   r.register(c("tsv", "csv", "exact", async ({ bytes }) => one(enc(tableToDelimited(table(bytes, "tsv"), ",")))));

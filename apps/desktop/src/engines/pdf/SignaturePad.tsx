@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { platform } from "../../platform";
+import { useModalFocus } from "../../shell/modalFocus";
 
 const toBytes = (dataUrl: string) => Uint8Array.from(atob(dataUrl.split(",")[1]), (c) => c.charCodeAt(0));
 
 /** Draw or type a signature once, keep it for next time, and hand back a transparent PNG. */
 export function SignaturePad({ onDone, onCancel }: { onDone: (png: Uint8Array) => void; onCancel: () => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  useModalFocus(overlayRef, onCancel);
   const [mode, setMode] = useState<"draw" | "type" | "saved">("draw");
   const [typed, setTyped] = useState("");
   const [saved, setSaved] = useState<string[]>([]);
@@ -69,7 +72,7 @@ export function SignaturePad({ onDone, onCancel }: { onDone: (png: Uint8Array) =
   };
 
   return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
+    <div className="overlay" ref={overlayRef} onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
       <div className="dialog" style={{ width: "min(620px, calc(100vw - 32px))" }} role="dialog" aria-label="Signature">
         <h3>Your signature</h3>
         <p>This places a picture of your signature on the page — not a certificate-based digital signature.</p>

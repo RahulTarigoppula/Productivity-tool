@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useModalFocus } from "./modalFocus";
 import { NotebookText, FileText, Sheet, FileSearch, FileType, FileSpreadsheet, Presentation } from "lucide-react";
 import { useStore, setState, activeTab, handles, toast } from "../app/store";
 import { useAsk } from "../app/dialogs";
@@ -11,18 +12,10 @@ import { basename, dirname, join, stem } from "../lib/paths";
 const closeDialog = () => setState({ dialog: null });
 
 function Overlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
-  useEffect(() => {
-    const k = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", k, true);
-    return () => window.removeEventListener("keydown", k, true);
-  }, [onClose]);
+  const ref = useRef<HTMLDivElement>(null);
+  useModalFocus(ref, onClose);
   return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="overlay" ref={ref} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       {children}
     </div>
   );
@@ -172,7 +165,7 @@ function Export() {
     const own = new Set((handles.get(tab.id)?.exportFormats?.() ?? []).map((f) => f.ext));
     return getRegistry().routes(sourceFormat(tab.name, tab.kind)).filter((r) => !own.has(r.to));
   }, [tab]);
-  if (!tab) return null;
+  if (!tab || tab.error) return null;
   const runEngine = async (ext: string, label: string) => {
     const handle = handles.get(tab.id);
     if (!handle?.convert) return;

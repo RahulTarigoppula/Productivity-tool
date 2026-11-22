@@ -1,7 +1,7 @@
 import { Suspense, useMemo, useEffect, useRef, useState, Component, type ReactNode } from "react";
 import { Info, TriangleAlert, FileWarning } from "lucide-react";
 import { setState, updateTab, handles, tabBytes, knownMeta, toast, type Tab } from "../app/store";
-import { metaKey, contentChanged, keepMine, reloadFromDisk, saveTab, closeTab, openLink, reopenAs, takePendingGoTo, engineSetDirty } from "../app/actions";
+import { openBytes, removeRecent, metaKey, contentChanged, keepMine, reloadFromDisk, saveTab, closeTab, openLink, reopenAs, takePendingGoTo, engineSetDirty } from "../app/actions";
 import type { EngineHost } from "../app/editor-api";
 import { engineFor } from "../engines";
 import { platform } from "../platform";
@@ -36,6 +36,20 @@ function Banner({ tab }: { tab: Tab }) {
       <div className="banner warn" role="alert">
         <TriangleAlert />
         <span className="msg">This file was changed by another program while you had unsaved edits here.</span>
+        {tab.path && (
+          <button
+            className="btn"
+            title="Open the version on disk in a new tab, to compare before choosing"
+            onClick={() =>
+              void platform
+                .readFile(tab.path!)
+                .then((b) => openBytes(`${tab.name} (on disk)`, b, { kind: tab.kind, notice: { text: "The version on disk, for comparing. Close it when done.", tone: "info" } }))
+                .catch((e) => toast(String(e), "error"))
+            }
+          >
+            See theirs
+          </button>
+        )}
         <button className="btn" onClick={() => void reloadFromDisk(tab.id)}>Load theirs</button>
         <button className="btn" onClick={() => keepMine(tab.id)}>Keep mine</button>
       </div>
@@ -165,6 +179,9 @@ export function DocPane({ tab, active }: { tab: Tab; active: boolean }) {
             <div>{tab.error}</div>
             <div className="acts">
               {tab.path && platform.folders && <button className="btn" onClick={() => void platform.reveal(tab.path!)}>Show in folder</button>}
+              {tab.path && (
+                <button className="btn" onClick={() => { void removeRecent(tab.path!); void closeTab(tab.id); }}>Remove from Recent</button>
+              )}
               <button className="btn subtle" onClick={() => void closeTab(tab.id)}>Close</button>
             </div>
           </div>

@@ -35,7 +35,7 @@ export function handleShortcut(e: KeyLike): boolean {
     }
     else if (k === "w" && tab && !e.shiftKey) void closeTab(tab.id);
     else if (k === "t" && e.shiftKey) void reopenClosed();
-    else if (k === "e" && tab && !e.shiftKey) setState({ dialog: { kind: "export" } });
+    else if (k === "e" && tab && !e.shiftKey && !tab.error) setState({ dialog: { kind: "export" } });
     else if (e.key === "Tab") e.shiftKey ? switchTab(-1) : switchToRecentTab();
     else if (e.key === "PageDown") switchTab(1);
     else if (e.key === "PageUp") switchTab(-1);

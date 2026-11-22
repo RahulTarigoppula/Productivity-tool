@@ -464,3 +464,14 @@ a { color: var(--accent); }
 .tab .close { transition: opacity var(--motion); }
 .tab.active::before { content: ""; position: absolute; left: 10px; right: 10px; top: -1px; height: 2px; border-radius: 0 0 2px 2px; background: var(--accent); }
 @media (hover: none) { .tab .close { opacity: 1 !important; } }
+
+/* More tabs than fit: soft edges show that the strip scrolls. */
+.tabs.fade-right { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+.tabs.fade-left { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent); }
+.tabs.fade-left.fade-right { -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
+
+/* Touch-only screens: no keyboard shortcuts in menus; the toolbar shows a soft edge where it scrolls. */
+@media (hover: none) and (pointer: coarse) {
+  .menu .sc { display: none; }
+  .toolbar[role="toolbar"] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); padding-right: 24px; }
+}

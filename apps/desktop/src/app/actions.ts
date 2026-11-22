@@ -419,9 +419,20 @@ async function saveTabNow(id: string, opts: { as?: boolean; explicit?: boolean }
     }
     // A failed save leaves the tab unsaved, so closing it still asks.
     updateTab(id, { saveState: "failed", dirty: true, error: undefined });
-    toast(`Could not save ${tab.name}: ${msg}`, "error", { label: "Save a copy", run: () => void saveTab(id, { as: true }) });
+    toast(`Could not save ${tab.name}: ${friendlyError(msg)}`, "error", { label: "Save a copy", run: () => void saveTab(id, { as: true }) });
     return false;
   }
+}
+
+/** Operating-system error codes in plain words. */
+export function friendlyError(msg: string): string {
+  const m = msg.toLowerCase();
+  if (/eacces|eperm|access is denied|permission denied|os error 5\b|os error 13\b/.test(m)) return "you do not have permission to change this file, or it is open in another program. Try Save As to keep a copy.";
+  if (/enospc|no space|os error 28\b|os error 112\b/.test(m)) return "the disk is full.";
+  if (/enoent|not found|os error 2\b|os error 3\b/.test(m)) return "its folder no longer exists.";
+  if (/ebusy|being used by another process|os error 32\b|os error 33\b/.test(m)) return "another program is using the file. Close it there and try again.";
+  if (/erofs|read-only file system/.test(m)) return "the drive is read-only.";
+  return msg;
 }
 
 /** A save that stopped before writing: engines drop anything they prepared for it. */
@@ -503,7 +514,7 @@ export async function closeTab(id: string): Promise<boolean> {
       status,
       outline,
       activeId: nextActive,
-      closed: tab.path ? [{ path: tab.path, kind: tab.kind }, ...s.closed].slice(0, 20) : s.closed,
+      closed: tab.path ? [{ path: tab.path, kind: tab.kind, index: idx }, ...s.closed].slice(0, 20) : s.closed,
     };
   });
   if (tab.path && !getState().tabs.some((t) => t.path && samePath(t.path, tab.path!))) void platform.unwatch(tab.path);
@@ -516,7 +527,9 @@ export async function reopenClosed() {
   const [first, ...rest] = getState().closed;
   if (!first) return;
   setState({ closed: rest });
-  await openPath(first.path, { kind: first.kind });
+  const id = await openPath(first.path, { kind: first.kind });
+  // Back where it was in the tab strip.
+  if (id && first.index !== undefined) moveTab(id, Math.min(first.index, getState().tabs.length - 1));
 }
 
 export function switchTab(delta: number) {

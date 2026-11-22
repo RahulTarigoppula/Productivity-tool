@@ -7,6 +7,10 @@ import {
   switchToRecentTab, updateSettings, reopenAs, isTextual,
 } from "./actions";
 import type { Command } from "./editor-api";
+
+/** Whether Word, Excel and PowerPoint files can be edited here (learned once at start). */
+let officeEditing = false;
+void platform.officePack().then((p) => (officeEditing = p.available)).catch(() => {});
 import type { MenuItem } from "../shell/Menu";
 
 const withTab = (f: (id: string) => void) => () => {
@@ -31,9 +35,14 @@ export function shellCommands(): Command[] {
     { id: "file.newMarkdown", title: "New Markdown note", group: "File", shortcut: "Ctrl+N", run: () => void newFile("markdown") },
     { id: "file.newText", title: "New text file", group: "File", run: () => void newFile("text") },
     { id: "file.newCsv", title: "New CSV table", group: "File", run: () => void newFile("csv") },
-    { id: "file.newDocx", title: "New Word document", group: "File", run: () => void newOfficeFile("docx") },
-    { id: "file.newXlsx", title: "New spreadsheet (Excel)", group: "File", run: () => void newOfficeFile("xlsx") },
-    { id: "file.newPptx", title: "New presentation (PowerPoint)", group: "File", run: () => void newOfficeFile("pptx") },
+    // New Office files only where they can be edited (installer with the Office pack).
+    ...(officeEditing
+      ? [
+          { id: "file.newDocx", title: "New Word document", group: "File", run: () => void newOfficeFile("docx") },
+          { id: "file.newXlsx", title: "New spreadsheet (Excel)", group: "File", run: () => void newOfficeFile("xlsx") },
+          { id: "file.newPptx", title: "New presentation (PowerPoint)", group: "File", run: () => void newOfficeFile("pptx") },
+        ]
+      : []),
     { id: "file.open", title: "Open file…", group: "File", shortcut: "Ctrl+O", run: () => void pickAndOpen() },
     ...(platform.folders ? [{ id: "file.openFolder", title: "Open folder…", group: "File", run: () => void openFolder() }] : []),
     { id: "file.reopenClosed", title: "Reopen closed tab", group: "File", shortcut: "Ctrl+Shift+T", run: () => void reopenClosed() },

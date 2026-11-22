@@ -541,6 +541,55 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     assert(disk.includes("Łódź"), `disk has ${JSON.stringify(disk)}`);
   });
 
+  await check("U-1", "list and task buttons leave the cursor after the marker", async () => {
+    await page.evaluate(() => window.__app.newFile("markdown"));
+    await page.waitForSelector("section.doc-pane:not([hidden]) .cm-content");
+    await page.locator("section.doc-pane:not([hidden]) .cm-content").click();
+    await page.getByRole("button", { name: "Task list" }).click();
+    await page.keyboard.type("abc");
+    const text = await page.evaluate(async () => { const s = window.__app.getState(); return new TextDecoder().decode(await window.__app.handles.get(s.activeId).serialize()); });
+    assert(text.startsWith("- [ ] abc"), `document reads ${JSON.stringify(text)}`);
+  });
+
+  await check("U-2", "focus returns to the document after the palette closes, and stays inside dialogs", async () => {
+    await page.locator("section.doc-pane:not([hidden]) .cm-content").click();
+    await page.keyboard.press("Control+k");
+    await waitFor(() => page.locator("[cmdk-input]").isVisible(), 3000, "palette");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(100);
+    assert(await page.evaluate(() => !!document.activeElement?.closest(".cm-editor")), "focus did not return to the editor");
+    await page.keyboard.press("Control+,");
+    await waitFor(() => page.getByRole("dialog", { name: "Settings" }).isVisible(), 3000, "settings");
+    for (let i = 0; i < 25; i++) await page.keyboard.press("Tab");
+    assert(await page.evaluate(() => !!document.activeElement?.closest("[role=dialog]")), "Tab left the dialog");
+    await page.keyboard.press("Escape");
+    await waitFor(async () => !(await page.getByRole("dialog", { name: "Settings" }).count()), 3000, "settings closed");
+    await waitFor(() => page.evaluate(() => !!document.activeElement?.closest(".cm-editor")), 2000, "focus back in the editor after Settings");
+    await page.evaluate(async () => { const s = window.__app.getState(); window.__app.updateSettings({ autoSave: false }); void window.__app.closeTab(s.activeId); });
+    const dlg = page.getByRole("alertdialog");
+    await dlg.waitFor({ timeout: 3000 }).then(() => dlg.getByRole("button", { name: "Don't save" }).click()).catch(() => {});
+    await page.evaluate(() => window.__app.updateSettings({ autoSave: true }));
+  });
+
+  await check("U-3", "highlighting PDF text shows no error", async () => {
+    await open("/work/sample.pdf");
+    await waitFor(async () => (await page.locator(".pdfViewer .page canvas:visible").count()) > 0, 8000, "pages");
+    const before = await page.locator(".toast").count();
+    await page.getByRole("button", { name: /Highlight/ }).first().click();
+    const box = await page.locator(".pdfViewer .textLayer span").first().boundingBox();
+    if (box) {
+      await page.mouse.move(box.x + 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2, { steps: 5 });
+      await page.mouse.up();
+    }
+    await page.waitForTimeout(600);
+    const texts = await page.locator(".toast").allTextContents();
+    assert(!texts.some((t) => /went wrong/i.test(t)), `error toast: ${texts.join(" | ")}`);
+    await page.getByRole("button", { name: /Select/ }).first().click().catch(() => {});
+    void before;
+  });
+
   await check("F-34", "dark theme applies", async () => {
     await page.evaluate(() => window.__app.updateSettings({ theme: "dark" }));
     await waitFor(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", 2000, "dark");

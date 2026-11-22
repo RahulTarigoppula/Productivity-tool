@@ -31,7 +31,7 @@ export function StatusBar() {
   const right = items.filter((i) => i.align === "right");
   return (
     <footer className="statusbar" aria-label="Status">
-      {tab ? <SaveState tab={tab} /> : <span className="item">Ready</span>}
+      {tab && !tab.error ? <SaveState tab={tab} /> : <span className="item">{tab?.error ? "Not opened" : "Ready"}</span>}
       {middle.map((i) =>
         i.onClick ? (
           <button key={i.id} className="item middle" title={i.title} onClick={i.onClick}>{i.text}</button>

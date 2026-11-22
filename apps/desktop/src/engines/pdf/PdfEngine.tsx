@@ -65,7 +65,9 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
         findController,
         annotationEditorMode: MODE.none,
         textLayerMode: 1,
-      });
+        // Highlighting needs a colour palette; without one PDF.js fails when the tool is used.
+        annotationEditorHighlightColors: "yellow=#FFF176,green=#A5E8B1,blue=#9FD8FF,pink=#FFC4E1,red=#FF9E9E",
+      } as ConstructorParameters<typeof V.PDFViewer>[0]);
       linkService.setViewer(v);
       eventBus.on("pagechanging", (e: { pageNumber: number }) => setPage(e.pageNumber));
       eventBus.on("scalechanging", (e: { scale: number }) => setScale(e.scale));

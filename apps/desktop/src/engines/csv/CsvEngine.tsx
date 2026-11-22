@@ -5,6 +5,7 @@ import { loadCsv, saveCsv, serializeCsv, columnCount, setCell, emptyRow, insertC
 import { describeFormat, canEncode } from "../../lib/textcodec";
 import { extname } from "../../lib/paths";
 import { colName } from "../office/ooxml";
+import { openMenu } from "../../shell/Menu";
 
 const ROW_H = 28;
 const NUM_W = 52;
@@ -24,6 +25,8 @@ function measure(rows: CsvRow[], cols: number, header: boolean): number[] {
   if (header && rows[0]) for (let c = 0; c < mc; c++) w[c] = Math.max(w[c], Math.min(320, ctx.measureText(rows[0].cells[c] ?? "").width + 30));
   return w;
 }
+
+const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
 
 function parseClipboard(text: string): string[][] {
   const delim = text.includes("\t") ? "\t" : ",";
@@ -190,7 +193,16 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
     },
     insertCol(after: boolean) {
       const at = after ? sel.c + 1 : sel.c;
-      setRows(insertColumn(rows, at));
+      let next = insertColumn(rows, at);
+      // With a header row, the new column is named (not left as an empty heading).
+      if (header && next[0]) {
+        const names = new Set(next[0].cells.map((x) => x.trim().toLowerCase()));
+        let n = cols + 1, name = `Column ${n}`;
+        while (names.has(name.toLowerCase())) name = `Column ${++n}`;
+        next = next.slice();
+        next[0] = setCell(next[0], at, name);
+      }
+      setRows(next);
       setWidths((w) => [...w.slice(0, at), 100, ...w.slice(at)]);
     },
     deleteCol() {
@@ -206,7 +218,12 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
       const c = sel.c;
       const head = rows.slice(0, first);
       const body = rows.slice(first).map((r, i) => ({ r, i }));
-      body.sort((a, b) => dir * compareCells(a.r.cells[c] ?? "", b.r.cells[c] ?? "") || a.i - b.i);
+      // Empty cells go last in either direction; equal values keep their order.
+      body.sort((a, b) => {
+        const x = (a.r.cells[c] ?? "").trim(), y = (b.r.cells[c] ?? "").trim();
+        if (!x !== !y) return x ? -1 : 1;
+        return dir * compareCells(a.r.cells[c] ?? "", b.r.cells[c] ?? "") || a.i - b.i;
+      });
       setRows([...head, ...body.map((x) => x.r)]);
     },
     clear() {
@@ -306,12 +323,12 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
   useEffect(() => {
     const f = describeFormat(docRef.current.format);
     const items = [
-      { id: "size", text: `${(rows.length - first).toLocaleString()} rows × ${cols} columns` },
+      { id: "size", text: `${plural(rows.length - first, "row")} × ${plural(cols, "column")}` },
       { id: "cell", text: `${colName(sel.c)}${sel.r + 1}` },
     ];
     if (stats.cells > 1 && stats.nums > 0) items.push({ id: "sum", text: `Sum ${+stats.sum.toFixed(10)} · Average ${+(stats.sum / stats.nums).toFixed(4)} · Count ${stats.count}` });
     else if (stats.cells > 1) items.push({ id: "sum", text: `Count ${stats.count}` });
-    if (filter) items.push({ id: "filter", text: `Showing ${view.length.toLocaleString()} matching rows` });
+    if (filter) items.push({ id: "filter", text: `Showing ${plural(view.length, "matching row")}` });
     host.setStatus([...items, { id: "delim", text: delimName, align: "right", title: "Delimiter" } as never, { id: "enc", text: f.encoding, align: "right" } as never, { id: "eol", text: f.eol, align: "right" } as never]);
   }, [rows, cols, sel, stats, filter, view.length, first, host, delimName]);
 
@@ -444,7 +461,7 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
         <div className="csv-filter">
           <Filter size={15} />
           <input className="input" autoFocus placeholder="Show rows containing…" value={filter} onChange={(e) => setFilter(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { setFilter(null); scrollRef.current?.focus(); } if (e.key === "Enter") scrollRef.current?.focus(); }} aria-label="Filter rows" />
-          <span className="help">{view.length.toLocaleString()} rows</span>
+          <span className="help">{plural(view.length, "row")}</span>
           <button className="icon-btn" onClick={() => { setFilter(null); scrollRef.current?.focus(); }} aria-label="Clear filter"><X /></button>
         </div>
       )}
@@ -493,6 +510,25 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
                       }}
                       onMouseEnter={(e) => { if (e.buttons === 1 && dragFrom.current) setSel({ r: dragFrom.current.r, c: dragFrom.current.c, r2: r, c2: c }); }}
                       onDoubleClick={() => startEdit(r, c)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        if (!(r >= r1 && r <= r2 && c >= c1 && c <= c2)) setSel({ r, c, r2: r, c2: c });
+                        openMenu(e.clientX, e.clientY, [
+                          { label: "Edit cell", shortcut: "F2", run: () => startEdit(r, c) },
+                          { divider: true },
+                          { label: "Insert row above", run: () => opsRef.current.insertRow(false) },
+                          { label: "Insert row below", run: () => opsRef.current.insertRow(true) },
+                          { label: "Insert column left", run: () => opsRef.current.insertCol(false) },
+                          { label: "Insert column right", run: () => opsRef.current.insertCol(true) },
+                          { divider: true },
+                          { label: "Sort A to Z", run: () => opsRef.current.sort(1) },
+                          { label: "Sort Z to A", run: () => opsRef.current.sort(-1) },
+                          { divider: true },
+                          { label: "Clear cells", shortcut: "Delete", run: () => opsRef.current.clear() },
+                          { label: "Delete rows", run: () => opsRef.current.deleteRows() },
+                          { label: "Delete columns", run: () => opsRef.current.deleteCol(), disabled: cols <= 1 },
+                        ]);
+                      }}
                       title={v.length > 40 ? v : undefined}
                     >
                       {v}

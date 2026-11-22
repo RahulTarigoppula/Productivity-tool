@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, Plus, PanelLeft, Search, Ellipsis, Layers } from "lucide-react";
 import { useStore, setState } from "../app/store";
 import { activate, closeTab, moveTab, newFile } from "../app/actions";
@@ -12,6 +12,26 @@ export function TabBar() {
   const leftOpen = useStore((s) => s.leftOpen);
   const [dragId, setDragId] = useState<string | null>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
+  // More tabs than fit: the active one is kept in view, and soft edges show there are more.
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const updateEdges = () => {
+    const el = tabsRef.current;
+    if (!el) return;
+    const left = el.scrollLeft > 2, right = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+    setEdges((e) => (e.left === left && e.right === right ? e : { left, right }));
+  };
+  useEffect(() => {
+    const el = tabsRef.current?.querySelector<HTMLElement>(".tab.active");
+    el?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    updateEdges();
+  }, [activeId, tabs.length]);
+  useEffect(() => {
+    const el = tabsRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(updateEdges);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   return (
     <div className="tabrow" role="tablist" aria-label="Open files">
@@ -19,13 +39,16 @@ export function TabBar() {
         <button className={`icon-btn ${leftOpen ? "active" : ""}`} title="Toggle sidebar (Ctrl+\)" aria-label="Toggle sidebar" onClick={() => setState((s) => ({ leftOpen: !s.leftOpen }))}>
           <PanelLeft />
         </button>
-        <button className="icon-btn tab-count" title="All open files" onClick={() => setState({ palette: { open: true, query: "" } })}>
-          <Layers /> {tabs.length}
-        </button>
+        {tabs.length > 0 && (
+          <button className="icon-btn tab-count" title="All open files" onClick={() => setState({ palette: { open: true, query: "" } })}>
+            <Layers /> {tabs.length}
+          </button>
+        )}
       </div>
       <div
-        className="tabs"
+        className={`tabs ${edges.left ? "fade-left" : ""} ${edges.right ? "fade-right" : ""}`}
         ref={tabsRef}
+        onScroll={updateEdges}
         onWheel={(e) => {
           if (tabsRef.current && Math.abs(e.deltaY) > Math.abs(e.deltaX)) tabsRef.current.scrollLeft += e.deltaY;
         }}

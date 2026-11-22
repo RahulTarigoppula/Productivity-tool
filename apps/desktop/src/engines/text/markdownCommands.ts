@@ -52,7 +52,9 @@ export function setHeading(view: EditorView, level: number): boolean {
     const target = current === level ? 0 : level;
     changes.push({ from: line.from, to: line.from + (m ? m[0].length : 0), insert: target ? "#".repeat(target) + " " : "" });
   }
-  view.dispatch({ changes, userEvent: "input" });
+  // The cursor moves past the inserted marker, so typing continues after "- [ ] ", "# " etc.
+  const cs = view.state.changes(changes);
+  view.dispatch({ changes: cs, selection: view.state.selection.map(cs, 1), userEvent: "input" });
   view.focus();
   return true;
 }
@@ -69,7 +71,9 @@ export function toggleLinePrefix(view: EditorView, prefix: string): boolean {
     if (all) changes.push({ from: l.from, to: l.from + (existing?.[0].length ?? 0), insert: "" });
     else changes.push({ from: l.from, to: l.from + (existing?.[0].length ?? 0), insert: prefix === "1. " ? `${i + 1}. ` : prefix });
   });
-  view.dispatch({ changes, userEvent: "input" });
+  // The cursor moves past the inserted marker, so typing continues after "- [ ] ", "# " etc.
+  const cs = view.state.changes(changes);
+  view.dispatch({ changes: cs, selection: view.state.selection.map(cs, 1), userEvent: "input" });
   view.focus();
   return true;
 }
@@ -90,7 +94,7 @@ export function insertLink(view: EditorView, url = ""): boolean {
   return true;
 }
 
-export function insertBlock(view: EditorView, text: string, cursorOffset?: number): boolean {
+export function insertBlock(view: EditorView, text: string, cursorOffset?: number, selectLength = 0): boolean {
   const { state } = view;
   const pos = state.selection.main.head;
   const line = state.doc.lineAt(pos);
@@ -98,7 +102,10 @@ export function insertBlock(view: EditorView, text: string, cursorOffset?: numbe
   const insert = needsBreak + text;
   view.dispatch({
     changes: { from: line.text.trim() ? line.to : line.from, to: line.text.trim() ? line.to : line.to, insert },
-    selection: { anchor: (line.text.trim() ? line.to : line.from) + needsBreak.length + (cursorOffset ?? text.length) },
+    selection: (() => {
+      const at = (line.text.trim() ? line.to : line.from) + needsBreak.length + (cursorOffset ?? text.length);
+      return { anchor: at, head: at + selectLength };
+    })(),
     userEvent: "input",
     scrollIntoView: true,
   });

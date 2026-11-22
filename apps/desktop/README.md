@@ -110,7 +110,7 @@ These are planned; none is hidden from the user in the app.
 | Printing PDFs goes through page images | Later |
 | Office lock files: the app warns when Microsoft Office has the file open, but does not create its own lock file | W6 |
 | Saved signatures are stored as plain images in the app's data folder (planned: encrypted) | W6 |
-| Native Mica title bar and Snap Layouts flyout (uses the standard Windows title bar) | W6 |
+| Native Mica title bar and Snap Layouts flyout (uses the standard Windows title bar, which follows the app's theme) | W6 |
 | Code signing (SmartScreen warning on first run) | Optional |
 | Not yet exercised by hand on a Windows machine; performance budgets not yet measured there | First run on your PC |
 

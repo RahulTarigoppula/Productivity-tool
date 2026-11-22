@@ -54,7 +54,7 @@ One local, single-window, multi-tab app for personal use that opens, creates, ed
 | W3 Office editing | Done: Word, Excel and PowerPoint edit offline in the embedded Euro-Office editors ([decision 0002](decisions/0002-office-engine.md)) |
 | W4 Connected | Partly: palette, folder search, links between files, export with quality labels, version history |
 | W5 Light workbench | Not started |
-| W6 Hardening | Started: installer, CI, self-test, 35 end-to-end and 9 Office flows, two security reviews |
+| W6 Hardening | In progress: installer, CI, self-test, 38 end-to-end and 10 Office flows, three security reviews, error boundaries and local log, performance flow ([decision 0004](decisions/0004-design-stability-speed.md)) |
 
 | Release 2 (Android) | Status |
 |---|---|

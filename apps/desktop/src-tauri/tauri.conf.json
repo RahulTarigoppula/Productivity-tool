@@ -1,0 +1,124 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Productivity",
+  "version": "0.1.0",
+  "identifier": "com.rahul.productivity",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Productivity",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 360,
+        "minHeight": 480,
+        "center": true,
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self' 'wasm-unsafe-eval'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' blob: data: https:",
+        "font-src": "'self' data:",
+        "worker-src": "'self' blob:",
+        "connect-src": "'self' ipc: http://ipc.localhost blob: data:",
+        "frame-src": "'self' blob:",
+        "object-src": "'none'"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "publisher": "Productivity",
+    "shortDescription": "All-in-one editor for text, code, Markdown, CSV and PDF",
+    "longDescription": "A calm, local, single-window app that opens text, code, Markdown, CSV and PDF files in tabs, with read-only previews of Word, Excel and PowerPoint files.",
+    "copyright": "Personal use",
+    "category": "Productivity",
+    "fileAssociations": [
+      {
+        "ext": [
+          "md",
+          "markdown"
+        ],
+        "name": "Markdown",
+        "description": "Markdown document",
+        "role": "Editor"
+      },
+      {
+        "ext": [
+          "txt",
+          "log",
+          "text"
+        ],
+        "name": "Text",
+        "description": "Text document",
+        "role": "Editor"
+      },
+      {
+        "ext": [
+          "csv",
+          "tsv"
+        ],
+        "name": "CSV",
+        "description": "Comma-separated values",
+        "role": "Editor"
+      },
+      {
+        "ext": [
+          "pdf"
+        ],
+        "name": "PDF",
+        "description": "PDF document",
+        "role": "Editor"
+      },
+      {
+        "ext": [
+          "json",
+          "yaml",
+          "yml",
+          "toml",
+          "xml",
+          "ini"
+        ],
+        "name": "Config",
+        "description": "Configuration file",
+        "role": "Editor"
+      },
+      {
+        "ext": [
+          "docx",
+          "xlsx",
+          "pptx"
+        ],
+        "name": "Office",
+        "description": "Office document (preview)",
+        "role": "Viewer"
+      }
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    }
+  }
+}

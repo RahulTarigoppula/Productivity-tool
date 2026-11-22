@@ -1,0 +1,100 @@
+name: Windows build
+
+on:
+  push:
+    branches: [main]
+    paths: ["apps/desktop/**", ".github/workflows/windows.yml"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Rust tests
+        working-directory: apps/desktop/src-tauri
+        run: cargo test --release
+
+      - name: Build installer and app
+        run: pnpm tauri build
+
+      - name: Collect outputs
+        shell: pwsh
+        run: |
+          $out = "release-files"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          $ver = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          Copy-Item "src-tauri/target/release/bundle/nsis/*-setup.exe" "$out/Productivity_${ver}_x64-setup.exe"
+          Copy-Item "src-tauri/target/release/productivity.exe" "$out/Productivity_${ver}_x64-portable.exe"
+          Get-ChildItem $out | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: productivity-windows
+          path: apps/desktop/release-files/*.exe
+
+      - name: Publish release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: apps/desktop/release-files/*.exe
+          generate_release_notes: true
+
+  e2e:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm build
+      - name: End-to-end flows
+        run: |
+          pnpm preview --port 4173 --strictPort &
+          sleep 3
+          pnpm e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-screenshots
+          path: apps/desktop/test-results/

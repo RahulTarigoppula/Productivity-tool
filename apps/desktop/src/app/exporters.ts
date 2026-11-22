@@ -1,0 +1,204 @@
+/** Converters registered with the conversion registry (docs/plans/10-universal-export.md).
+ *  Heavy libraries are imported only when a conversion runs. */
+import { ConversionRegistry, type Converter } from "../lib/convert";
+import { loadCsv, toTable } from "../lib/csv";
+import { decodeText } from "../lib/textcodec";
+import { stem } from "../lib/paths";
+
+const enc = (s: string) => new TextEncoder().encode(s);
+const textOf = (b: Uint8Array) => decodeText(b).text;
+const one = (bytes: Uint8Array) => ({ files: [{ suffix: "", bytes }] });
+
+export const HTML_STYLE = `body{font:16px/1.6 "Segoe UI",system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 20px;color:#1c1c22}
+pre,code{font-family:"Cascadia Code",Consolas,monospace;font-size:.9em}pre{background:#f4f4f6;padding:12px;border-radius:6px;overflow:auto;white-space:pre-wrap}
+code{background:#f4f4f6;padding:1px 4px;border-radius:4px}pre code{background:none;padding:0}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:4px 8px;text-align:left}
+blockquote{border-left:3px solid #ccd;margin:0;padding-left:14px;color:#555}img{max-width:100%}h1,h2,h3{line-height:1.25}`;
+
+export function htmlDocument(title: string, body: string): string {
+  const esc = title.replace(/[<&>]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" })[c]!);
+  return `<!doctype html>\n<html><head><meta charset="utf-8"><title>${esc}</title><style>${HTML_STYLE}</style></head><body>\n${body}\n</body></html>\n`;
+}
+
+export async function markdownToHtml(md: string): Promise<string> {
+  const { marked } = await import("marked");
+  const DOMPurify = (await import("dompurify")).default;
+  return DOMPurify.sanitize(await marked.parse(md, { gfm: true }));
+}
+
+const escHtml = (s: string) => s.replace(/[<&>"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" })[c]!);
+
+export function tableToHtml(rows: string[][], header = true): string {
+  const [head, ...rest] = rows;
+  const tr = (r: string[], tag: string) => `<tr>${r.map((c) => `<${tag}>${escHtml(c)}</${tag}>`).join("")}</tr>`;
+  return `<table>\n${header && head ? `<thead>${tr(head, "th")}</thead>` : ""}<tbody>\n${(header ? rest : rows).map((r) => tr(r, "td")).join("\n")}\n</tbody></table>`;
+}
+
+export function tableToMarkdown(rows: string[][]): string {
+  if (!rows.length) return "";
+  const width = Math.max(...rows.map((r) => r.length));
+  const cell = (s: string) => s.replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>");
+  const line = (r: string[]) => `| ${Array.from({ length: width }, (_, i) => cell(r[i] ?? "")).join(" | ")} |`;
+  return [line(rows[0]), `| ${Array(width).fill("---").join(" | ")} |`, ...rows.slice(1).map(line)].join("\n") + "\n";
+}
+
+function csvField(v: string, d: string): string {
+  return v.includes(d) || v.includes('"') || /[\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+}
+export function tableToDelimited(rows: string[][], d: string, eol = "\r\n"): string {
+  return rows.map((r) => r.map((c) => csvField(c, d)).join(d)).join(eol) + eol;
+}
+
+export function tableToJson(rows: string[][]): string {
+  const [head, ...rest] = rows;
+  if (!head) return "[]\n";
+  const keys = head.map((h, i) => h.trim() || `column${i + 1}`);
+  return JSON.stringify(rest.map((r) => Object.fromEntries(keys.map((k, i) => [k, r[i] ?? ""]))), null, 2) + "\n";
+}
+
+export function jsonToTable(text: string): string[][] {
+  const data = JSON.parse(text);
+  const arr: unknown[] = Array.isArray(data) ? data : [data];
+  const keys: string[] = [];
+  for (const o of arr) if (o && typeof o === "object" && !Array.isArray(o)) for (const k of Object.keys(o)) if (!keys.includes(k)) keys.push(k);
+  if (!keys.length) return [["value"], ...arr.map((v) => [typeof v === "string" ? v : JSON.stringify(v)])];
+  return [keys, ...arr.map((o) => keys.map((k) => {
+    const v = (o as Record<string, unknown>)?.[k];
+    return v === undefined || v === null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+  }))];
+}
+
+/** Lay out plain text on A4 pages with a monospaced font. */
+export async function textToPdf(text: string, title: string): Promise<Uint8Array> {
+  const { PDFDocument, StandardFonts } = await import("@cantoo/pdf-lib");
+  const doc = await PDFDocument.create();
+  doc.setTitle(title);
+  const font = await doc.embedFont(StandardFonts.Courier);
+  const size = 10, lineH = 13, margin = 50, width = 595.28, height = 841.89;
+  const maxChars = Math.floor((width - margin * 2) / font.widthOfTextAtSize("M", size));
+  const lines: string[] = [];
+  for (const raw of text.replace(/\t/g, "    ").split("\n")) {
+    if (!raw) lines.push("");
+    for (let i = 0; i < raw.length; i += maxChars) lines.push(raw.slice(i, i + maxChars));
+  }
+  const perPage = Math.floor((height - margin * 2) / lineH);
+  for (let p = 0; p < Math.max(1, lines.length); p += perPage) {
+    const page = doc.addPage([width, height]);
+    lines.slice(p, p + perPage).forEach((l, i) => {
+      // Standard fonts only cover Windows-1252; replace anything else.
+      const safe = [...l].map((ch) => (ch.charCodeAt(0) < 256 || "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ".includes(ch) ? ch : "?")).join("");
+      page.drawText(safe, { x: margin, y: height - margin - (i + 1) * lineH, size, font });
+    });
+  }
+  return doc.save();
+}
+
+async function pdfToImages(bytes: Uint8Array): Promise<{ suffix: string; bytes: Uint8Array }[]> {
+  const { loadPdfjs } = await import("../engines/pdf/pdfjs");
+  const pdfjs = await loadPdfjs();
+  const doc = await pdfjs.getDocument({ data: bytes.slice() }).promise;
+  const out = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const vp = page.getViewport({ scale: 2 });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(vp.width);
+    canvas.height = Math.ceil(vp.height);
+    await page.render({ canvas, viewport: vp }).promise;
+    const blob: Blob = await new Promise((r) => canvas.toBlob((b) => r(b!), "image/png"));
+    out.push({ suffix: `-page${String(i).padStart(String(doc.numPages).length, "0")}`, bytes: new Uint8Array(await blob.arrayBuffer()) });
+  }
+  await doc.loadingTask.destroy();
+  return out;
+}
+
+export async function pdfToText(bytes: Uint8Array): Promise<string> {
+  const { loadPdfjs } = await import("../engines/pdf/pdfjs");
+  const pdfjs = await loadPdfjs();
+  const doc = await pdfjs.getDocument({ data: bytes.slice() }).promise;
+  const pages: string[] = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const tc = await (await doc.getPage(i)).getTextContent();
+    let s = "";
+    for (const it of tc.items as { str?: string; hasEOL?: boolean }[]) s += (it.str ?? "") + (it.hasEOL ? "\n" : "");
+    pages.push(s.trim());
+  }
+  await doc.loadingTask.destroy();
+  return pages.join("\n\n\f\n\n") + "\n";
+}
+
+async function imageToPdf(bytes: Uint8Array, isPng: boolean): Promise<Uint8Array> {
+  const { PDFDocument } = await import("@cantoo/pdf-lib");
+  const doc = await PDFDocument.create();
+  const img = isPng ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
+  const page = doc.addPage([img.width, img.height]);
+  page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+  return doc.save();
+}
+
+const c = (from: string, to: string, quality: Converter["quality"], run: Converter["run"], loses?: string): Converter => ({ id: `${from}->${to}`, from, to, quality, run, loses });
+
+export function buildRegistry(): ConversionRegistry {
+  const r = new ConversionRegistry();
+  // Markdown and text
+  r.register(c("md", "html", "good", async ({ bytes, name }) => one(enc(htmlDocument(stem(name), await markdownToHtml(textOf(bytes)))))));
+  r.register(c("md", "txt", "text", async ({ bytes }) => {
+    const html = await markdownToHtml(textOf(bytes));
+    const div = document.createElement("div");
+    div.innerHTML = html;
+    return one(enc((div.innerText || div.textContent || "").replace(/\n{3,}/g, "\n\n").trim() + "\n"));
+  }, "Formatting such as headings, bold and links becomes plain text."));
+  r.register(c("txt", "pdf", "exact", async ({ bytes, name }) => one(await textToPdf(textOf(bytes), stem(name)))));
+  r.register(c("txt", "html", "exact", async ({ bytes, name }) => one(enc(htmlDocument(stem(name), `<pre>${escHtml(textOf(bytes))}</pre>`)))));
+  // Tables
+  const table = (b: Uint8Array, ext: string) => toTable(loadCsv(b, ext));
+  for (const src of ["csv", "tsv"]) {
+    r.register(c(src, "json", "exact", async ({ bytes }) => one(enc(tableToJson(table(bytes, src)))), undefined));
+    r.register(c(src, "md", "good", async ({ bytes }) => one(enc(tableToMarkdown(table(bytes, src))))));
+    r.register(c(src, "html", "good", async ({ bytes, name }) => one(enc(htmlDocument(stem(name), tableToHtml(table(bytes, src)))))));
+  }
+  r.register(c("csv", "tsv", "exact", async ({ bytes }) => one(enc(tableToDelimited(table(bytes, "csv"), "\t")))));
+  r.register(c("tsv", "csv", "exact", async ({ bytes }) => one(enc(tableToDelimited(table(bytes, "tsv"), ",")))));
+  r.register(c("json", "csv", "good", async ({ bytes }) => one(enc(tableToDelimited(jsonToTable(textOf(bytes)), ","))), "Nested objects become JSON text inside a cell."));
+  // PDF
+  r.register(c("pdf", "png", "exact", async ({ bytes }) => ({ files: await pdfToImages(bytes) })));
+  r.register(c("pdf", "txt", "text", async ({ bytes }) => one(enc(await pdfToText(bytes))), "Only the text is kept; layout, images and fonts are not."));
+  // Images
+  r.register(c("png", "pdf", "exact", async ({ bytes }) => one(await imageToPdf(bytes, true))));
+  r.register(c("jpg", "pdf", "exact", async ({ bytes }) => one(await imageToPdf(bytes, false))));
+  r.register(c("jpeg", "pdf", "exact", async ({ bytes }) => one(await imageToPdf(bytes, false))));
+  // Office (read-only readers)
+  r.register(c("xlsx", "csv", "good", async ({ bytes }) => {
+    const { readXlsx } = await import("../engines/office/ooxml");
+    const sheets = await readXlsx(bytes);
+    return { files: sheets.map((s, i) => ({ suffix: sheets.length > 1 ? `-${s.name.replace(/[\\/:*?"<>|]/g, "_")}` : i ? `-${i}` : "", bytes: enc(tableToDelimited(s.rows, ",")) })) };
+  }, "Values only: formulas, formatting and charts are not kept. One file per sheet."));
+  r.register(c("docx", "md", "text", async ({ bytes }) => {
+    const { readDocxText, docxToMarkdown } = await import("../engines/office/ooxml");
+    return one(enc(docxToMarkdown(await readDocxText(bytes))));
+  }, "Headings and paragraphs are kept; tables, images and formatting are not."));
+  r.register(c("pptx", "md", "text", async ({ bytes }) => {
+    const { readPptx } = await import("../engines/office/ooxml");
+    const slides = await readPptx(bytes);
+    return one(enc(slides.map((s) => `## Slide ${s.index}\n\n${s.paragraphs.map((p) => `- ${p}`).join("\n")}${s.notes.length ? `\n\n> Notes: ${s.notes.join(" ")}` : ""}`).join("\n\n") + "\n"));
+  }, "Only slide text and notes are kept."));
+  return r;
+}
+
+let registry: ConversionRegistry | null = null;
+export function getRegistry(): ConversionRegistry {
+  return (registry ??= buildRegistry());
+}
+
+/** Source format id for a file: its extension, with any non-special text file treated as txt. */
+export function sourceFormat(name: string, kind: string): string {
+  const ext = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1).toLowerCase() : "";
+  if (kind === "markdown") return "md";
+  if (kind === "csv") return ext === "tsv" || ext === "tab" ? "tsv" : "csv";
+  if (kind === "text") return ext === "json" ? "json" : ext === "html" || ext === "htm" ? "html" : "txt";
+  if (kind === "image") return ext === "jpeg" ? "jpg" : ext;
+  return ext;
+}
+
+export const FORMAT_LABEL: Record<string, string> = {
+  html: "Web page", txt: "Plain text", pdf: "PDF", md: "Markdown", json: "JSON", csv: "CSV", tsv: "Tab-separated", png: "PNG images",
+};

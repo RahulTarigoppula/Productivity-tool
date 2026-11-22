@@ -1,0 +1,420 @@
+// End-to-end flow tests against the built interface running in Chromium with the in-memory platform.
+// Each check is named after a flow ID in docs/flows. Run: pnpm build && pnpm preview & node tests/e2e/flows.mjs
+import { createRequire } from "node:module";
+import { readFileSync, readdirSync, mkdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+const require = createRequire(import.meta.url);
+const { chromium } = require("playwright");
+const here = dirname(fileURLToPath(import.meta.url));
+const corpus = join(here, "..", "corpus");
+const shots = process.env.SHOTS ?? join(here, "..", "..", "test-results");
+mkdirSync(shots, { recursive: true });
+const URL_ = process.env.APP_URL ?? "http://localhost:4173/";
+
+const results = [];
+let page;
+const errors = [];
+
+async function check(id, name, fn) {
+  try {
+    await fn();
+    results.push({ id, name, ok: true });
+    console.log(`  ✓ ${id} ${name}`);
+  } catch (e) {
+    results.push({ id, name, ok: false, error: String(e?.message ?? e) });
+    console.log(`  ✗ ${id} ${name}\n      ${String(e?.message ?? e).split("\n")[0]}`);
+    await page.screenshot({ path: join(shots, `fail-${id}.png`) }).catch(() => {});
+    // Leave no overlay behind so one failure does not cascade into the next check.
+    await page.keyboard.press("Escape").catch(() => {});
+    await page.keyboard.press("Escape").catch(() => {});
+  }
+}
+const assert = (c, msg) => { if (!c) throw new Error(msg); };
+const eqBytes = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+const fsRead = (p) => page.evaluate((p) => { const b = window.__fs.read(p); return b ? Array.from(b) : null; }, p);
+const fsText = (p) => page.evaluate((p) => window.__fs.readText(p), p);
+const appState = () => page.evaluate(() => { const s = window.__app.getState(); return { tabs: s.tabs.map((t) => ({ id: t.id, name: t.name, kind: t.kind, dirty: t.dirty, saveState: t.saveState, path: t.path, conflict: t.conflict })), activeId: s.activeId }; });
+const open = (p) => page.evaluate((p) => window.__app.openPath(p), p);
+const waitFor = async (pred, ms = 4000, label = "condition") => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) { if (await pred()) return; await page.waitForTimeout(80); }
+  throw new Error(`Timed out waiting for ${label}`);
+};
+const activeTab = async () => { const s = await appState(); return s.tabs.find((t) => t.id === s.activeId); };
+
+(async () => {
+  const browser = await chromium.launch();
+  page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("console", (m) => m.type() === "error" && !m.text().includes("404") && errors.push(m.text()));
+  page.on("response", (r) => r.status() >= 400 && errors.push(`HTTP ${r.status()} ${r.url()}`));
+  await page.goto(URL_);
+  await page.waitForFunction(() => window.__app && window.__fs);
+  // Seed the in-memory disk with the corpus under /work.
+  for (const f of readdirSync(corpus)) {
+    const bytes = Array.from(readFileSync(join(corpus, f)));
+    await page.evaluate(([p, b]) => window.__fs.write(p, new Uint8Array(b)), [`/work/${f}`, bytes]);
+  }
+  console.log("Flows:");
+
+  await check("F-02", "home screen shows new-file tiles", async () => {
+    assert(await page.getByText("Markdown note").first().isVisible(), "tile missing");
+  });
+
+  await check("F-03", "new Markdown note, type, first save asks for a location", async () => {
+    await page.keyboard.press("Control+n");
+    await waitFor(async () => (await activeTab())?.kind === "markdown", 3000, "new tab");
+    await page.locator(".cm-content").first().click();
+    await page.keyboard.type("# Hello\n\nFirst note.");
+    await waitFor(async () => (await activeTab())?.dirty, 2000, "dirty");
+    await page.evaluate(() => window.__fs.queueSave("/work/hello.md"));
+    await page.keyboard.press("Control+s");
+    await waitFor(async () => (await fsText("/work/hello.md")) !== null, 3000, "file written");
+    const t = await fsText("/work/hello.md");
+    assert(t.replace(/\r\n/g, "\n") === "# Hello\n\nFirst note.", `unexpected content: ${JSON.stringify(t)}`);
+    const tab = await activeTab();
+    assert(tab.name === "hello.md" && !tab.dirty, "tab not updated after save");
+  });
+
+  await check("F-04", "open Markdown with BOM and CRLF; unedited save is byte-identical", async () => {
+    const before = await fsRead("/work/notes.md");
+    await open("/work/notes.md");
+    await waitFor(async () => (await page.locator(".cm-content:visible").count()) > 0, 4000, "editor");
+    await page.keyboard.press("Control+s");
+    await page.waitForTimeout(300);
+    assert(eqBytes(await fsRead("/work/notes.md"), before), "bytes changed on save");
+  });
+
+  await check("F-11", "auto-save keeps CRLF and BOM after an edit", async () => {
+    await page.locator(".cm-content:visible").click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.type("\nAdded line.");
+    await waitFor(async () => (await fsText("/work/notes.md"))?.includes("Added line."), 4000, "auto-save");
+    const b = await fsRead("/work/notes.md");
+    assert(b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf, "BOM lost");
+    const t = await fsText("/work/notes.md");
+    assert(!/[^\r]\n/.test(t), "LF-only line ending found");
+    const tab = await activeTab();
+    assert(!tab.dirty, "still dirty after auto-save");
+  });
+
+  await check("F-12", "version history lists the original before the first save", async () => {
+    const list = await page.evaluate(() => window.__app.platform.snapshotList("/work/notes.md"));
+    assert(list.length >= 1 && list.some((s) => s.reason === "original"), `snapshots: ${JSON.stringify(list)}`);
+  });
+
+  await check("F-04b", "Windows-1252 text round-trips unchanged", async () => {
+    const before = await fsRead("/work/legacy.txt");
+    await open("/work/legacy.txt");
+    await page.waitForTimeout(400);
+    await page.keyboard.press("Control+s");
+    await page.waitForTimeout(300);
+    assert(eqBytes(await fsRead("/work/legacy.txt"), before), "bytes changed");
+    assert(await page.locator(".statusbar").getByText("Windows 1252").isVisible(), "encoding not shown");
+  });
+
+  await check("F-04c", "code file gets language detection by shebang", async () => {
+    await open("/work/script.py");
+    await waitFor(async () => (await page.locator(".statusbar").innerText()).includes("Python"), 4000, "Python in status bar");
+  });
+
+  await check("F-04d", "CSV opens as a grid; unedited save is byte-identical", async () => {
+    const before = await fsRead("/work/data.csv");
+    await open("/work/data.csv");
+    await waitFor(async () => (await page.locator(".csv-cell:visible").count()) > 0, 4000, "grid");
+    assert(await page.getByText("Smith, J").isVisible(), "quoted value missing");
+    assert(await page.getByText("00012").isVisible(), "leading zeros lost");
+    await page.keyboard.press("Control+s");
+    await page.waitForTimeout(300);
+    assert(eqBytes(await fsRead("/work/data.csv"), before), "bytes changed");
+  });
+
+  await check("F-11b", "editing one CSV cell rewrites only that row", async () => {
+    await page.locator(".csv-cell:visible", { hasText: "Lee" }).click();
+    await page.keyboard.type("Lee-Wong");
+    await page.keyboard.press("Enter");
+    await waitFor(async () => (await fsText("/work/data.csv"))?.includes("Lee-Wong"), 4000, "auto-save");
+    const t = await fsText("/work/data.csv");
+    assert(t === 'id,name,zip,amount\r\n00012,"Smith, J",01234,10.5\r\n00013,Lee-Wong,98765,20\r\n00014,"Quote ""Q""",00001,30\r\n', `unexpected: ${JSON.stringify(t)}`);
+  });
+
+  await check("F-04e", "semicolon CSV without final newline is detected and preserved", async () => {
+    const before = await fsRead("/work/semi.csv");
+    await open("/work/semi.csv");
+    await waitFor(async () => (await page.locator(".statusbar").innerText()).includes("Semicolon"), 4000, "delimiter");
+    await page.keyboard.press("Control+s");
+    await page.waitForTimeout(300);
+    assert(eqBytes(await fsRead("/work/semi.csv"), before), "bytes changed");
+  });
+
+  await check("F-22", "PDF renders pages and thumbnails", async () => {
+    await open("/work/sample.pdf");
+    await waitFor(async () => (await page.locator(".pdfViewer .page canvas").count()) > 0, 8000, "page canvas");
+    await waitFor(async () => (await page.locator(".statusbar").innerText()).includes("of 3"), 4000, "page count");
+    assert((await page.locator(".thumb").count()) === 3, "thumbnails");
+  });
+
+  await check("F-18", "find in PDF reports matches", async () => {
+    await page.keyboard.press("Control+f");
+    await page.locator(".pdf-find input").fill("marigold");
+    await waitFor(async () => /of 3/.test(await page.locator(".pdf-find .help").innerText()), 6000, "3 matches");
+    await page.keyboard.press("Escape");
+  });
+
+  await check("F-24", "rotate and delete a PDF page, then save", async () => {
+    await page.locator(".thumb").nth(1).click();
+    await page.getByRole("button", { name: "Rotate right" }).click();
+    await waitFor(async () => (await activeTab())?.dirty, 5000, "dirty after rotate");
+    await page.locator(".thumb").nth(2).click();
+    await page.getByRole("button", { name: "Delete pages" }).click();
+    await waitFor(async () => (await page.locator(".thumb").count()) === 2, 6000, "2 pages");
+    await page.keyboard.press("Control+s");
+    await waitFor(async () => !(await activeTab()).dirty, 5000, "saved");
+    const bytes = await fsRead("/work/sample.pdf");
+    const text = Buffer.from(bytes).toString("latin1");
+    assert(text.startsWith("%PDF"), "not a PDF");
+    assert(/\/Rotate 90/.test(text), "rotation not saved");
+    assert((text.match(/\/Type\s*\/Page[^s]/g) ?? []).length === 2, "page count not 2");
+  });
+
+  await check("F-22b", "add a text box annotation to a PDF and save it", async () => {
+    await open("/work/sample.pdf");
+    await waitFor(async () => (await page.locator(".pdfViewer .page canvas:visible").count()) > 0, 8000, "pages");
+    await page.getByRole("button", { name: "Add text" }).click();
+    const pg = page.locator(".pdfViewer .page").first();
+    await page.evaluate(() => { const s = window.__app.getState(); window.__app.handles.get(s.activeId).goTo("1"); });
+    await pg.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(300);
+    const box = await pg.boundingBox();
+    await page.mouse.click(box.x + 120, box.y + 200);
+    await page.waitForTimeout(300);
+    await page.keyboard.type("Reviewed");
+    await page.mouse.click(box.x + 300, box.y + 500);
+    await waitFor(async () => (await activeTab())?.dirty, 5000, "dirty after annotation");
+    await page.keyboard.press("Control+s");
+    await waitFor(async () => !(await activeTab()).dirty, 5000, "saved");
+    const text = Buffer.from(await fsRead("/work/sample.pdf")).toString("latin1");
+    assert(/\/FreeText/.test(text), "no FreeText annotation in saved file");
+    await page.getByRole("button", { name: "Select text" }).click();
+  });
+
+  await check("F-23", "draw a signature and place it on a page", async () => {
+    const before = (await fsRead("/work/sample.pdf")).length;
+    await page.getByRole("button", { name: "Sign" }).click();
+    const canvas = page.locator(".sig-canvas");
+    await waitFor(async () => await canvas.isVisible().catch(() => false), 3000, "signature pad");
+    const c = await canvas.boundingBox();
+    await page.mouse.move(c.x + 40, c.y + 80);
+    await page.mouse.down();
+    for (let i = 0; i < 20; i++) await page.mouse.move(c.x + 40 + i * 20, c.y + 80 + Math.sin(i) * 30);
+    await page.mouse.up();
+    await page.getByRole("button", { name: "Use once" }).click();
+    await waitFor(async () => await page.getByText("Click where the signature should go").isVisible().catch(() => false), 3000, "placing hint");
+    const pg = page.locator(".pdfViewer .page").first();
+    await page.evaluate(() => { const s = window.__app.getState(); window.__app.handles.get(s.activeId).goTo("1"); });
+    await pg.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(300);
+    const box = await pg.boundingBox();
+    await page.mouse.click(box.x + 200, box.y + 300);
+    await waitFor(async () => (await activeTab())?.dirty, 6000, "dirty after signing");
+    await page.keyboard.press("Control+s");
+    await waitFor(async () => !(await activeTab()).dirty, 5000, "saved");
+    const bytes = await fsRead("/work/sample.pdf");
+    const text = Buffer.from(bytes).toString("latin1");
+    assert(/\/Subtype\s*\/Image/.test(text), "no image in saved PDF");
+    assert(bytes.length > before, "file did not grow");
+  });
+
+  await check("F-04f", "Word, Excel and PowerPoint open as read-only previews", async () => {
+    await open("/work/report.docx");
+    await waitFor(async () => await page.getByText("Quarterly report").first().isVisible().catch(() => false), 8000, "docx text");
+    await open("/work/budget.xlsx");
+    await waitFor(async () => await page.getByText("Rent").first().isVisible().catch(() => false), 6000, "xlsx cells");
+    await page.getByRole("cell", { name: "1650" }).click().catch(async () => { await page.locator(".xlsx-table td").nth(7).click(); });
+    await open("/work/deck.pptx");
+    await waitFor(async () => await page.getByText("Windows first, then Android").isVisible().catch(() => false), 6000, "pptx text");
+    assert(await page.getByText("Mention the spikes").isVisible(), "notes missing");
+  });
+
+  await check("F-20", "command palette opens a file by name and runs commands", async () => {
+    await page.keyboard.press("Control+k");
+    await page.locator("[cmdk-input]").fill("legacy");
+    await page.waitForTimeout(150);
+    await page.keyboard.press("Enter");
+    await waitFor(async () => (await activeTab())?.name === "legacy.txt", 4000, "legacy.txt active");
+    await page.keyboard.press("Control+k");
+    await page.locator("[cmdk-input]").fill(">toggle sidebar");
+    await page.keyboard.press("Enter");
+    await waitFor(async () => (await page.locator(".side").count()) > 0, 2000, "sidebar open");
+  });
+
+  await check("F-21", "following a relative link opens the target at its heading", async () => {
+    await page.evaluate(() => window.__app.openLink(window.__app.getState().tabs.find((t) => t.name === "notes.md"), "plan.md#goals"));
+    await waitFor(async () => (await activeTab())?.name === "plan.md", 3000, "link target");
+  });
+
+  await check("F-19", "search in folder finds text across files", async () => {
+    await page.evaluate(() => window.__app.openFolder("/work"));
+    await page.getByRole("tab", { name: "Search" }).click();
+    await page.locator(".search-box input").fill("Ship the Windows");
+    await waitFor(async () => (await page.locator(".hit").count()) > 0, 4000, "search hits");
+  });
+
+  await check("F-14", "file changed outside the app reloads a clean tab", async () => {
+    await open("/work/plan.md");
+    await page.evaluate(() => window.__fs.externalChange("/work/plan.md", "# Plan\n\nChanged elsewhere.\n"));
+    await waitFor(async () => (await page.locator(".cm-content:visible").innerText()).includes("Changed elsewhere"), 4000, "reload");
+  });
+
+  await check("F-14b", "external change with unsaved edits shows a conflict banner", async () => {
+    await page.locator(".cm-content:visible").click();
+    await page.keyboard.press("Control+End");
+    await page.evaluate(() => window.__app.updateSettings({ autoSave: false }));
+    await page.keyboard.type(" mine");
+    await page.evaluate(() => window.__fs.externalChange("/work/plan.md", "# Plan\n\nTheirs.\n"));
+    await waitFor(async () => (await activeTab())?.conflict === "changed", 4000, "conflict");
+    assert(await page.getByText("changed by another program").isVisible(), "banner missing");
+    await page.getByRole("button", { name: "Keep mine" }).click();
+    await page.evaluate(() => window.__app.updateSettings({ autoSave: true }));
+  });
+
+  await check("F-15", "export Markdown to HTML and CSV to JSON", async () => {
+    await open("/work/plan.md");
+    await page.evaluate(() => window.__fs.queueSave("/work/plan.html"));
+    await page.keyboard.press("Control+e");
+    await page.locator(".export-row", { hasText: "Web page" }).click();
+    await waitFor(async () => (await fsText("/work/plan.html"))?.includes("<h1"), 4000, "html written");
+    await open("/work/data.csv");
+    await page.evaluate(() => window.__fs.queueSave("/work/data.json"));
+    await page.keyboard.press("Control+e");
+    await page.locator(".export-row", { hasText: "JSON" }).click();
+    await waitFor(async () => (await fsText("/work/data.json")) !== null, 4000, "json written");
+    const json = JSON.parse(await fsText("/work/data.json"));
+    assert(json[0].id === "00012" && json[0].name === "Smith, J", "json content");
+  });
+
+  await check("F-39", "unsaved work is written to recovery storage", async () => {
+    await page.keyboard.press("Control+n");
+    await page.locator(".cm-content:visible").click();
+    await page.keyboard.type("unsaved idea");
+    await waitFor(async () => (await page.evaluate(() => window.__app.platform.recoveryList())).length > 0, 4000, "recovery written");
+  });
+
+  await check("F-10", "closing an unsaved untitled tab asks first", async () => {
+    await page.keyboard.press("Control+w");
+    await waitFor(async () => await page.getByRole("alertdialog").isVisible().catch(() => false), 2000, "confirm");
+    await page.getByRole("button", { name: "Don't save" }).click();
+    await page.waitForTimeout(200);
+    const list = await page.evaluate(() => window.__app.platform.recoveryList());
+    const s = await appState();
+    assert(!s.tabs.some((t) => t.name.startsWith("Untitled") && t.dirty), "tab still open");
+    assert(list.every((r) => !JSON.parse(r.meta).name.startsWith("Untitled")), "recovery not cleared");
+  });
+
+  await check("F-08", "Ctrl+Tab switches to the last used tab", async () => {
+    const before = (await activeTab()).name;
+    await open("/work/plan.md");
+    await page.keyboard.press("Control+Tab");
+    await waitFor(async () => (await activeTab()).name === before, 2000, "previous tab");
+  });
+
+  await check("R-1", "restored content stays unsaved even after edit and undo", async () => {
+    await open("/work/plan.md");
+    await page.evaluate(() => { window.__app.updateSettings({ autoSave: false }); const s = window.__app.getState(); window.__app.replaceContent(s.activeId, new TextEncoder().encode("# Restored\n"), "Restored a version"); });
+    await page.waitForTimeout(300);
+    await page.locator(".cm-content:visible").click();
+    await page.keyboard.type("x");
+    await page.keyboard.press("Control+z");
+    await page.waitForTimeout(200);
+    assert((await activeTab()).dirty, "tab became clean although the restored content is not on disk");
+    await page.keyboard.press("Control+s");
+    await waitFor(async () => (await fsText("/work/plan.md")) === "# Restored\n", 3000, "restored content saved");
+    await page.evaluate(() => window.__app.updateSettings({ autoSave: true }));
+  });
+
+  await check("R-3", "two tabs on the same file stay in sync", async () => {
+    await open("/work/data.csv");
+    const csvId = (await activeTab()).id;
+    await page.evaluate((id) => window.__app.reopenAs(id, "text"), csvId);
+    await waitFor(async () => (await activeTab()).kind === "text", 3000, "text tab");
+    await page.locator(".cm-content:visible").click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.type("00015,New,11111,40\n");
+    await waitFor(async () => (await fsText("/work/data.csv"))?.includes("00015"), 4000, "auto-save from text tab");
+    await page.evaluate((id) => window.__app.activate(id), csvId);
+    await waitFor(async () => await page.locator(".csv-cell:visible", { hasText: "00015" }).isVisible().catch(() => false), 4000, "CSV tab reloaded");
+  });
+
+  await check("R-9a", "an empty CSV file stays empty when saved unedited", async () => {
+    await page.evaluate(() => window.__fs.write("/work/empty.csv", ""));
+    await open("/work/empty.csv");
+    await page.waitForTimeout(400);
+    await page.keyboard.press("Control+s");
+    await page.waitForTimeout(300);
+    assert((await fsText("/work/empty.csv")) === "", "empty file was changed");
+  });
+
+  await check("R-9b", "an unedited file with mixed line endings is not rewritten", async () => {
+    await page.evaluate(() => window.__fs.write("/work/mixed.txt", "a\r\nb\nc\r\n"));
+    await open("/work/mixed.txt");
+    await page.waitForTimeout(400);
+    await page.keyboard.press("Control+s");
+    await page.waitForTimeout(300);
+    assert((await fsText("/work/mixed.txt")) === "a\r\nb\nc\r\n", "file was rewritten");
+  });
+
+  await check("R-10", "Save As from CSV to TSV switches the delimiter", async () => {
+    await open("/work/data.csv");
+    await page.evaluate(() => window.__fs.queueSave("/work/data-copy.tsv"));
+    await page.keyboard.press("Control+Shift+s");
+    await waitFor(async () => (await fsText("/work/data-copy.tsv")) !== null, 4000, "tsv written");
+    const t = await fsText("/work/data-copy.tsv");
+    assert(t.startsWith("id\tname\tzip\tamount"), `not tab-separated: ${JSON.stringify(t.slice(0, 40))}`);
+    assert(t.includes("Smith, J"), "quoted value lost");
+  });
+
+  await check("R-L", "Ctrl+S during a CSV cell edit saves the typed value", async () => {
+    await page.evaluate(() => window.__app.updateSettings({ autoSave: false }));
+    await open("/work/semi.csv");
+    await page.locator(".csv-cell:visible", { hasText: "5" }).first().dblclick();
+    await page.keyboard.press("Control+a");
+    await page.keyboard.type("55");
+    await page.keyboard.press("Control+s");
+    await waitFor(async () => (await fsText("/work/semi.csv"))?.includes("55"), 3000, "edit saved");
+    assert((await fsText("/work/semi.csv")) === "a;b;c\n1;2;3\n4;55;6", `unexpected: ${JSON.stringify(await fsText("/work/semi.csv"))}`);
+    await page.evaluate(() => window.__app.updateSettings({ autoSave: true }));
+  });
+
+  await check("F-34", "dark theme applies", async () => {
+    await page.evaluate(() => window.__app.updateSettings({ theme: "dark" }));
+    await waitFor(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", 2000, "dark");
+    await open("/work/notes.md");
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: join(shots, "dark-markdown.png") });
+    await page.evaluate(() => window.__app.updateSettings({ theme: "light" }));
+  });
+
+  await check("F-41", "phone-width window uses the compact layout", async () => {
+    await page.setViewportSize({ width: 390, height: 780 });
+    await page.waitForTimeout(300);
+    assert(await page.locator(".tab-count").isVisible(), "tab count button not shown");
+    await page.screenshot({ path: join(shots, "compact.png") });
+    await page.setViewportSize({ width: 1280, height: 800 });
+  });
+
+  // Screenshots of each engine for review.
+  for (const f of ["notes.md", "data.csv", "sample.pdf", "report.docx", "budget.xlsx"]) {
+    await open(`/work/${f}`);
+    await page.waitForTimeout(700);
+    await page.screenshot({ path: join(shots, `engine-${f.replace(/\./g, "-")}.png`) });
+  }
+
+  await browser.close();
+  const failed = results.filter((r) => !r.ok);
+  const unexpected = errors.filter((e) => !/ResizeObserver|favicon/.test(e));
+  console.log(`\n${results.length - failed.length}/${results.length} flows passed`);
+  if (unexpected.length) console.log("Page errors:\n  " + [...new Set(unexpected)].slice(0, 10).join("\n  "));
+  process.exit(failed.length || unexpected.length ? 1 : 0);
+})();

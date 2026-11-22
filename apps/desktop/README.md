@@ -1,0 +1,143 @@
+# Productivity — Windows desktop app (v0.1)
+
+One calm, local app for every kind of file. This is the first build of Release 1 (Windows) from `docs/plans/03-roadmap.md`: it covers phases **W1** (shell, text and code, CSV) and **W2** (PDF), parts of **W4** (search, links, export, version history), and read-only previews of Office files ahead of **W3**.
+
+## Install
+
+Download from the repository's **Releases** page (or the **Actions → Windows build** artifacts):
+
+| File | What it is |
+|---|---|
+| `Productivity_0.1.0_x64-setup.exe` | **Recommended.** Installs for your user only (no admin prompt), adds a Start menu entry, registers "Open with" for Markdown, text, CSV, PDF, config and Office files, and has an uninstaller. Installs the WebView2 runtime if a machine lacks it (Windows 11 already has it). |
+| `Productivity_0.1.0_x64-portable.exe` | No install. A single exe you can run from anywhere; needs the WebView2 runtime, which Windows 11 includes. Settings and version history are kept in `%APPDATA%\com.rahul.productivity`. |
+
+The installer is not code-signed, so Windows SmartScreen shows "Windows protected your PC" the first time. Choose **More info → Run anyway**.
+
+## What works
+
+**Every file in tabs, one window.** Open from the file picker, drag and drop, "Open with", the command line, recent files or the palette. Double-clicking another file while the app is open adds a tab to the same window.
+
+| Format | What you can do |
+|---|---|
+| **Markdown** | Live formatting as you type (headings, bold, italic, links, task checkboxes, quotes, code blocks, images), optional side-by-side preview, formatting toolbar and shortcuts, outline, word count, Ctrl+click links to open other files at a heading |
+| **Text and code** | Any text file. Syntax highlighting for 100+ languages (by file name or `#!` line), multi-cursor, find and replace with regex, folding, bracket matching, auto-indent, indentation detection, word wrap toggle, language picker |
+| **CSV / TSV** | Spreadsheet-style grid: edit cells, keyboard navigation, insert and delete rows and columns, sort, filter, copy and paste with Excel, undo and redo, sum/average/count of the selection, header row toggle, open as plain text |
+| **PDF** | Continuous scrolling, zoom, text selection, find, page thumbnails, bookmarks in the outline; highlight, text boxes and drawing; drawn or typed signatures; rotate, delete, reorder (drag thumbnails), extract and insert pages; password-protected files |
+| **Word, Excel, PowerPoint** | Read-only previews: Word with its page layout, Excel sheets as a grid with formulas shown, PowerPoint as slide text and notes. Open in the default app or export from here |
+| **Images, binary files** | Image viewer with zoom; binary files as a hex view |
+
+**Never lose work**
+
+- Saves are atomic: a temporary file is written and flushed, then swapped in, so a crash can never leave a half-written file.
+- Text, Markdown, code and CSV **auto-save** shortly after you stop typing. PDFs save when you press Ctrl+S.
+- **Files you don't edit are not changed.** Encoding (UTF-8, UTF-8 with BOM, UTF-16, Windows-1252), byte-order marks and line endings (CRLF/LF) are detected and kept, so opening and saving a file changes zero bytes. CSV rows you don't touch are written back exactly as they were, including their original quoting.
+- **Version history**: before a save overwrites a file, the previous content is kept privately (the very first copy is always kept as the original). Open the history by clicking the save state in the status bar; restore or open any version as a copy.
+- **Crash recovery**: unsaved changes are written to recovery storage as you work and restored on the next launch. Quitting never asks "save changes?".
+- **Changes from other programs**: a clean tab reloads automatically; a tab with unsaved edits shows a banner to load theirs or keep yours.
+
+**Find anything**
+
+- `Ctrl+K` opens the command palette: open tabs, recent files, files in the open folder, and every command. Prefixes: `>` commands, `#` search inside the folder's files, `:` go to line/page/row, `@` headings, `?` keyboard shortcuts.
+- Open a folder to get a file tree with every file type, and full-text search across the folder (respects `.gitignore`).
+
+**Export** (`Ctrl+E`) with an honest quality label on every format:
+
+| From | To |
+|---|---|
+| Markdown | Web page, plain text, PDF (through the print dialog) |
+| Text | PDF, web page |
+| CSV / TSV | JSON, Markdown table, web page, TSV/CSV |
+| JSON | CSV |
+| PDF | PNG images (one per page), plain text |
+| PNG / JPG | PDF |
+| Excel | CSV (one file per sheet, values only) |
+| Word | Markdown (headings and paragraphs) |
+| PowerPoint | Markdown (slide text and notes) |
+
+Conversions run through a registry that finds multi-step routes and labels the result by its weakest step (`src/lib/convert.ts`).
+
+**Look and feel**: light, dark or follow Windows; comfortable or compact density; focus mode (`F11`); a layout that adapts down to phone width.
+
+## Keyboard
+
+| Action | Shortcut |
+|---|---|
+| Command palette / quick open | `Ctrl+K`, `Ctrl+P` |
+| Commands only | `Ctrl+Shift+P` |
+| New Markdown note | `Ctrl+N` |
+| Open, Save, Save as | `Ctrl+O`, `Ctrl+S`, `Ctrl+Shift+S` |
+| Export | `Ctrl+E` |
+| Close tab, reopen closed tab | `Ctrl+W`, `Ctrl+Shift+T` |
+| Last used tab, next/previous tab, tab 1–9 | `Ctrl+Tab`, `Ctrl+PgDn`/`PgUp`, `Ctrl+1…9` |
+| Find in file, search in folder | `Ctrl+F`, `Ctrl+Shift+F` |
+| Toggle sidebar, focus mode, settings | `Ctrl+\`, `F11`, `Ctrl+,` |
+| Zoom | `Ctrl+=`, `Ctrl+-`, `Ctrl+0`, `Ctrl+wheel` |
+| Markdown bold, italic, link, headings | `Ctrl+B`, `Ctrl+I`, `Ctrl+Shift+K`, `Ctrl+Alt+1…3` |
+
+Everything else follows each format's usual keys (VS Code-style editing keys in text and code; spreadsheet keys in the CSV grid).
+
+## Known gaps in v0.1
+
+These are planned; none is hidden from the user in the app.
+
+| Gap | Planned in |
+|---|---|
+| **Editing** Word, Excel and PowerPoint files (they open as previews) | W3 — embedded Office engine, after spikes S1/S14 |
+| Markdown ↔ Word conversion, PDF → Word | Convert pack (Pandoc) |
+| Language servers, terminal, git panel, minimap | W5 — light workbench |
+| PDF: annotation list panel, highlight colours, sticky-note comments, certificate signatures | W2 follow-up / later |
+| Printing PDFs goes through page images | Later |
+| Tab hibernation (all open tabs stay in memory) | W3 |
+| The folder tree does not refresh itself (use the refresh button) | W4 follow-up |
+| Office lock files (`~$name`) are hidden but not created or respected | W6 |
+| Saved signatures are stored as plain images in the app's data folder (planned: encrypted) | W6 |
+| Native Mica title bar and Snap Layouts flyout (uses the standard Windows title bar) | W6 |
+| Code signing (SmartScreen warning on first run) | Optional |
+| Not yet exercised by hand on a Windows machine; performance budgets not yet measured there | First run on your PC |
+
+## Build and test
+
+Requirements: Node 22, pnpm 10, Rust (stable). On Windows: the WebView2 runtime and Visual Studio Build Tools (C++).
+
+```bash
+cd apps/desktop
+pnpm install
+pnpm tauri dev          # run the app with live reload
+pnpm tauri build        # Windows: installer in src-tauri/target/release/bundle/nsis/
+```
+
+Cross-compiling the Windows build from Linux (used during development; CI builds natively on Windows):
+
+```bash
+sudo apt install nsis mingw-w64
+rustup target add x86_64-pc-windows-gnu
+pnpm tauri build --target x86_64-pc-windows-gnu
+```
+
+Tests:
+
+| Command | What it checks |
+|---|---|
+| `pnpm test` | Unit tests: text codec byte round trips, CSV preservation, paths, fuzzy matching, conversion routing, PDF page tools (50 tests) |
+| `cd src-tauri && cargo test` | Rust: atomic writes (including symlinks and permissions), folder listing and search, version snapshots and pruning, recovery and state storage (12 tests) |
+| `pnpm build && pnpm preview --port 4173 & pnpm e2e` | 33 end-to-end user flows in Chromium, named after the flow IDs in `docs/flows/` plus regression checks from code review, checking the bytes written to disk |
+| `PRODUCTIVITY_SELF_TEST=<empty folder> <app exe>` | Self-test of the real app: exercises the file system bridge (binary, Unicode paths, byte-identical saves, versions, recovery, search) and writes `selftest-report.json` into the folder, then exits |
+
+GitHub Actions (`.github/workflows/windows.yml`) runs the unit and Rust tests, builds the installer and portable exe on Windows, runs the end-to-end flows on Linux, and publishes a release when a `v*` tag is pushed.
+
+## How it is built
+
+```
+apps/desktop/
+├── src-tauri/src/        Rust core: files.rs (atomic save, list, search), store.rs (versions, recovery, state), lib.rs (commands, watcher, single instance)
+├── src/platform/         The platform interface, with the Tauri implementation and an in-memory one for tests
+├── src/app/              State, file actions, command registry, keyboard, export converters, editor contract
+├── src/shell/            Tabs, toolbar, status bar, home, palette, sidebars, dialogs
+├── src/engines/          text (CodeMirror 6), csv, pdf (PDF.js + pdf-lib), office (previews), media
+├── src/lib/              Pure logic with tests: text codec, CSV model, paths, formats, fuzzy, conversion registry
+└── tests/                Corpus generators, sample files, end-to-end flows
+```
+
+Every format plugs into the shell through one contract (`src/app/editor-api.ts`): bytes in, bytes out; engines never touch the disk. The interface never calls Tauri directly, only `src/platform`, which is what will let the same interface run on Android and Apple devices later.
+
+Departures from the plan, recorded in `docs/decisions/0001-v0.1-implementation.md`: one package instead of a pnpm workspace of packages; CodeMirror 6 for all text (the multi-device decision); Office files as previews until the Office engine spikes run.

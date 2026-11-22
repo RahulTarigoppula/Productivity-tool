@@ -1,6 +1,6 @@
 # All-in-one productivity tool — plans and research
 
-Last updated: 2026-11-22 · Stage: research and planning complete, no application code yet
+Last updated: 2026-11-22 · Stage: **v0.1 of the Windows app is built** — see [apps/desktop](../apps/desktop/README.md)
 
 One local, single-window, multi-tab app for personal use that opens, creates, edits, connects, converts and saves office documents, spreadsheets, presentations, PDFs, Markdown, and any text or code file — on Windows first, then Android, then Mac and iPhone/iPad.
 
@@ -45,8 +45,22 @@ One local, single-window, multi-tab app for personal use that opens, creates, ed
 | [plans/05-risks-and-open-questions.md](plans/05-risks-and-open-questions.md) | Decisions needed from you, risks, licences, and what research could not confirm |
 | [research/](research/) | The research report and the fifteen sets of source notes behind these plans |
 
+## Where things stand
+
+| Release 1 phase | Status |
+|---|---|
+| W1 Shell, text and code, CSV | Done in v0.1 (minimap and sticky scroll not yet) |
+| W2 PDF | Done in v0.1 (annotation list panel, colours and comments not yet) |
+| W3 Office editing | Not started; Word, Excel and PowerPoint open as read-only previews |
+| W4 Connected | Partly: palette, folder search, links between files, export with quality labels, version history |
+| W5 Light workbench | Not started |
+| W6 Hardening | Started: installer, CI, self-test, 33 end-to-end flows |
+
+Decisions made while building are in [decisions/](decisions/).
+
 ## Where to start next session
 
 1. The first questions in `plans/05-risks-and-open-questions.md` are answered; the remaining ones can wait for their phases.
 2. Try ONLYOFFICE Desktop Editors for a few days and note what still feels wrong.
-3. Run the Phase 0 spikes in `plans/03-roadmap.md`, starting with S13, S1 and S14, and build the design prototype alongside.
+3. Install v0.1 on your PC and use it for a few days; note what feels wrong.
+4. Run spikes S1, S14 and S15 (the Office engine) to start W3.

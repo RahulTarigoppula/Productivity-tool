@@ -1,0 +1,111 @@
+/* Design tokens (docs/plans/07-ux-ui-design.md). Light, dark and follow-system. */
+:root {
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-doc: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Georgia, serif;
+  --font-mono: "Cascadia Code", "Cascadia Mono", Consolas, "SF Mono", Menlo, "DejaVu Sans Mono", monospace;
+
+  --radius-s: 4px;
+  --radius-m: 6px;
+  --radius-l: 10px;
+
+  --row-tabs: 40px;
+  --row-toolbar: 40px;
+  --row-status: 26px;
+  --pad: 12px;
+
+  --motion: 120ms;
+  --shadow-pop: 0 10px 34px rgba(0, 0, 0, 0.16), 0 2px 8px rgba(0, 0, 0, 0.08);
+
+  --bg: #f4f4f6;
+  --chrome: #f4f4f6;
+  --surface: #ffffff;
+  --surface-2: #f7f7f9;
+  --hover: rgba(20, 20, 40, 0.06);
+  --press: rgba(20, 20, 40, 0.1);
+  --border: #e2e2e8;
+  --border-strong: #cdcdd6;
+  --text: #1c1c22;
+  --text-2: #565662;
+  --text-3: #8b8b96;
+  --accent: #4560e6;
+  --accent-text: #ffffff;
+  --accent-soft: rgba(69, 96, 230, 0.12);
+  --selection: rgba(69, 96, 230, 0.2);
+  --ok: #218a4f;
+  --warn: #a86400;
+  --warn-soft: #fff4dd;
+  --danger: #c4314b;
+  --danger-soft: #fde7ea;
+  --info-soft: #e8edff;
+
+  --k-text: #6b7280;
+  --k-markdown: #4560e6;
+  --k-csv: #1f8a5a;
+  --k-pdf: #d0453c;
+  --k-docx: #2b62c9;
+  --k-xlsx: #1d7a46;
+  --k-pptx: #c4522a;
+  --k-image: #8a4fd6;
+
+  --syn-keyword: #a626a4;
+  --syn-string: #2b7a3d;
+  --syn-number: #b35c00;
+  --syn-comment: #8b8b96;
+  --syn-func: #2c5fd6;
+  --syn-type: #b0452c;
+  --syn-prop: #1d6b8f;
+  --syn-meta: #6f42c1;
+  --syn-heading: #1c1c22;
+  --syn-link: #4560e6;
+  color-scheme: light;
+}
+
+:root[data-density="compact"] {
+  --row-tabs: 34px;
+  --row-toolbar: 34px;
+  --row-status: 24px;
+  --pad: 8px;
+}
+
+
+:root[data-theme="dark"] {
+  --bg: #18181c;
+  --chrome: #1d1d22;
+  --surface: #232328;
+  --surface-2: #28282e;
+  --hover: rgba(255, 255, 255, 0.07);
+  --press: rgba(255, 255, 255, 0.12);
+  --border: #33333a;
+  --border-strong: #45454e;
+  --text: #ececf1;
+  --text-2: #a9a9b4;
+  --text-3: #74747f;
+  --accent: #8197ff;
+  --accent-text: #11131c;
+  --accent-soft: rgba(129, 151, 255, 0.16);
+  --selection: rgba(129, 151, 255, 0.3);
+  --ok: #4cc283;
+  --warn: #e3a33b;
+  --warn-soft: #3a2f1a;
+  --danger: #ff6b81;
+  --danger-soft: #3d2229;
+  --info-soft: #262c45;
+  --shadow-pop: 0 12px 40px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --syn-keyword: #d590e8;
+  --syn-string: #8fcf8a;
+  --syn-number: #f0a868;
+  --syn-comment: #7c7c88;
+  --syn-func: #86a8ff;
+  --syn-type: #f08f73;
+  --syn-prop: #6ec6e6;
+  --syn-meta: #b9a0ff;
+  --syn-heading: #ececf1;
+  --syn-link: #8197ff;
+  color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion: 0ms;
+  }
+}

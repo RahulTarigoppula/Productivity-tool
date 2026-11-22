@@ -40,6 +40,7 @@ if (platform.kind === "browser") {
 
 // Built-in self-test of the real file system bridge (run with PRODUCTIVITY_SELF_TEST=<folder>).
 if (platform.kind === "tauri") {
+  void import("./app/backButton").then((m) => m.installBackButton()).catch(() => {});
   void import("@tauri-apps/api/core").then(({ invoke }) =>
     invoke<string | null>("self_test_dir").then((dir) => {
       if (dir) void import("./selftest").then((m) => m.runSelfTest(dir));

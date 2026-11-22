@@ -20,7 +20,7 @@
         "font-src": "'self' data:",
         "worker-src": "'self' blob:",
         "connect-src": "'self' ipc: http://ipc.localhost blob: data:",
-        "frame-src": "'self' blob: office: http://office.localhost https://office.localhost",
+        "frame-src": "'self' blob: office: http://*.localhost https://*.localhost",
         "object-src": "'none'",
         "form-action": "'none'",
         "base-uri": "'none'",

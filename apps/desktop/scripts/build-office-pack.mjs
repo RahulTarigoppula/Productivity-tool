@@ -134,6 +134,24 @@ walk(join(out, "sdkjs"), (p) => /\.map$/.test(p) && rmSync(p));
 walk(join(out, "sdkjs"), (p) => /_ie\.js$/.test(p) && rmSync(p));
 rm("sdkjs/pdf");
 
+// ---------- hardening ----------
+// Documents must never run code: turn off macros and plugins in the editors' configuration.
+// (Macro "sandboxing" in the editors can be escaped, so they are disabled outright.)
+{
+  const shells = readdirSync(join(out, "assets")).filter((f) => /^document-.*\.js$/.test(f));
+  let patched = 0;
+  for (const f of shells) {
+    const p = join(out, "assets", f);
+    const src = readFileSync(p, "utf8");
+    const next = src.replace("customization:{help:!1,", 'customization:{help:!1,macros:!1,macrosMode:"disable",plugins:!1,');
+    if (next !== src) {
+      writeFileSync(p, next);
+      patched++;
+    }
+  }
+  if (patched !== 1) throw new Error(`Expected to disable macros in one editor shell, patched ${patched}`);
+}
+
 // ---------- fonts ----------
 const fontsSrc = fetchSparse(FONTS_REPO, "fonts");
 const allFonts = readFileSync(join(out, "sdkjs/common/AllFonts.js"), "utf8").replace(/^﻿/, "");

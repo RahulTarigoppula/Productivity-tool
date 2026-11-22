@@ -127,8 +127,8 @@ export async function runSelfTest(dir: string) {
       const frame = document.querySelector("section.doc-pane:not([hidden]) .office-frame, .office-frame") as HTMLIFrameElement | null;
       assert(frame?.contentWindow, "no editor frame");
       const { officeOriginOf } = await import("./engines/office/OfficeEditor");
-      const origin = officeOriginOf(platform.officeUrl("editor"));
-      const result = await new Promise<{ hasIpc: boolean; ipcWorks: boolean } | null>((resolve) => {
+      const origin = officeOriginOf(frame!.src);
+      const result = await new Promise<{ hasIpc: boolean; ipcWorks: boolean; ipcHung?: boolean; siblingAccess?: boolean } | null>((resolve) => {
         const on = (e: MessageEvent) => {
           if (e.origin === origin && e.data?.type === "office:probe-result") {
             window.removeEventListener("message", on);
@@ -141,7 +141,9 @@ export async function runSelfTest(dir: string) {
       });
       assert(result, "no answer from the editor bridge");
       timings.officeFrameHasIpcObject = result!.hasIpc ? 1 : 0;
+      timings.officeFrameIpcHung = result!.ipcHung ? 1 : 0;
       assert(!result!.ipcWorks, "the editor frame could call an app command");
+      assert(!result!.siblingAccess, "one tab's editor could reach another tab's editor");
     });
   }
 

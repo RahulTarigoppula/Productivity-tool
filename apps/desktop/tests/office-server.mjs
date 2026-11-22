@@ -12,7 +12,8 @@ const port = Number(process.env.OFFICE_PORT ?? 4180);
 const parent = process.env.APP_ORIGIN ?? "http://localhost:1420";
 const pack = JSON.parse(readFileSync(join(root, "pack.json"), "utf8"));
 const rust = readFileSync(join(here, "..", "src-tauri", "src", "office.rs"), "utf8");
-const bridge = rust.split('pub const BRIDGE_JS: &str = r#"')[1].split('"#;')[0];
+// Same bridge as the app; the tests run against the dev origin, as a debug build allows.
+const bridge = rust.split('pub const BRIDGE_JS: &str = r#"')[1].split('"#;')[0].replace("/*DEV_ORIGINS*/", `, '${parent}'`);
 const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".json": "application/json", ".wasm": "application/wasm", ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf" };
 const csp = `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data: blob:; connect-src 'self' data: blob:; worker-src 'self' blob:; frame-src 'self' blob:; child-src 'self' blob:; media-src 'self' blob: data:; form-action 'none'; base-uri 'self'; object-src 'none'; frame-ancestors 'self' ${parent}`;
 
@@ -38,4 +39,4 @@ createServer((req, res) => {
     body = Buffer.from(body.toString("utf8").replace("<head>", '<head><script src="/__app_bridge.js"></script>'));
   }
   send(200, types[extname(p)] ?? "application/octet-stream", body);
-}).listen(port, "127.0.0.1", () => console.log(`office pack on http://127.0.0.1:${port} (embeddable by ${parent})`));
+}).listen(port, () => console.log(`office pack on http://localhost:${port}, one origin per tab as http://<tab>.localhost:${port} (embeddable by ${parent})`));

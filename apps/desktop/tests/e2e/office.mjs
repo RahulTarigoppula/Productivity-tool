@@ -12,7 +12,7 @@ const corpus = join(here, "..", "corpus");
 const shots = process.env.SHOTS ?? join(here, "..", "..", "test-results");
 mkdirSync(shots, { recursive: true });
 const APP = process.env.APP_URL ?? "http://localhost:1420/";
-const OFFICE = process.env.OFFICE_URL ?? "http://127.0.0.1:4180";
+const OFFICE = process.env.OFFICE_URL ?? "http://localhost:4180";
 
 const results = [];
 let page;
@@ -35,7 +35,7 @@ const frameBox = async () => page.locator("section.doc-pane:not([hidden]) .offic
   await ctx.addInitScript((u) => { window.__OFFICE_URL = u; }, OFFICE);
   page = await ctx.newPage();
   page.on("pageerror", (e) => errors.push(e.message));
-  page.on("request", (r) => { const u = new URL(r.url()); if (!["localhost", "127.0.0.1"].includes(u.hostname) && !/^(data|blob):/.test(r.url())) errors.push("Outbound request: " + r.url()); });
+  page.on("request", (r) => { const u = new URL(r.url()); if (!["localhost", "127.0.0.1"].includes(u.hostname) && !u.hostname.endsWith(".localhost") && !/^(data|blob):/.test(r.url())) errors.push("Outbound request: " + r.url()); });
   await page.goto(APP);
   await page.waitForFunction(() => window.__app && window.__fs);
   for (const f of ["report.docx", "budget.xlsx", "deck.pptx"]) await page.evaluate(([p, b]) => window.__fs.write(p, new Uint8Array(b)), [`/work/${f}`, Array.from(readFileSync(join(corpus, f)))]);
@@ -126,6 +126,34 @@ const frameBox = async () => page.locator("section.doc-pane:not([hidden]) .offic
     await waitFor(async () => !!(await fsRead("/work/new.docx")), 20000, "file created");
     assert((await zipText(await fsRead("/work/new.docx"))).includes("Brand new document"), "text not saved");
     assert((await activeTab()).name === "new.docx", "tab not renamed after first save");
+  });
+
+  await check("O-9", "each tab's editor is isolated; a background editor cannot trigger app shortcuts", async () => {
+    const editors = page.frames().filter((f) => /\/editor\?/.test(f.url()));
+    assert(editors.length >= 2, `expected several editor frames, found ${editors.length}`);
+    const origins = new Set(editors.map((f) => new URL(f.url()).origin));
+    assert(origins.size === editors.length, "two tabs share an editor origin");
+    for (const f of editors) {
+      const reached = await f.evaluate(() => {
+        let n = 0;
+        for (let i = 0; i < window.top.frames.length; i++) {
+          const w = window.top.frames[i];
+          if (w === window) continue;
+          try { if (w.document && w.editor !== undefined) n++; else if (w.document) n++; } catch { /* blocked, as it should be */ }
+        }
+        return n;
+      });
+      assert(reached === 0, `the editor at ${new URL(f.url()).host} could reach ${reached} other editor(s)`);
+    }
+    // A hidden tab forges Ctrl+, (settings) and the visible one forges a key the bridge never sends.
+    const active = await page.locator("section.doc-pane:not([hidden]) .office-frame").getAttribute("src");
+    const hidden = editors.find((f) => f.url() !== active);
+    const shown = editors.find((f) => f.url() === active);
+    await hidden.evaluate(() => window.top.postMessage({ type: "office:key", key: ",", ctrlKey: true }, "*"));
+    await shown.evaluate(() => window.top.postMessage({ type: "office:key", key: "F", ctrlKey: true, shiftKey: true }, "*"));
+    await page.waitForTimeout(600);
+    assert(!(await page.getByRole("dialog").count()), "a forged shortcut opened a dialog");
+    assert(!(await page.locator("[cmdk-input]").isVisible().catch(() => false)), "a forged shortcut opened the palette");
   });
 
   await page.screenshot({ path: join(shots, "office-final.png") });

@@ -188,8 +188,8 @@ function Export() {
       }
       closeDialog();
       toast(written.length > 1 ? `Exported ${written.length} files${loss ? " — " + loss : ""}` : `Exported ${basename(written[0])}`, "info", {
-        label: written.length > 1 ? "Show in folder" : "Open",
-        run: () => (written.length > 1 ? void platform.reveal(written[0]) : void openPath(written[0])),
+        label: written.length > 1 && platform.folders ? "Show in folder" : "Open",
+        run: () => (written.length > 1 && platform.folders ? void platform.reveal(written[0]) : void openPath(written[0])),
       });
     } catch (e) {
       toast(`Export failed: ${e instanceof Error ? e.message : e}`, "error");

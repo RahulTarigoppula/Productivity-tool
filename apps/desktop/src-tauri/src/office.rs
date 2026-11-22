@@ -1,7 +1,8 @@
-//! Serves the Office pack (Euro-Office / ONLYOFFICE editors, offline) on its own origin,
-//! `office://localhost` (`http://office.localhost` on Windows). Running on a separate origin keeps
-//! the editors isolated from the app's file-system commands: they talk to the app only through
-//! postMessage, and the app decides what to read and write.
+//! Serves the Office pack (Euro-Office / ONLYOFFICE editors, offline) on origins of its own.
+//! Every editor tab gets its own host, `office://<tab>.localhost` (`http://office.<tab>.localhost`
+//! on Windows and Android), so one document's editor cannot reach another tab's editor, and none
+//! of them is treated by Tauri as the app's own (local) origin. The editors talk to the app only
+//! through postMessage, and the app decides what to read and write.
 
 use serde::Serialize;
 use std::fs;
@@ -22,11 +23,14 @@ pub struct PackInfo {
 static ROOT: OnceLock<Option<(PathBuf, String)>> = OnceLock::new();
 
 /// Find the pack: next to the installed app (resources), next to a portable exe, in the user's
-/// data folder, or where PRODUCTIVITY_OFFICE_PACK points. Returns the folder and fallback font.
+/// data folder, or (debug builds) where PRODUCTIVITY_OFFICE_PACK points. Returns the folder and fallback font.
 fn locate(app: &tauri::AppHandle) -> Option<(PathBuf, String)> {
     let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Ok(p) = std::env::var("PRODUCTIVITY_OFFICE_PACK") {
-        candidates.push(PathBuf::from(p));
+    // Development only: release builds never take the pack from an environment variable.
+    if cfg!(debug_assertions) {
+        if let Ok(p) = std::env::var("PRODUCTIVITY_OFFICE_PACK") {
+            candidates.push(PathBuf::from(p));
+        }
     }
     if let Ok(r) = app.path().resource_dir() {
         candidates.push(r.join("office"));
@@ -97,7 +101,7 @@ pub const BRIDGE_JS: &str = r#"(function () {
   'use strict';
   if (window.__appBridge) return; window.__appBridge = true;
   try { if (navigator.serviceWorker) { navigator.serviceWorker.register = function () { return Promise.reject(new Error('disabled')); }; } } catch (e) {}
-  var ALLOWED = ['tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost', 'http://localhost:1420'];
+  var ALLOWED = ['tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost'/*DEV_ORIGINS*/];
   function appOrigin() {
     // Walk up through same-origin editor frames to the outer editor page, whose URL carries
     // embedOrigin. Reading a cross-origin parent throws, which marks the top of our frames.
@@ -138,10 +142,23 @@ pub const BRIDGE_JS: &str = r#"(function () {
     var d = e.data || {};
     if (d.type === 'office:probe') {
       // Lets the app's self-test confirm the editors cannot reach the app's file commands.
+      // It also checks that this editor cannot reach the editors of other tabs.
       var internals = typeof window.__TAURI_INTERNALS__ !== 'undefined';
-      var reply = function (works) { toApp({ type: 'office:probe-result', hasIpc: internals, ipcWorks: works }); };
+      var sibling = false;
+      try {
+        for (var f = 0; f < window.top.frames.length; f++) {
+          var other = window.top.frames[f];
+          if (other === window) continue;
+          try { if (other.document && other.location.href) sibling = true; } catch (x) {}
+        }
+      } catch (x) {}
+      var done = false;
+      var reply = function (works, hung) { if (done) return; done = true; toApp({ type: 'office:probe-result', hasIpc: internals, ipcWorks: works, ipcHung: !!hung, siblingAccess: sibling }); };
       if (!internals) reply(false);
-      else { try { window.__TAURI_INTERNALS__.invoke('state_get', { name: 'settings' }).then(function () { reply(true); }, function () { reply(false); }); } catch (x) { reply(false); } }
+      else {
+        setTimeout(function () { reply(false, true); }, 3000);
+        try { window.__TAURI_INTERNALS__.invoke('state_get', { name: 'settings' }).then(function () { reply(true); }, function () { reply(false); }); } catch (x) { reply(false); }
+      }
     }
     if (d.type === 'office:theme') {
       try { document.documentElement.setAttribute('data-ran-theme', d.theme === 'dark' ? 'dark' : 'light'); document.documentElement.setAttribute('theme', d.theme === 'dark' ? 'dark' : 'light'); } catch (x) {}
@@ -197,8 +214,8 @@ fn percent_decode(s: &str) -> String {
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
     while i < b.len() {
-        if b[i] == b'%' && i + 2 < b.len() {
-            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+        if b[i] == b'%' && i + 3 <= b.len() {
+            if let Some(v) = std::str::from_utf8(&b[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok()) {
                 out.push(v);
                 i += 3;
                 continue;
@@ -254,13 +271,30 @@ fn respond(status: StatusCode, ctype: &str, body: Vec<u8>) -> Response<Vec<u8>> 
         .unwrap()
 }
 
+/// Origins the bridge accepts messages from: the app itself, plus the dev server in debug builds.
+pub fn bridge_js() -> String {
+    let dev = if cfg!(debug_assertions) { ", 'http://localhost:1420'" } else { "" };
+    BRIDGE_JS.replace("/*DEV_ORIGINS*/", dev)
+}
+
+/// Each editor tab uses its own host: a short lowercase name followed by `.localhost`.
+pub fn valid_host(host: &str) -> bool {
+    match host.strip_suffix(".localhost") {
+        Some(name) => !name.is_empty() && name.len() <= 40 && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()),
+        None => false,
+    }
+}
+
 pub fn handle(app: &tauri::AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
     let Some((root, fallback)) = root(app) else {
         return respond(StatusCode::NOT_FOUND, "text/plain", b"Office pack not installed".to_vec());
     };
+    if !valid_host(request.uri().host().unwrap_or("")) {
+        return respond(StatusCode::FORBIDDEN, "text/plain", b"Not found".to_vec());
+    }
     let path = request.uri().path();
     if path == "/__app_bridge.js" {
-        return respond(StatusCode::OK, "text/javascript; charset=utf-8", BRIDGE_JS.as_bytes().to_vec());
+        return respond(StatusCode::OK, "text/javascript; charset=utf-8", bridge_js().into_bytes());
     }
     let Some(file) = resolve(root, fallback, path) else {
         return respond(StatusCode::NOT_FOUND, "text/plain", b"Not found".to_vec());
@@ -301,6 +335,30 @@ mod tests {
         assert_eq!(resolve(&root, "117", "/%2e%2e/secret.txt"), None);
         assert_eq!(resolve(&root, "117", "/fonts/..%2f..%2fsecret.txt"), None);
         assert_eq!(resolve(&root, "117", "/missing.js"), None);
+    }
+
+    #[test]
+    fn each_tab_has_its_own_host() {
+        assert!(valid_host("t3f9a2c41.localhost"));
+        assert!(!valid_host("localhost"));
+        assert!(!valid_host(".localhost"));
+        assert!(!valid_host("a.b.localhost"));
+        assert!(!valid_host("T1.localhost"));
+        assert!(!valid_host("t1.example.com"));
+    }
+
+    #[test]
+    fn percent_decoding_handles_the_last_escape() {
+        assert_eq!(percent_decode("a%20b%2F"), "a b/");
+        assert_eq!(percent_decode("bad%2"), "bad%2");
+        assert_eq!(percent_decode("%zz"), "%zz");
+        assert_eq!(percent_decode("%é"), "%é");
+    }
+
+    #[test]
+    fn dev_origin_is_allowed_only_in_debug_builds() {
+        assert_eq!(bridge_js().contains("localhost:1420"), cfg!(debug_assertions));
+        assert!(!bridge_js().contains("DEV_ORIGINS"));
     }
 
     #[test]

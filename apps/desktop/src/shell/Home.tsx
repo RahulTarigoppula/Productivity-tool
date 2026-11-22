@@ -108,11 +108,13 @@ export function Home() {
             <span className="t">Open file</span>
             <span className="d">Ctrl+O</span>
           </button>
-          <button className="tile" onClick={() => void openFolder()}>
-            <FolderOpen style={{ color: "var(--accent)" }} />
-            <span className="t">Open folder</span>
-            <span className="d">Browse and search</span>
-          </button>
+          {platform.folders && (
+            <button className="tile" onClick={() => void openFolder()}>
+              <FolderOpen style={{ color: "var(--accent)" }} />
+              <span className="t">Open folder</span>
+              <span className="d">Browse and search</span>
+            </button>
+          )}
         </div>
         {pinnedItems.length > 0 && (
           <>

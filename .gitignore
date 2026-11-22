@@ -3,7 +3,7 @@ dist/
 target/
 *.log
 .DS_Store
-apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/gen/schemas/
 test-results/
 playwright-report/
 apps/desktop/public/vendor/

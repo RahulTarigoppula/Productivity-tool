@@ -1,7 +1,18 @@
 import { describe, it, expect } from "vitest";
-import { basename, dirname, extname, join, relative, resolve, samePath, withExtension, isRemoteOrDevicePath, resolveDocumentRef } from "./paths";
+import { isContentUri, rememberName, basename, dirname, extname, join, relative, resolve, samePath, withExtension, isRemoteOrDevicePath, resolveDocumentRef } from "./paths";
 
 describe("paths", () => {
+  it("names Android documents by their display name, with no folder", () => {
+    const uri = "content://com.android.providers.downloads.documents/document/msf%3A1000";
+    expect(isContentUri(uri)).toBe(true);
+    expect(basename(uri)).toBe("1000");
+    rememberName(uri, "Budget.xlsx");
+    expect(basename(uri)).toBe("Budget.xlsx");
+    expect(extname(uri)).toBe("xlsx");
+    expect(dirname(uri)).toBe("");
+    expect(basename("content://com.android.externalstorage.documents/document/primary%3ADocuments%2Fnotes.md")).toBe("notes.md");
+    expect(resolveDocumentRef(dirname(uri), "image.png")).toBe(null);
+  });
   it("handles Windows and POSIX paths", () => {
     expect(basename("C:\\Users\\me\\notes.md")).toBe("notes.md");
     expect(dirname("C:\\Users\\me\\notes.md")).toBe("C:\\Users\\me");

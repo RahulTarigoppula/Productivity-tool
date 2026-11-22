@@ -1,0 +1,91 @@
+name: Android build
+
+on:
+  push:
+    branches: [main]
+    paths: ["apps/desktop/**", ".github/workflows/android.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build the APK (arm64 phones; x86_64 for emulators)
+        run: |
+          export NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          pnpm tauri android build --apk --target aarch64 --target x86_64
+
+      # Android installs only signed apps. Use the stable key from the repository's secrets when
+      # it is set (so updates install over the previous version); otherwise sign with a key made
+      # for this run (installing a later build then needs the old one removed first).
+      - name: Sign the APK
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk -name "*release-unsigned.apk" | head -1)
+          test -n "$APK"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          KS="$RUNNER_TEMP/release.jks"
+          if [ -n "${KEYSTORE_B64:-}" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$KS"
+            PASS="$KEYSTORE_PASSWORD"; ALIAS="$KEY_ALIAS"; KIND="stable key"
+          else
+            PASS=$(openssl rand -hex 16); ALIAS=productivity; KIND="one-off key for this build"
+            keytool -genkeypair -keystore "$KS" -storepass "$PASS" -keypass "$PASS" -alias "$ALIAS" \
+              -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=Productivity" -noprompt
+          fi
+          VER=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          mkdir -p release-files
+          OUT="release-files/Productivity_${VER}_android.apk"
+          "$BT/zipalign" -f -p 4 "$APK" "$RUNNER_TEMP/aligned.apk"
+          "$BT/apksigner" sign --ks "$KS" --ks-pass "pass:$PASS" --ks-key-alias "$ALIAS" --out "$OUT" "$RUNNER_TEMP/aligned.apk"
+          "$BT/apksigner" verify --print-certs "$OUT" | head -3
+          rm -f "$KS"
+          echo "Signed with: $KIND" | tee release-files/SIGNING.txt
+          (cd release-files && sha256sum *.apk > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          ls -la release-files
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: productivity-android
+          path: apps/desktop/release-files/*

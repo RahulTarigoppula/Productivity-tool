@@ -58,10 +58,12 @@ export interface OfficePackInfo {
 
 export interface Platform {
   kind: "tauri" | "browser";
+  /** False on Android: documents come one at a time from the system picker, with no folders. */
+  folders: boolean;
   /** Whether the Office editing pack is installed. */
   officePack(): Promise<OfficePackInfo>;
-  /** URL of a file inside the Office pack (served on its own origin). */
-  officeUrl(path: string): string;
+  /** URL of a page in the Office pack. `session` gives the page an origin of its own (one per tab). */
+  officeUrl(path: string, session?: string): string;
   readFile(path: string): Promise<Uint8Array>;
   /** Safe write. With snapshot=true the previous content is kept as a version first. */
   writeFile(path: string, bytes: Uint8Array, opts?: { snapshot?: boolean }): Promise<FileMeta>;

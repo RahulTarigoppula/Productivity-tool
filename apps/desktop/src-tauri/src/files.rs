@@ -16,20 +16,25 @@ pub struct FileMeta {
     pub readonly: bool,
 }
 
+impl FileMeta {
+    pub fn missing() -> Self {
+        FileMeta { exists: false, size: 0, modified: 0, readonly: false }
+    }
+}
+
+pub fn millis(t: Option<std::time::SystemTime>) -> u64 {
+    t.and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
 pub fn meta(path: &Path) -> FileMeta {
     match fs::metadata(path) {
         Ok(m) => FileMeta {
             exists: true,
             size: m.len(),
-            modified: m
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0),
+            modified: millis(m.modified().ok()),
             readonly: m.permissions().readonly(),
         },
-        Err(_) => FileMeta { exists: false, size: 0, modified: 0, readonly: false },
+        Err(_) => FileMeta::missing(),
     }
 }
 

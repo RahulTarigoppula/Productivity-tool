@@ -58,10 +58,15 @@ export function createBrowserPlatform(): Platform {
 
   const platform: Platform = {
     kind: "browser",
+    folders: true,
     async officePack() {
       return { available: !!officeBase() };
     },
-    officeUrl: (path) => `${officeBase()}/${path.replace(/^\//, "")}`,
+    officeUrl: (path, session) => {
+      // Tests serve the pack on http://localhost:PORT; each tab gets <session>.localhost.
+      const base = session ? officeBase()!.replace("//localhost", `//${session}.localhost`) : officeBase();
+      return `${base}/${path.replace(/^\//, "")}`;
+    },
     async readFile(path) {
       const f = files.get(path);
       if (!f) throw new Error(`Could not open ${path}: not found`);

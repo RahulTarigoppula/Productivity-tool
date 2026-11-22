@@ -1,8 +1,10 @@
 //! Productivity desktop core: the commands the interface calls.
 
+mod android;
 mod files;
 mod office;
 mod store;
+mod uri;
 
 use files::{FileMeta, SearchOptions};
 use notify::{RecursiveMode, Watcher};
@@ -25,7 +27,7 @@ fn percent_decode(s: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
+        if bytes[i] == b'%' && i + 3 <= bytes.len() {
             if let (Some(h), Some(l)) = (hex(bytes.get(i + 1)), hex(bytes.get(i + 2))) {
                 out.push(h * 16 + l);
                 i += 3;
@@ -59,22 +61,40 @@ fn body_bytes(request: &Request<'_>) -> Result<Vec<u8>, String> {
 }
 
 #[tauri::command]
-async fn read_file(path: String) -> Result<Response, String> {
-    tauri::async_runtime::spawn_blocking(move || files::read(Path::new(&path)).map(Response::new))
+async fn read_file(path: String, app: tauri::AppHandle) -> Result<Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if uri::is_content_uri(&path) {
+            uri::read(&app, &path).map(Response::new)
+        } else {
+            files::read(Path::new(&path)).map(Response::new)
+        }
+    })
         .await
         .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn file_meta(path: String) -> FileMeta {
+fn file_meta(path: String, app: tauri::AppHandle) -> FileMeta {
+    if uri::is_content_uri(&path) {
+        return uri::meta(&app, &path);
+    }
     files::meta(Path::new(&path))
 }
 
 /// Raw body = file bytes. Headers: x-path (percent-encoded), x-snapshot ("1" to keep the previous version).
 #[tauri::command]
-async fn write_file(request: Request<'_>, state: tauri::State<'_, AppState>) -> Result<FileMeta, String> {
+async fn write_file(request: Request<'_>, state: tauri::State<'_, AppState>, app: tauri::AppHandle) -> Result<FileMeta, String> {
     let path = header(&request, "x-path").ok_or("Missing path")?;
     let bytes = body_bytes(&request)?;
+    if uri::is_content_uri(&path) {
+        // Android documents are rewritten in place, so always keep the previous content first.
+        if let Ok(old) = uri::read(&app, &path) {
+            let reason = if state.store.has_snapshots(&path) { "before save" } else { "original" };
+            state.store.snapshot_write(&path, &old, reason)?;
+        }
+        uri::write(&app, &path, &bytes)?;
+        return Ok(uri::meta(&app, &path));
+    }
     let p = PathBuf::from(&path);
     if header(&request, "x-snapshot").as_deref() == Some("1") && p.exists() {
         store::snapshot_before_overwrite(&state.store, &p);
@@ -170,6 +190,9 @@ fn recovery_clear(id: String, state: tauri::State<'_, AppState>) {
 /// a save replaces the file, and the interface ignores events for files it has not opened.
 #[tauri::command]
 fn watch_file(path: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    if uri::is_content_uri(&path) {
+        return Ok(()); // Android documents cannot be watched.
+    }
     let p = PathBuf::from(&path);
     let Some(dir) = p.parent().map(|d| d.to_path_buf()) else { return Ok(()) };
     let mut watched = state.watched.lock().unwrap();
@@ -306,9 +329,34 @@ fn file_args(args: &[String], cwd: Option<&str>) -> Vec<String> {
         .collect()
 }
 
+/// True when an IPC request comes from an Office editor page (its Origin header names the
+/// `office` protocol). Tauri judges IPC by the window's top-level page, so this second check makes
+/// sure a document's editor can never call the app's commands, even if it could reach the IPC.
+fn from_office_origin(origin: Option<&str>) -> bool {
+    let Some(o) = origin else { return false };
+    let o = o.to_ascii_lowercase();
+    o.starts_with("office:") || o.starts_with("http://office.") || o.starts_with("https://office.")
+}
+
+fn guarded<R: tauri::Runtime>(
+    handler: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
+) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    move |invoke| {
+        let origin = invoke.message.headers().get("origin").and_then(|v| v.to_str().ok());
+        if from_office_origin(origin) {
+            invoke.resolver.reject("Not allowed from a document editor.");
+            return true;
+        }
+        handler(invoke)
+    }
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+    let builder = tauri::Builder::default();
+    // A second launch (for example double-clicking another file) hands its files to the open window.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             let paths = file_args(&argv, Some(&cwd));
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();
@@ -317,23 +365,29 @@ pub fn run() {
             if !paths.is_empty() {
                 let _ = app.emit("open-files", paths);
             }
-        }))
+        }));
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(android::plugin());
+    builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         // The Office editors are served from the installed pack on their own origin.
         .register_asynchronous_uri_scheme_protocol("office", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             std::thread::spawn(move || responder.respond(office::handle(&app, &request)));
         })
         .setup(|app| {
-            tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
-                .title("Productivity")
-                .inner_size(1280.0, 820.0)
-                .min_inner_size(360.0, 480.0)
-                .center()
+            let window = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()));
+            #[cfg(desktop)]
+            let window = window.title("Productivity").inner_size(1280.0, 820.0).min_inner_size(360.0, 480.0).center();
+            window
                 // The window only ever shows the app's own pages; documents cannot navigate it away.
                 .on_navigation(|u| {
                     let host = u.host_str().unwrap_or("");
+                    // Office editor frames (their own scheme, or http://office.<tab>.localhost).
+                    let office = u.scheme() == "office" || (host.starts_with("office.") && host.ends_with(".localhost"));
                     u.scheme() == "tauri"
+                        || office
                         || host == "tauri.localhost"
                         || (cfg!(debug_assertions) && (host == "localhost" || host == "127.0.0.1"))
                 })
@@ -360,7 +414,7 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(guarded(tauri::generate_handler![
             read_file,
             file_meta,
             write_file,
@@ -382,8 +436,12 @@ pub fn run() {
             self_test_dir,
             office_pack_info,
             reveal_in_folder,
-            open_external
-        ])
+            open_external,
+            android::android_pick,
+            android::android_create,
+            android::android_info,
+            android::android_take_opened
+        ]))
         .run(tauri::generate_context!())
         .expect("error while running application");
 }
@@ -412,10 +470,21 @@ mod tests {
     }
 
     #[test]
+    fn office_pages_cannot_call_commands() {
+        assert!(from_office_origin(Some("http://office.t1a2.localhost")));
+        assert!(from_office_origin(Some("office://t1a2.localhost")));
+        assert!(from_office_origin(Some("HTTPS://OFFICE.x.localhost")));
+        assert!(!from_office_origin(Some("http://tauri.localhost")));
+        assert!(!from_office_origin(Some("tauri://localhost")));
+        assert!(!from_office_origin(None));
+    }
+
+    #[test]
     fn decodes_percent_encoded_paths() {
         assert_eq!(percent_decode("C%3A%5CUsers%5Cr%C3%A9sum%C3%A9.docx"), "C:\\Users\\résumé.docx");
         assert_eq!(percent_decode("plain"), "plain");
         assert_eq!(percent_decode("bad%zz"), "bad%zz");
         assert_eq!(percent_decode("end%2"), "end%2");
+        assert_eq!(percent_decode("a%41"), "aA");
     }
 }

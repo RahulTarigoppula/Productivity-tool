@@ -21,7 +21,7 @@ class EngineBoundary extends Component<{ children: ReactNode; tab: Tab }, { erro
         <div>{this.state.error}</div>
         <div className="acts">
           {tab.kind !== "text" && <button className="btn" onClick={() => void reopenAs(tab.id, "text")}>Open as text</button>}
-          {tab.path && <button className="btn" onClick={() => void platform.openExternal(tab.path!)}>Open in default app</button>}
+          {tab.path && platform.folders && <button className="btn" onClick={() => void platform.openExternal(tab.path!)}>Open in default app</button>}
           <button className="btn subtle" onClick={() => void closeTab(tab.id)}>Close</button>
         </div>
       </div>
@@ -113,7 +113,7 @@ export function DocPane({ tab, active }: { tab: Tab; active: boolean }) {
             <h3>{tab.name} could not be opened</h3>
             <div>{tab.error}</div>
             <div className="acts">
-              {tab.path && <button className="btn" onClick={() => void platform.reveal(tab.path!)}>Show in folder</button>}
+              {tab.path && platform.folders && <button className="btn" onClick={() => void platform.reveal(tab.path!)}>Show in folder</button>}
               <button className="btn subtle" onClick={() => void closeTab(tab.id)}>Close</button>
             </div>
           </div>

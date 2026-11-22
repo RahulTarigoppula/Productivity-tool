@@ -35,7 +35,7 @@ export function shellCommands(): Command[] {
     { id: "file.newXlsx", title: "New spreadsheet (Excel)", group: "File", run: () => void newOfficeFile("xlsx") },
     { id: "file.newPptx", title: "New presentation (PowerPoint)", group: "File", run: () => void newOfficeFile("pptx") },
     { id: "file.open", title: "Open file…", group: "File", shortcut: "Ctrl+O", run: () => void pickAndOpen() },
-    { id: "file.openFolder", title: "Open folder…", group: "File", run: () => void openFolder() },
+    ...(platform.folders ? [{ id: "file.openFolder", title: "Open folder…", group: "File", run: () => void openFolder() }] : []),
     { id: "file.reopenClosed", title: "Reopen closed tab", group: "File", shortcut: "Ctrl+Shift+T", run: () => void reopenClosed() },
     { id: "view.toggleSidebar", title: "Toggle sidebar", group: "View", shortcut: "Ctrl+\\", run: () => setState((st) => ({ leftOpen: !st.leftOpen })) },
     { id: "view.files", title: "Show files", group: "View", run: () => setState({ leftOpen: true, leftView: "files" }) },
@@ -71,11 +71,12 @@ export function shellCommands(): Command[] {
     );
     if (tab.path) {
       const p = tab.path;
-      cmds.push(
-        { id: "file.reveal", title: "Show in folder", group: "File", run: () => void platform.reveal(p) },
-        { id: "file.openExternal", title: "Open in default app", group: "File", run: () => void platform.openExternal(p).catch((e) => toast(String(e), "error")) },
-        { id: "file.copyPath", title: "Copy file path", group: "File", run: () => void navigator.clipboard.writeText(p).then(() => toast("Path copied")) },
-      );
+      if (platform.folders)
+        cmds.push(
+          { id: "file.reveal", title: "Show in folder", group: "File", run: () => void platform.reveal(p) },
+          { id: "file.openExternal", title: "Open in default app", group: "File", run: () => void platform.openExternal(p).catch((e) => toast(String(e), "error")) },
+          { id: "file.copyPath", title: "Copy file path", group: "File", run: () => void navigator.clipboard.writeText(p).then(() => toast("Path copied")) },
+        );
     }
     if (tab.kind === "csv") cmds.push({ id: "file.openAsText", title: "Open as plain text", group: "File", run: () => void reopenAs(tab.id, "text") });
     if (tab.kind === "text" && /\.(csv|tsv)$/i.test(tab.name)) cmds.push({ id: "file.openAsTable", title: "Open as table", group: "File", run: () => void reopenAs(tab.id, "csv") });

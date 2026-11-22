@@ -2,6 +2,7 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { basename, extname, isContentUri, rememberName } from "../lib/paths";
 import type { Platform, FileMeta, DirEntry, SearchHit, SnapshotInfo, RecoveryInfo, OfficePackInfo } from "./types";
 
 const enc = (s: string) => encodeURIComponent(s);
@@ -20,15 +21,41 @@ function subscribe<T>(event: string, cb: (payload: T) => void): () => void {
   };
 }
 
+/** A document from Android's picker: its address plus what Android says about it. */
+interface DocInfo {
+  uri: string;
+  name: string;
+  size: number;
+  modified: number;
+  writable: boolean;
+}
+
+const MIME: Record<string, string> = {
+  txt: "text/plain", md: "text/markdown", csv: "text/csv", tsv: "text/tab-separated-values", json: "application/json",
+  html: "text/html", xml: "text/xml", pdf: "application/pdf", rtf: "application/rtf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  odt: "application/vnd.oasis.opendocument.text", ods: "application/vnd.oasis.opendocument.spreadsheet",
+  odp: "application/vnd.oasis.opendocument.presentation",
+};
+
+const learn = (files: DocInfo[]) => files.map((f) => (rememberName(f.uri, f.name), f.uri));
+
 export function createTauriPlatform(): Platform {
   const win = getCurrentWindow();
+  const android = /Android/i.test(navigator.userAgent);
   return {
     kind: "tauri",
+    folders: !android,
     officePack: () => invoke<OfficePackInfo>("office_pack_info"),
-    officeUrl: (path) => {
+    officeUrl: (path, session) => {
       // convertFileSrc encodes its whole argument, so keep the query string out of it.
       const q = path.indexOf("?");
-      return q < 0 ? convertFileSrc(path, "office") : `${convertFileSrc(path.slice(0, q), "office")}${path.slice(q)}`;
+      let url = q < 0 ? convertFileSrc(path, "office") : `${convertFileSrc(path.slice(0, q), "office")}${path.slice(q)}`;
+      // office://localhost/… or http://office.localhost/… → a host of its own for this tab.
+      if (session) url = url.replace(/^(office:\/\/|https?:\/\/office\.)localhost\//, `$1${session}.localhost/`);
+      return url;
     },
     async readFile(path) {
       return toBytes(await invoke("read_file", { path }));
@@ -38,13 +65,35 @@ export function createTauriPlatform(): Platform {
         headers: { "x-path": enc(path), "x-snapshot": opts?.snapshot ? "1" : "0" },
       });
     },
-    stat: (path) => invoke<FileMeta>("file_meta", { path }),
+    async stat(path) {
+      if (android && isContentUri(path)) {
+        try {
+          const i = await invoke<DocInfo>("android_info", { uri: path });
+          rememberName(path, i.name);
+          return { exists: true, size: Math.max(0, i.size), modified: i.modified, readonly: !i.writable };
+        } catch {
+          return invoke<FileMeta>("file_meta", { path });
+        }
+      }
+      return invoke<FileMeta>("file_meta", { path });
+    },
     async pickOpen(opts) {
+      if (android) {
+        // Android lists documents, not folders; types are not filtered because many storage
+        // providers report text formats (Markdown, CSV) as generic files.
+        if (opts.directory) return [];
+        return learn(await invoke<DocInfo[]>("android_pick", { multiple: opts.multiple ?? false, mimeTypes: [] }));
+      }
       const r = await openDialog({ multiple: opts.multiple ?? false, directory: opts.directory ?? false, filters: opts.filters });
       if (!r) return [];
       return Array.isArray(r) ? r : [r];
     },
     async pickSave(opts) {
+      if (android) {
+        const name = basename(opts.defaultPath ?? "") || "Untitled.txt";
+        const file = await invoke<DocInfo | null>("android_create", { fileName: name, mimeType: MIME[extname(name)] ?? "application/octet-stream" });
+        return file ? learn([file])[0] : null;
+      }
       return (await saveDialog({ defaultPath: opts.defaultPath, filters: opts.filters })) ?? null;
     },
     listDir: (path) => invoke<DirEntry[]>("list_dir", { path }),
@@ -61,8 +110,20 @@ export function createTauriPlatform(): Platform {
     watch: (path) => invoke("watch_file", { path }),
     unwatch: (path) => invoke("unwatch_file", { path }),
     onFileChanged: (cb) => subscribe<string>("file-changed", cb),
-    onOpenFiles: (cb) => subscribe<string[]>("open-files", cb),
-    launchFiles: () => invoke<string[]>("launch_files"),
+    onOpenFiles(cb) {
+      if (!android) return subscribe<string[]>("open-files", cb);
+      // Files shared from other apps ("Open with") arrive while the app is in the background.
+      const check = () => {
+        if (document.visibilityState !== "visible") return;
+        void invoke<DocInfo[]>("android_take_opened").then((f) => f.length && cb(learn(f)), () => {});
+      };
+      document.addEventListener("visibilitychange", check);
+      return () => document.removeEventListener("visibilitychange", check);
+    },
+    async launchFiles() {
+      if (android) return learn(await invoke<DocInfo[]>("android_take_opened"));
+      return invoke<string[]>("launch_files");
+    },
     stateGet: (name) => invoke<string | null>("state_get", { name }),
     stateSet: (name, value) => invoke("state_set", { name, value }),
     snapshotList: (path) => invoke<SnapshotInfo[]>("snapshot_list", { path }),

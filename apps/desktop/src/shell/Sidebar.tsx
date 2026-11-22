@@ -60,6 +60,9 @@ function FilesView() {
   useEffect(() => {
     setRefreshKey((k) => k + 1);
   }, [savedCount]);
+  if (!workspace && !platform.folders) {
+    return <div className="empty-note">Files you open appear in Recent on the home screen. Folders are not available on this device yet.</div>;
+  }
   if (!workspace) {
     return (
       <div className="empty-note">

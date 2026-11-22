@@ -28,6 +28,30 @@ export function officeOriginOf(url: string): string {
   return `${u.protocol}//${u.host}`;
 }
 
+/** Largest file the app accepts back from an editor (a guard against a hostile document). */
+export const MAX_OFFICE_BYTES = 512 * 1024 * 1024;
+
+/** The shortcuts the editor bridge forwards (mirrors RESERVED in src-tauri/src/office.rs).
+ *  Anything else arriving as office:key is ignored. */
+export function isForwardedKey(e: { key?: unknown; ctrlKey?: unknown; metaKey?: unknown; shiftKey?: unknown; altKey?: unknown }): boolean {
+  if (typeof e.key !== "string") return false;
+  const m = !!e.ctrlKey || !!e.metaKey;
+  const k = e.key.toLowerCase();
+  if (e.key === "F11") return true;
+  if (!m) return false;
+  if (["Tab", "PageUp", "PageDown", "\\", ","].includes(e.key)) return true;
+  if (/^[1-9]$/.test(e.key) && !e.shiftKey && !e.altKey) return true;
+  if (!e.shiftKey && !e.altKey && ["k", "w", "n", "o", "e"].includes(k)) return true;
+  if (e.shiftKey && ["t", "p", "s"].includes(k)) return true;
+  return false;
+}
+
+/** A random host name for one tab's editor, so each document's editor has an origin of its own. */
+function newSession(): string {
+  const b = crypto.getRandomValues(new Uint8Array(8));
+  return "t" + Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+}
+
 interface Pending {
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
@@ -56,9 +80,13 @@ export function OfficeEditor({ host, onFailed }: { host: EngineHost; onFailed: (
     setStatus("ready");
   };
   const kind = host.kind as "docx" | "xlsx" | "pptx";
+  const opened = useRef(false);
+  const keyTimes = useRef<number[]>([]);
 
-  const officeOrigin = officeOriginOf(platform.officeUrl("editor"));
-  const src = platform.officeUrl(`editor?embed=1&embedOrigin=${encodeURIComponent(window.location.origin)}`);
+  // One origin per tab: editors of different documents cannot reach each other.
+  const [session] = useState(newSession);
+  const src = platform.officeUrl(`editor?embed=1&embedOrigin=${encodeURIComponent(window.location.origin)}`, session);
+  const officeOrigin = officeOriginOf(src);
 
   const post = (type: string, payload: Record<string, unknown> = {}, timeoutMs = 120000, transfer: Transferable[] = []) =>
     new Promise<unknown>((resolve, reject) => {
@@ -75,8 +103,9 @@ export function OfficeEditor({ host, onFailed }: { host: EngineHost; onFailed: (
 
   const saveAs = async (ext: string): Promise<Uint8Array> => {
     await loadedRef.current!.promise;
-    const r = (await post("document:save", { targetExt: ext.toUpperCase() })) as { file?: Blob };
-    if (!r?.file) throw new Error("The editor returned no file.");
+    const r = (await post("document:save", { targetExt: ext.toUpperCase() })) as { file?: unknown };
+    if (!(r?.file instanceof Blob)) throw new Error("The editor returned no file.");
+    if (r.file.size > MAX_OFFICE_BYTES) throw new Error("The editor returned a file that is too large.");
     return new Uint8Array(await r.file.arrayBuffer());
   };
 
@@ -104,7 +133,15 @@ export function OfficeEditor({ host, onFailed }: { host: EngineHost; onFailed: (
       const { id, type, payload } = (e.data ?? {}) as { id?: string; type?: string; payload?: Record<string, unknown> };
       if (!type) return;
       if (type === "office:key") {
-        handleShortcut(e.data as Parameters<typeof handleShortcut>[0]);
+        // Only the visible tab's editor may trigger app shortcuts, only the forwarded ones,
+        // and not faster than a person types.
+        if (getState().activeId !== host.tabId || !isForwardedKey(e.data)) return;
+        const now = Date.now();
+        keyTimes.current = keyTimes.current.filter((t) => now - t < 1000);
+        if (keyTimes.current.length >= 8) return;
+        keyTimes.current.push(now);
+        const d = e.data as Record<string, unknown>;
+        handleShortcut({ key: String(d.key), ctrlKey: !!d.ctrlKey, metaKey: !!d.metaKey, shiftKey: !!d.shiftKey, altKey: !!d.altKey });
         return;
       }
       if (type === "office:loaded") {
@@ -117,6 +154,8 @@ export function OfficeEditor({ host, onFailed }: { host: EngineHost; onFailed: (
         return;
       }
       if (type === "document:ready") {
+        if (opened.current) return; // the document is sent once
+        opened.current = true;
         applyTheme();
         const buffer = host.bytes.slice().buffer;
         void post("document:open-buffer", { fileName: host.name, buffer, mimeType: MIME[kind], readonly: false }, 120000, [buffer])
@@ -132,6 +171,7 @@ export function OfficeEditor({ host, onFailed }: { host: EngineHost; onFailed: (
         // Ctrl+S inside the editor: it hands over the file; save it through the normal pipeline.
         // Ignore only a true duplicate of the same save (same size, a moment apart).
         const size = (payload.file as Blob).size;
+        if (size > MAX_OFFICE_BYTES) return;
         if (Date.now() - lastSavedAt.current < 400 && size === lastSavedSize.current) return;
         lastSavedAt.current = Date.now();
         lastSavedSize.current = size;
@@ -215,6 +255,8 @@ export function OfficeEditor({ host, onFailed }: { host: EngineHost; onFailed: (
         title={`${host.name} editor`}
         className="office-frame"
         allow="clipboard-read; clipboard-write"
+        /* No top-level navigation and no pop-ups from a document's editor. */
+        sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-downloads"
         referrerPolicy="no-referrer"
         style={{ visibility: status === "ready" ? "visible" : "hidden" }}
       />

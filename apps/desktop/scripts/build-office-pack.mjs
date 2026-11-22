@@ -39,6 +39,11 @@ const DICT_REPO = { url: "https://github.com/ONLYOFFICE/dictionaries", commit: "
 const CORE_FONTS = /^(Arial|Calibri|Carlito|Caladea|Comic Sans MS|Courier New|Andale Mono|Liberation.*|DejaVu.*|Noto Sans|Noto Emoji|Open Sans.*|Ubuntu.*|Free(Sans|Serif|Mono)|OpenSymbol|Symbola|ASCW3|Asana|Noto Sans (Armenian|Georgian|Hebrew)|Noto Naskh Arabic.*)$/;
 
 const run = (cmd, argv, opts = {}) => execFileSync(cmd, argv, { stdio: ["ignore", "pipe", "inherit"], ...opts }).toString();
+// On Windows npm is a .cmd script, which Node will not start without a shell; run npm's own
+// JavaScript entry point with this Node instead (no shell, so no quoting problems).
+const npmCli = join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
+const npm = (argv) =>
+  process.platform !== "win32" ? run("npm", argv) : existsSync(npmCli) ? run(process.execPath, [npmCli, ...argv]) : run("npm", argv.map((a) => `"${a}"`), { shell: true });
 const log = (...a) => console.log("[office-pack]", ...a);
 
 function sriOf(file) {
@@ -51,7 +56,7 @@ function fetchPackage(name, integrity) {
   const tgz = join(dir, `${name.replace("@", "").replace("/", "-")}-${VERSION}.tgz`);
   if (!existsSync(tgz) || sriOf(tgz) !== integrity) {
     log("downloading", name);
-    const produced = run("npm", ["pack", `${name}@${VERSION}`, "--silent", "--pack-destination", dir]).trim().split("\n").pop();
+    const produced = npm(["pack", `${name}@${VERSION}`, "--silent", "--pack-destination", dir]).trim().split("\n").pop();
     const file = join(dir, produced);
     if (file !== tgz) cpSync(file, tgz);
   }

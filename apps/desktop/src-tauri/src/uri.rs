@@ -4,6 +4,10 @@
 
 use crate::files::FileMeta;
 
+/// Largest Android document the app reads (matches the interface's own limit).
+#[allow(dead_code)]
+const MAX_BYTES: u64 = 300 * 1024 * 1024;
+
 pub fn is_content_uri(path: &str) -> bool {
     path.len() > 10 && path[..10].eq_ignore_ascii_case("content://")
 }
@@ -23,9 +27,13 @@ mod imp {
     pub fn read<R: Runtime>(app: &AppHandle<R>, uri: &str) -> Result<Vec<u8>, String> {
         let mut opts = OpenOptions::new();
         opts.read(true);
-        let mut f = app.fs().open(file_path(uri)?, opts).map_err(|e| format!("Could not open the file: {e}"))?;
+        let f = app.fs().open(file_path(uri)?, opts).map_err(|e| format!("Could not open the file: {e}"))?;
         let mut buf = Vec::new();
-        f.read_to_end(&mut buf).map_err(|e| format!("Could not read the file: {e}"))?;
+        // A limit, so a huge shared file cannot exhaust the phone's memory.
+        f.take(MAX_BYTES + 1).read_to_end(&mut buf).map_err(|e| format!("Could not read the file: {e}"))?;
+        if buf.len() as u64 > MAX_BYTES {
+            return Err("The file is larger than this version can open.".into());
+        }
         Ok(buf)
     }
 
@@ -36,7 +44,11 @@ mod imp {
         opts.write(true).truncate(true).create(true);
         let mut f = app.fs().open(file_path(uri)?, opts).map_err(|e| format!("Could not open the file for saving: {e}"))?;
         f.write_all(bytes).map_err(|e| format!("Could not save the file: {e}"))?;
+        // Some storage providers ignore the truncate request; cut off any old tail ourselves.
+        // (Fails harmlessly on providers that hand over a pipe.)
+        let _ = f.set_len(bytes.len() as u64);
         f.sync_all().ok();
+        drop(f);
         Ok(())
     }
 

@@ -2,11 +2,17 @@ package com.rahul.productivity
 
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.webkit.WebView
 import androidx.activity.result.ActivityResult
+import androidx.appcompat.app.AppCompatActivity
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -43,6 +49,14 @@ class UriArgs {
 class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
   private val opened = mutableListOf<String>()
 
+  // Only one system picker at a time: Android keeps a single result callback, so a second picker
+  // would leave the first request waiting forever. Our activity resumes only after a picker closes.
+  @Volatile private var pickerOpen = false
+
+  override fun onResume(activity: AppCompatActivity) {
+    pickerOpen = false
+  }
+
   override fun load(webView: WebView) {
     collect(activity.intent)
   }
@@ -58,7 +72,21 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
       @Suppress("DEPRECATION")
       intent.getParcelableExtra(Intent.EXTRA_STREAM)
     } else intent.data
+    if (uri == null && intent.action == Intent.ACTION_SEND) {
+      // Text shared from another app (no file): keep it as a new note in the app's own storage.
+      val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
+      if (text.length > 5_000_000) return
+      val dir = File(activity.filesDir, "shared").apply { mkdirs() }
+      val stamp = SimpleDateFormat("yyyy-MM-dd HH.mm.ss", Locale.US).format(Date())
+      val f = File(dir, "Shared text $stamp.md")
+      f.writeText(text)
+      synchronized(opened) { opened.add(f.absolutePath) }
+      intent.action = Intent.ACTION_MAIN
+      return
+    }
     if (uri == null || uri.scheme != "content") return
+    // Never act on this app's own files on another app's behalf.
+    if (uri.authority?.startsWith(activity.packageName) == true) return
     val s = uri.toString()
     synchronized(opened) { if (!opened.contains(s)) opened.add(s) }
     // Handled: do not hand the same file over again when the activity is recreated.
@@ -67,6 +95,8 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
 
   @Command
   fun pick(invoke: Invoke) {
+    if (pickerOpen) return invoke.reject("A file picker is already open.")
+    pickerOpen = true
     val args = invoke.parseArgs(PickArgs::class.java)
     val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
       addCategory(Intent.CATEGORY_OPENABLE)
@@ -83,6 +113,7 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
 
   @ActivityCallback
   fun pickResult(invoke: Invoke, result: ActivityResult) {
+    pickerOpen = false
     val files = JSArray()
     val data = result.data
     if (result.resultCode == Activity.RESULT_OK && data != null) {
@@ -102,6 +133,8 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
 
   @Command
   fun create(invoke: Invoke) {
+    if (pickerOpen) return invoke.reject("A file picker is already open.")
+    pickerOpen = true
     val args = invoke.parseArgs(CreateArgs::class.java)
     val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
       addCategory(Intent.CATEGORY_OPENABLE)
@@ -117,6 +150,7 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
 
   @ActivityCallback
   fun createResult(invoke: Invoke, result: ActivityResult) {
+    pickerOpen = false
     val ret = JSObject()
     val u = result.data?.data
     if (result.resultCode == Activity.RESULT_OK && u != null) {
@@ -137,7 +171,15 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
   fun takeOpened(invoke: Invoke) {
     val files = JSArray()
     val list = synchronized(opened) { val l = opened.toList(); opened.clear(); l }
-    for (s in list) files.put(describe(Uri.parse(s)))
+    for (s in list) {
+      if (s.startsWith("/")) {
+        // A note made from shared text, in the app's own storage.
+        val f = File(s)
+        val o = JSObject()
+        o.put("uri", s); o.put("name", f.name); o.put("size", f.length()); o.put("modified", f.lastModified()); o.put("writable", true)
+        files.put(o)
+      } else files.put(describe(Uri.parse(s)))
+    }
     val ret = JSObject()
     ret.put("files", files)
     invoke.resolve(ret)
@@ -179,8 +221,8 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
     } catch (_: Exception) {
       // The provider refused or the permission lapsed; report what is known.
     }
-    val perms = activity.contentResolver.persistedUriPermissions.firstOrNull { it.uri == u }
-    if (perms != null && !perms.isWritePermission) writable = false
+    // A file shared for viewing may be read-only for this app even if its provider supports writing.
+    if (activity.checkCallingOrSelfUriPermission(u, Intent.FLAG_GRANT_WRITE_URI_PERMISSION) != PackageManager.PERMISSION_GRANTED) writable = false
     o.put("name", name ?: (u.lastPathSegment ?: "Document"))
     o.put("size", size)
     o.put("modified", modified)

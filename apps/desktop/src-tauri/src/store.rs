@@ -12,6 +12,7 @@ use crate::files::write_atomic;
 
 pub const MAX_SNAPSHOTS_PER_FILE: usize = 30;
 
+#[derive(Clone)]
 pub struct Store {
     pub root: PathBuf,
 }

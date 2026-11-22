@@ -45,7 +45,30 @@ const learn = (files: DocInfo[]) => files.map((f) => (rememberName(f.uri, f.name
 export function createTauriPlatform(): Platform {
   const win = getCurrentWindow();
   const android = /Android/i.test(navigator.userAgent);
-  return {
+  // Android: one system picker at a time (a second would leave the first waiting forever).
+  let picking = false;
+  const onePicker = async <T,>(fallback: T, run: () => Promise<T>): Promise<T> => {
+    if (picking) return fallback;
+    picking = true;
+    try {
+      return await run();
+    } finally {
+      picking = false;
+    }
+  };
+  // Android documents cannot be watched; open ones are re-checked whenever the app comes back
+  // to the front, which is when another app could have changed them.
+  const watchedDocs = new Set<string>();
+  const whenFront = (cb: () => void) => {
+    const run = () => document.visibilityState === "visible" && cb();
+    document.addEventListener("visibilitychange", run);
+    window.addEventListener("focus", run);
+    return () => {
+      document.removeEventListener("visibilitychange", run);
+      window.removeEventListener("focus", run);
+    };
+  };
+  const self: Platform = {
     kind: "tauri",
     folders: !android,
     officePack: () => invoke<OfficePackInfo>("office_pack_info"),
@@ -60,10 +83,14 @@ export function createTauriPlatform(): Platform {
     async readFile(path) {
       return toBytes(await invoke("read_file", { path }));
     },
-    writeFile(path, bytes, opts) {
-      return invoke<FileMeta>("write_file", bytes, {
+    async writeFile(path, bytes, opts) {
+      const meta = await invoke<FileMeta>("write_file", bytes, {
         headers: { "x-path": enc(path), "x-snapshot": opts?.snapshot ? "1" : "0" },
       });
+      // Android documents: report what the storage provider now says, so the next check for
+      // outside changes compares like with like.
+      if (android && isContentUri(path)) return self.stat(path).catch(() => meta);
+      return meta;
     },
     async stat(path) {
       if (android && isContentUri(path)) {
@@ -82,7 +109,7 @@ export function createTauriPlatform(): Platform {
         // Android lists documents, not folders; types are not filtered because many storage
         // providers report text formats (Markdown, CSV) as generic files.
         if (opts.directory) return [];
-        return learn(await invoke<DocInfo[]>("android_pick", { multiple: opts.multiple ?? false, mimeTypes: [] }));
+        return onePicker([], async () => learn(await invoke<DocInfo[]>("android_pick", { multiple: opts.multiple ?? false, mimeTypes: [] })));
       }
       const r = await openDialog({ multiple: opts.multiple ?? false, directory: opts.directory ?? false, filters: opts.filters });
       if (!r) return [];
@@ -91,8 +118,10 @@ export function createTauriPlatform(): Platform {
     async pickSave(opts) {
       if (android) {
         const name = basename(opts.defaultPath ?? "") || "Untitled.txt";
-        const file = await invoke<DocInfo | null>("android_create", { fileName: name, mimeType: MIME[extname(name)] ?? "application/octet-stream" });
-        return file ? learn([file])[0] : null;
+        return onePicker(null, async () => {
+          const file = await invoke<DocInfo | null>("android_create", { fileName: name, mimeType: MIME[extname(name)] ?? "application/octet-stream" });
+          return file ? learn([file])[0] : null;
+        });
       }
       return (await saveDialog({ defaultPath: opts.defaultPath, filters: opts.filters })) ?? null;
     },
@@ -107,18 +136,29 @@ export function createTauriPlatform(): Platform {
         wholeWord: o.wholeWord,
         maxHits: o.maxHits,
       }),
-    watch: (path) => invoke("watch_file", { path }),
-    unwatch: (path) => invoke("unwatch_file", { path }),
-    onFileChanged: (cb) => subscribe<string>("file-changed", cb),
+    async watch(path) {
+      if (android && isContentUri(path)) watchedDocs.add(path);
+      else await invoke("watch_file", { path });
+    },
+    async unwatch(path) {
+      if (android && isContentUri(path)) watchedDocs.delete(path);
+      else await invoke("unwatch_file", { path });
+    },
+    onFileChanged(cb) {
+      const un = subscribe<string>("file-changed", cb);
+      if (!android) return un;
+      // The interface compares size and time itself and ignores files that did not change.
+      const off = whenFront(() => watchedDocs.forEach((p) => cb(p)));
+      return () => {
+        un();
+        off();
+      };
+    },
     onOpenFiles(cb) {
       if (!android) return subscribe<string[]>("open-files", cb);
-      // Files shared from other apps ("Open with") arrive while the app is in the background.
-      const check = () => {
-        if (document.visibilityState !== "visible") return;
-        void invoke<DocInfo[]>("android_take_opened").then((f) => f.length && cb(learn(f)), () => {});
-      };
-      document.addEventListener("visibilitychange", check);
-      return () => document.removeEventListener("visibilitychange", check);
+      // Files shared from other apps ("Open with") arrive while the app is in the background,
+      // or (split screen) while it stays visible but regains focus.
+      return whenFront(() => void invoke<DocInfo[]>("android_take_opened").then((f) => f.length && cb(learn(f)), () => {}));
     },
     async launchFiles() {
       if (android) return learn(await invoke<DocInfo[]>("android_take_opened"));
@@ -158,4 +198,5 @@ export function createTauriPlatform(): Platform {
       return () => un?.();
     },
   };
+  return self;
 }

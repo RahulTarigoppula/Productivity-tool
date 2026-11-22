@@ -56,8 +56,13 @@ fn header(request: &Request<'_>, name: &str) -> Option<String> {
 fn body_bytes(request: &Request<'_>) -> Result<Vec<u8>, String> {
     match request.body() {
         InvokeBody::Raw(b) => Ok(b.clone()),
-        InvokeBody::Json(_) => Err("Expected binary content.".into()),
+        // Android's IPC (postMessage) delivers binary bodies as a JSON array of numbers.
+        InvokeBody::Json(v) => json_bytes(v).ok_or_else(|| "Expected binary content.".to_string()),
     }
+}
+
+fn json_bytes(v: &serde_json::Value) -> Option<Vec<u8>> {
+    v.as_array()?.iter().map(|v| v.as_u64().filter(|n| *n <= 255).map(|n| n as u8)).collect()
 }
 
 #[tauri::command]
@@ -74,11 +79,16 @@ async fn read_file(path: String, app: tauri::AppHandle) -> Result<Response, Stri
 }
 
 #[tauri::command]
-fn file_meta(path: String, app: tauri::AppHandle) -> FileMeta {
-    if uri::is_content_uri(&path) {
-        return uri::meta(&app, &path);
-    }
-    files::meta(Path::new(&path))
+async fn file_meta(path: String, app: tauri::AppHandle) -> FileMeta {
+    tauri::async_runtime::spawn_blocking(move || {
+        if uri::is_content_uri(&path) {
+            uri::meta(&app, &path)
+        } else {
+            files::meta(Path::new(&path))
+        }
+    })
+    .await
+    .unwrap_or_else(|_| FileMeta::missing())
 }
 
 /// Raw body = file bytes. Headers: x-path (percent-encoded), x-snapshot ("1" to keep the previous version).
@@ -87,13 +97,21 @@ async fn write_file(request: Request<'_>, state: tauri::State<'_, AppState>, app
     let path = header(&request, "x-path").ok_or("Missing path")?;
     let bytes = body_bytes(&request)?;
     if uri::is_content_uri(&path) {
-        // Android documents are rewritten in place, so always keep the previous content first.
-        if let Ok(old) = uri::read(&app, &path) {
-            let reason = if state.store.has_snapshots(&path) { "before save" } else { "original" };
-            state.store.snapshot_write(&path, &old, reason)?;
-        }
-        uri::write(&app, &path, &bytes)?;
-        return Ok(uri::meta(&app, &path));
+        // Android documents are rewritten in place, so the previous content is kept first; if it
+        // cannot be read, nothing is overwritten.
+        let store = state.store.clone();
+        return tauri::async_runtime::spawn_blocking(move || {
+            let old = uri::read(&app, &path).map_err(|e| format!("Not saved: the current file could not be read first ({e})."))?;
+            if !old.is_empty() {
+                let reason = if store.has_snapshots(&path) { "before save" } else { "original" };
+                store.snapshot_write(&path, &old, reason)?;
+            }
+            uri::write(&app, &path, &bytes)?;
+            let now = std::time::SystemTime::now();
+            Ok(FileMeta { exists: true, size: bytes.len() as u64, modified: files::millis(Some(now)), readonly: false })
+        })
+        .await
+        .map_err(|e| e.to_string())?;
     }
     let p = PathBuf::from(&path);
     if header(&request, "x-snapshot").as_deref() == Some("1") && p.exists() {
@@ -467,6 +485,15 @@ mod tests {
         assert!(open_external("javascript:alert(1)".into()).is_err());
         assert!(open_external("file:///C:/Windows/system32/calc.exe".into()).is_err());
         assert!(open_external("ms-settings:privacy".into()).is_err());
+    }
+
+    #[test]
+    fn accepts_binary_bodies_sent_as_json_arrays() {
+        assert_eq!(json_bytes(&serde_json::json!([0, 104, 255])), Some(vec![0, 104, 255]));
+        assert_eq!(json_bytes(&serde_json::json!([256])), None);
+        assert_eq!(json_bytes(&serde_json::json!([-1])), None);
+        assert_eq!(json_bytes(&serde_json::json!({"a": 1})), None);
+        assert_eq!(json_bytes(&serde_json::json!([])), Some(vec![]));
     }
 
     #[test]

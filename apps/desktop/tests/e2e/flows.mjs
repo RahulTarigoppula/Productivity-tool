@@ -467,6 +467,18 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     await waitFor(async () => !(await page.evaluate(() => window.__app.getState().tabs.some((t) => t.name === "big.log"))), 8000, "the large file to close");
   });
 
+  await check("R-12", "a Markdown table shows as a table, opens for editing on click, and the file is untouched", async () => {
+    const src = "# T\n\n| Owner | Task |\n|---|---|\n| Asha | Plan \\| draft |\n\nAfter.\n";
+    await page.evaluate((t) => window.__fs.write("/work/table.md", new TextEncoder().encode(t)), src);
+    await open("/work/table.md");
+    await waitFor(() => page.locator("section.doc-pane:not([hidden]) .cm-md-table td").first().isVisible(), 5000, "rendered table");
+    assert((await page.locator("section.doc-pane:not([hidden]) .cm-md-table td").nth(1).textContent()) === "Plan | draft", "escaped pipe not kept in the cell");
+    await page.locator("section.doc-pane:not([hidden]) .cm-md-table").click();
+    await waitFor(async () => !(await page.locator("section.doc-pane:not([hidden]) .cm-md-table").count()), 3000, "table source shown for editing");
+    const bytes = await page.evaluate(async () => { const s = window.__app.getState(); return new TextDecoder().decode(await window.__app.handles.get(s.activeId).serialize()); });
+    assert(bytes === src, "the document text changed");
+  });
+
   await check("F-34", "dark theme applies", async () => {
     await page.evaluate(() => window.__app.updateSettings({ theme: "dark" }));
     await waitFor(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", 2000, "dark");

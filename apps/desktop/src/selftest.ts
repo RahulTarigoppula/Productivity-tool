@@ -134,7 +134,7 @@ export async function runSelfTest(dir: string) {
         if (performance.now() >= deadline) {
           const tb = getState().tabs.find((x) => x.id === id);
           const active = getState().activeId === id;
-          throw new Error(`engine did not render in time (active=${active} handle=${handles.has(id!)} pane=${!!pane} tab=${JSON.stringify({ kind: tb?.kind, loading: tb?.loading, version: tb?.version, dirty: tb?.dirty, saveState: tb?.saveState })} spinner=${!!document.querySelector("section.doc-pane:not([hidden]) .spinner")})`);
+          throw new Error(`engine did not render in time (active=${active} handle=${handles.has(id!)} pane=${!!pane} tab=${JSON.stringify({ kind: tb?.kind, loading: tb?.loading, version: tb?.version, dirty: tb?.dirty, saveState: tb?.saveState })} spinner=${!!document.querySelector("section.doc-pane:not([hidden]) .spinner")} text=${JSON.stringify((document.querySelector("section.doc-pane:not([hidden])")?.textContent ?? "").slice(0, 240))} pages=${document.querySelectorAll("section.doc-pane:not([hidden]) .pdfViewer .page").length} canvases=${document.querySelectorAll("section.doc-pane:not([hidden]) canvas").length})`);
         }
         await new Promise((r) => setTimeout(r, 50));
       }

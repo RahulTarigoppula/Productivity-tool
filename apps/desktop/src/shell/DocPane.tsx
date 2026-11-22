@@ -33,28 +33,30 @@ class EngineBoundary extends Component<{ children: ReactNode; tab: Tab }, { erro
 function Banner({ tab }: { tab: Tab }) {
   if (tab.conflict === "changed")
     return (
-      <div className="banner warn" role="alert">
+      <div className="banner warn wrap" role="alert">
         <TriangleAlert />
-        <span className="msg">This file was changed by another program while you had unsaved edits here.</span>
+        <span className="msg">Another program changed this file while you had unsaved edits here.</span>
+        <span className="banner-acts">
+        <button className="btn primary sm" onClick={() => keepMine(tab.id)}>Keep my version</button>
+        <button className="btn sm" onClick={() => void reloadFromDisk(tab.id)}>Use the other version</button>
         {tab.path && (
           <button
-            className="btn"
-            title="Open the version on disk in a new tab, to compare before choosing"
+            className="btn sm"
+            title="Open the other version in a new tab, to compare before choosing"
             onClick={() =>
               void platform
                 .readFile(tab.path!)
                 .then((b) => {
-                  const id = openBytes(`${tab.name} (on disk)`, b, { kind: tab.kind, notice: { text: "The version on disk, for comparing. Close it when done.", tone: "info" } });
+                  const id = openBytes(`${tab.name} (other version)`, b, { kind: tab.kind, notice: { text: "The other version, as it is on disk, for comparing. Close it when you are done.", tone: "info" } });
                   updateTab(id, { readonly: true, saveState: "readonly" });
                 })
                 .catch((e) => toast(String(e), "error"))
             }
           >
-            See theirs
+            Compare
           </button>
         )}
-        <button className="btn" onClick={() => void reloadFromDisk(tab.id)}>Load theirs</button>
-        <button className="btn" onClick={() => keepMine(tab.id)}>Keep mine</button>
+        </span>
       </div>
     );
   if (tab.conflict === "deleted")
@@ -64,6 +66,17 @@ function Banner({ tab }: { tab: Tab }) {
         <span className="msg">This file was moved or deleted outside the app. Your content is still here.</span>
         <button className="btn" onClick={() => void saveTab(tab.id, { explicit: true })}>Save to recreate</button>
         <button className="btn" onClick={() => void saveTab(tab.id, { as: true, explicit: true })}>Save as…</button>
+      </div>
+    );
+  if (tab.notice && tab.saveState === "recovered" && tab.path)
+    return (
+      <div className="banner wrap">
+        <Info />
+        <span className="msg">{tab.notice.text}</span>
+        <span className="banner-acts">
+          <button className="btn primary sm" onClick={() => void saveTab(tab.id, { explicit: true })}>Save them</button>
+          <button className="btn sm" onClick={() => void reloadFromDisk(tab.id, false)}>Discard them</button>
+        </span>
       </div>
     );
   if (tab.notice)

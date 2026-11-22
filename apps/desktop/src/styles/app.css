@@ -493,3 +493,20 @@ a { color: var(--accent); }
 /* Task boxes in previews, exports and print */
 .task-box { font-size: 1.05em; color: var(--text-3); }
 .task-box.done { color: var(--accent); }
+
+/* Banners with several choices wrap below the message on narrow windows. */
+.banner.wrap { flex-wrap: wrap; row-gap: 8px; }
+.banner.wrap .msg { flex: 1 1 260px; }
+.banner-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.palette .foot span { color: var(--text-3); }
+
+.new-dialog { width: min(560px, calc(100vw - 32px)); }
+
+/* Toolbar buttons with a name: icon and word, comfortably spaced; icons only on phones. */
+.toolbar .icon-btn:has(> span) { width: auto; padding: 0 9px 0 7px; gap: 6px; font-size: 12.5px; }
+@media (max-width: 599px) { .toolbar .icon-btn > span { display: none; } .toolbar .icon-btn:has(> span) { padding: 0 7px; } }
+
+.hit-file svg, .hit svg { width: 15px; height: 15px; }
+.hit .t, .hit-text { text-decoration: none; }
+
+.dialog .acts, .dialog .dialog-foot { background: inherit; }

@@ -249,7 +249,7 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     await page.keyboard.press("Enter");
     await waitFor(async () => (await activeTab())?.name === "legacy.txt", 4000, "legacy.txt active");
     await page.keyboard.press("Control+k");
-    await page.locator("[cmdk-input]").fill(">toggle sidebar");
+    await page.locator("[cmdk-input]").fill(">show or hide the sidebar");
     await page.keyboard.press("Enter");
     await waitFor(async () => (await page.locator(".side").count()) > 0, 2000, "sidebar open");
   });
@@ -279,8 +279,8 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     await page.keyboard.type(" mine");
     await page.evaluate(() => window.__fs.externalChange("/work/plan.md", "# Plan\n\nTheirs.\n"));
     await waitFor(async () => (await activeTab())?.conflict === "changed", 4000, "conflict");
-    assert(await page.getByText("changed by another program").isVisible(), "banner missing");
-    await page.getByRole("button", { name: "Keep mine" }).click();
+    assert(await page.getByText("Another program changed this file").isVisible(), "banner missing");
+    await page.getByRole("button", { name: "Keep my version" }).click();
     await page.evaluate(() => window.__app.updateSettings({ autoSave: true }));
   });
 

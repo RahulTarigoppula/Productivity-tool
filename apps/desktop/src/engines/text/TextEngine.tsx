@@ -95,7 +95,7 @@ export default function TextEngine({ host }: { host: EngineHost }) {
   useEffect(() => {
     const decoded = host.bytes.length ? decodeText(host.bytes) : { text: "", format: formatRef.current, lossless: true };
     formatRef.current = decoded.format;
-    if (decoded.format.encoding === "windows-1252" && host.bytes.length) host.toast(`${host.name} is not valid UTF-8, so it was opened as Windows 1252. If letters look wrong, the file may be damaged.`);
+    if (decoded.format.encoding === "windows-1252" && host.bytes.length) host.toast(`${host.name} uses an older text format (Windows 1252). If some letters look wrong, the file may be damaged.`);
     if (decoded.format.mixedEol) {
       formatDirty.current = false;
       host.toast(`${host.name} mixes line-ending styles. Saving will use one style consistently.`);
@@ -150,9 +150,11 @@ export default function TextEngine({ host }: { host: EngineHost }) {
       const sel = state.selection.main;
       const line = state.doc.lineAt(sel.head);
       const f = describeFormat(formatRef.current);
-      const items = [
-        { id: "pos", text: `Ln ${line.number}, Col ${sel.head - line.from + 1}`, onClick: () => openPalette(":") },
-      ];
+      // Notes show words; code shows the line. File-format details sit behind one "Details" item
+      // and appear in the bar only when they are unusual.
+      const items: { id: string; text: string; onClick?: () => void; align?: string; title?: string }[] = isMd
+        ? []
+        : [{ id: "pos", text: `Line ${line.number}, column ${sel.head - line.from + 1}`, onClick: () => openPalette(":") }];
       if (!sel.empty && sel.to - sel.from <= 2_000_000) {
         const t = state.sliceDoc(sel.from, sel.to);
         items.push({ id: "sel", text: `${t.length} selected${isMd || host.kind === "text" ? `, ${countWords(t)} words` : ""}`, onClick: undefined as never });
@@ -161,15 +163,23 @@ export default function TextEngine({ host }: { host: EngineHost }) {
         const n = wordCount(state);
         if (n !== null) items.push({ id: "words", text: `${n.toLocaleString()} words`, onClick: undefined as never });
       }
+      const fmt = formatRef.current;
+      const unusual = fmt.encoding !== "utf-8" || fmt.bom || fmt.mixedEol;
+      const showDetails = () =>
+        openMenu(window.innerWidth - 270, window.innerHeight - 40, [
+          { label: `Language: ${langName.current}`, run: chooseLanguage },
+          { label: `Text format: ${f.encoding}`, run: chooseEncoding },
+          { label: `Line endings: ${f.eol === "CRLF" ? "Windows (CRLF)" : f.eol === "LF" ? "Unix (LF)" : f.eol}`, run: toggleEol },
+          { label: `Indentation: ${indentLabel}`, disabled: true },
+        ]);
       host.setStatus([
         ...items,
-        { id: "lang", text: langName.current, align: "right", title: "Change language mode", onClick: chooseLanguage },
-        { id: "indent", text: indentLabel, align: "right", title: "Indentation" },
-        { id: "enc", text: f.encoding, align: "right", title: "Encoding", onClick: chooseEncoding },
-        { id: "eol", text: f.eol, align: "right", title: "Line endings — click to switch", onClick: toggleEol },
+        ...(!isMd ? [{ id: "lang", text: langName.current, align: "right", title: "Set language", onClick: chooseLanguage }] : []),
+        ...(unusual ? [{ id: "enc", text: f.encoding, align: "right", title: "Text format", onClick: chooseEncoding }] : []),
+        { id: "details", text: "Details", align: "right", title: "Language, text format, line endings and indentation", onClick: showDetails },
       ] as never);
     };
-    const indentLabel = indent.unit === "\t" ? "Tabs" : `Spaces: ${indent.size}`;
+    const indentLabel = indent.unit === "\t" ? "Tabs" : `${indent.size} spaces`;
 
     let outlineTimer = 0;
     const view = new EditorView({
@@ -312,10 +322,11 @@ export default function TextEngine({ host }: { host: EngineHost }) {
     const md = (f: (v: EditorView) => boolean) => () => f(view);
     const commands: Command[] = [
       { id: "text.find", title: "Find and replace", group: "Edit", shortcut: "Ctrl+F", run: () => openSearchPanel(view) },
-      { id: "text.wrap", title: "Toggle word wrap", group: "View", run: () => toggleWrapLines() },
-      { id: "text.language", title: "Change language mode", group: "View", run: chooseLanguage },
-      { id: "text.eol", title: `Use ${formatRef.current.eol === "\r\n" ? "LF" : "CRLF"} line endings`, group: "File", run: toggleEol },
-      { id: "text.encoding", title: "Change encoding…", group: "File", run: chooseEncoding },
+      { id: "text.wrap", title: "Wrap long lines", group: "View", run: () => toggleWrapLines() },
+      { id: "text.language", title: "Set language (for colours and indentation)…", group: "View", run: chooseLanguage },
+      // Rarely needed; grouped as Advanced so everyday lists stay short.
+      { id: "text.eol", title: `Use ${formatRef.current.eol === "\r\n" ? "Unix (LF)" : "Windows (CRLF)"} line endings`, group: "Advanced", run: toggleEol },
+      { id: "text.encoding", title: "Reopen or save with another text format…", group: "Advanced", run: chooseEncoding },
     ];
     if (isMd) {
       commands.push(

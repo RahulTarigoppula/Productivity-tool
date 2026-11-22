@@ -1,7 +1,7 @@
 /** File actions: open, create, save, close, auto-save, recovery, session restore and external changes. */
 import { platform } from "../platform";
 import { basename, dirname, extname, join, samePath, withExtension, resolveDocumentRef } from "../lib/paths";
-import { detectKind, kindFromName, type Kind } from "../lib/formats";
+import { detectKind, kindFromName, KIND_LABEL, type Kind } from "../lib/formats";
 import {
   getState, setState, updateTab, handles, tabBytes, knownMeta, toast, newId,
   DEFAULT_SETTINGS, type Tab, type Settings, type RecentItem,
@@ -164,6 +164,8 @@ export async function openPath(path: string, opts: OpenOptions = {}): Promise<st
     const bytes = opts.bytes ?? diskBytes!;
     if (meta.exists) knownMeta.set(metaKey(path), { size: meta.size, modified: meta.modified });
     const kind = opts.kind ?? detectKind(path, bytes);
+    const named = kindFromName(path);
+    const mismatch = !opts.kind && named !== kind && ["pdf", "docx", "xlsx", "pptx"].includes(named) && bytes.length > 0;
     tabBytes.set(id, bytes);
     updateTab(id, {
       kind,
@@ -172,7 +174,13 @@ export async function openPath(path: string, opts: OpenOptions = {}): Promise<st
       readonly: meta.readonly,
       baselineUnsaved: !!opts.dirty,
       saveState: opts.dirty ? "recovered" : meta.readonly ? "readonly" : "saved",
-      notice: opts.notice ?? (meta.readonly ? { text: "This file is read-only. Use Save As to keep your changes elsewhere.", tone: "info" } : undefined),
+      notice:
+        opts.notice ??
+        (mismatch
+          ? { text: `${basename(path)} does not contain a valid ${KIND_LABEL[named]} file (it may be damaged or misnamed), so it is shown as ${kind === "binary" ? "raw data" : "text"}.`, tone: "warn" }
+          : meta.readonly
+            ? { text: "This file is read-only. Use Save As to keep your changes elsewhere.", tone: "info" }
+            : undefined),
     });
     if (meta.exists) void platform.watch(path).catch(() => {});
     if (!opts.notice && !meta.readonly) void warnIfOpenInOffice(id, path);

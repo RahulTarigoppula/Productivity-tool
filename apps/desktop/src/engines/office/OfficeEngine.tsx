@@ -4,6 +4,7 @@ import type { EngineHost } from "../../app/editor-api";
 import { readXlsx, readPptx, colName, type SheetData, type SlideText } from "./ooxml";
 import { platform } from "../../platform";
 import { OfficeEditor } from "./OfficeEditor";
+import { updateTab } from "../../app/store";
 
 const MAX_ROWS = 5000;
 
@@ -12,7 +13,7 @@ function Notice({ host }: { host: EngineHost }) {
     <div className="banner">
       <Info />
       <span className="msg">
-        <strong>Read-only preview.</strong> {platform.folders ? "Editing Word, Excel and PowerPoint files comes with the full installer." : "Editing Office files is not available on this device yet."}
+        <strong>Preview only.</strong> {platform.folders ? "To edit, install the full version of the app, or open the file in another program." : "Editing these files is not available on this device yet."}
       </span>
       {host.path && platform.folders && <button className="btn sm" onClick={() => void platform.openExternal(host.path!)}><ExternalLink /> Open in default app</button>}
     </div>
@@ -156,18 +157,17 @@ function OfficePreview({ host }: { host: EngineHost }) {
     });
     const label = { docx: "Word document", xlsx: "Excel workbook", pptx: "PowerPoint presentation" }[host.kind as "docx"];
     host.setStatus([
-      { id: "kind", text: `${label} · read-only preview` },
+      { id: "kind", text: label },
       ...(sheets ? [{ id: "sheets", text: `${sheets.length} sheet${sheets.length === 1 ? "" : "s"}` }] : []),
       ...(slides ? [{ id: "slides", text: `${slides.length} slide${slides.length === 1 ? "" : "s"}` }] : []),
     ]);
-    host.setToolbar(
-      host.kind === "docx"
-        ? [
-            { id: "zout", label: "Zoom out", icon: <ZoomOut />, run: () => setZoom((z) => Math.max(0.5, z - 0.1)), group: "z" },
-            { id: "zin", label: "Zoom in", icon: <ZoomIn />, run: () => setZoom((z) => Math.min(2.5, z + 0.1)), group: "z" },
-          ]
-        : [],
-    );
+    // Every preview has the same tools (zoom, and Export from the toolbar's end).
+    host.setToolbar([
+      { id: "zout", label: "Zoom out", icon: <ZoomOut />, run: () => setZoom((z) => Math.max(0.5, z - 0.1)), group: "z" },
+      { id: "zin", label: "Zoom in", icon: <ZoomIn />, run: () => setZoom((z) => Math.min(2.5, z + 0.1)), group: "z" },
+    ]);
+    // A preview cannot be saved: the status bar says so instead of "Saved".
+    updateTab(host.tabId, { readonly: true, saveState: "readonly" });
   }, [host, sheets, slides]);
 
   return (
@@ -179,9 +179,9 @@ function OfficePreview({ host }: { host: EngineHost }) {
         ) : host.kind === "docx" ? (
           <DocxView bytes={host.bytes} zoom={zoom} onLink={(href) => host.openLink(href)} />
         ) : host.kind === "xlsx" ? (
-          sheets ? <XlsxView sheets={sheets} /> : <div className="center-note"><div className="spinner" /></div>
+          sheets ? <div style={{ zoom }}><XlsxView sheets={sheets} /></div> : <div className="center-note"><div className="spinner" /></div>
         ) : slides ? (
-          <PptxView slides={slides} />
+          <div style={{ zoom }}><PptxView slides={slides} /></div>
         ) : (
           <div className="center-note"><div className="spinner" /></div>
         )}

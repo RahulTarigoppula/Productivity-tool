@@ -39,7 +39,7 @@ export function TabBar() {
   return (
     <div className="tabrow" role="tablist" aria-label="Open files">
       <div className="left">
-        <button className={`icon-btn ${leftOpen ? "active" : ""}`} title="Toggle sidebar (Ctrl+\)" aria-label="Toggle sidebar" onClick={() => setState((s) => ({ leftOpen: !s.leftOpen }))}>
+        <button className={`icon-btn ${leftOpen ? "active" : ""}`} title="Show or hide the sidebar (Ctrl+\)" aria-label="Show or hide the sidebar" onClick={() => setState((s) => ({ leftOpen: !s.leftOpen }))}>
           <PanelLeft />
         </button>
         {tabs.length > 0 && (

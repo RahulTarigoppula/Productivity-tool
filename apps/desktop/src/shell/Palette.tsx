@@ -1,7 +1,7 @@
 import { Command as Cmdk } from "cmdk";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { pushLayer, popLayer } from "./modalFocus";
-import { Terminal, Hash, CornerDownRight, FolderSearch, Keyboard, FileClock } from "lucide-react";
+import { Zap, Hash, CornerDownRight, FolderSearch, Keyboard } from "lucide-react";
 import { useStore, setState, getState, handles } from "../app/store";
 import { allCommands } from "../app/commands";
 import { activate, openPath } from "../app/actions";
@@ -119,7 +119,7 @@ export function Palette() {
       <Cmdk.Group heading="Commands">
         {r.map(({ item, match }) => (
           <Cmdk.Item key={item.id} value={item.id} onSelect={() => run(() => void item.run())}>
-            <Terminal />
+            <Zap />
             <span className="label"><Hl text={item.title} match={match} /></span>
             {item.shortcut && <span className="kbd">{item.shortcut}</span>}
           </Cmdk.Item>
@@ -217,7 +217,7 @@ export function Palette() {
           <Cmdk.Group heading="Recent">
             {recent.map(({ item, match }) => (
               <Cmdk.Item key={item.path} value={`r-${item.path}`} onSelect={() => run(() => void openPath(item.path))}>
-                <FileClock />
+                <KindIcon kind={item.kind} name={item.path} className="" />
                 <span className="label"><Hl text={basename(item.path)} match={match} /></span>
                 <span className="hint">{dirname(item.path)}</span>
               </Cmdk.Item>
@@ -239,7 +239,7 @@ export function Palette() {
           <Cmdk.Group heading="Commands">
             {cmds.map(({ item, match }) => (
               <Cmdk.Item key={item.id} value={item.id} onSelect={() => run(() => void item.run())}>
-                <Terminal />
+                <Zap />
                 <span className="label"><Hl text={item.title} match={match} /></span>
                 {item.shortcut && <span className="kbd">{item.shortcut}</span>}
               </Cmdk.Item>
@@ -252,7 +252,7 @@ export function Palette() {
               .filter((c) => ["file.newMarkdown", "file.open", "file.openFolder", "file.export", "view.focus"].includes(c.id))
               .map((item) => (
                 <Cmdk.Item key={item.id} value={item.id} onSelect={() => run(() => void item.run())}>
-                  <Terminal />
+                  <Zap />
                   <span className="label">{item.title}</span>
                   {item.shortcut && <span className="kbd">{item.shortcut}</span>}
                 </Cmdk.Item>
@@ -273,11 +273,15 @@ export function Palette() {
           {body}
         </Cmdk.List>
         <div className="foot">
-          <span><span className="kbd">&gt;</span> commands</span>
-          <span><span className="kbd">#</span> search in folder</span>
-          <span><span className="kbd">:</span> go to</span>
-          <span><span className="kbd">@</span> headings</span>
-          <span><span className="kbd">?</span> shortcuts</span>
+          {mode ? (
+            <span>
+              {{ ">": "Commands", "#": "Searching inside the folder's files", ":": "Go to a line, page or row", "@": "Headings in this file", "?": "Keyboard shortcuts" }[mode]}
+            </span>
+          ) : (
+            <span>
+              Tip: start with <span className="kbd">&gt;</span> for commands, <span className="kbd">#</span> to search inside files, <span className="kbd">?</span> for shortcuts
+            </span>
+          )}
         </div>
       </Cmdk>
     </div>

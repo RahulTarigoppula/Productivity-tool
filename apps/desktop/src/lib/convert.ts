@@ -7,7 +7,7 @@ export type Quality = "exact" | "good" | "text";
 export const QUALITY_LABEL: Record<Quality, string> = {
   exact: "Exact",
   good: "Good",
-  text: "Text and structure only",
+  text: "Text only",
 };
 
 const QUALITY_RANK: Record<Quality, number> = { exact: 3, good: 2, text: 1 };

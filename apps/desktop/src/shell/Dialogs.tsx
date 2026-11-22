@@ -53,7 +53,26 @@ function Segmented<T extends string | number>({ value, options, onChange, label 
   return (
     <div className="segmented" role="radiogroup" aria-label={label}>
       {options.map((o) => (
-        <button key={String(o.value)} type="button" role="radio" aria-checked={o.value === value} className={o.value === value ? "on" : ""} onClick={() => onChange(o.value)}>
+        <button
+          key={String(o.value)}
+          type="button"
+          role="radio"
+          aria-checked={o.value === value}
+          // One stop for Tab (the chosen option); arrow keys move between options.
+          tabIndex={o.value === value ? 0 : -1}
+          className={o.value === value ? "on" : ""}
+          onClick={() => onChange(o.value)}
+          onKeyDown={(e) => {
+            const i = options.findIndex((x) => x.value === value);
+            const d = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+            if (!d) return;
+            e.preventDefault();
+            const next = options[(i + d + options.length) % options.length];
+            onChange(next.value);
+            const group = e.currentTarget.parentElement;
+            requestAnimationFrame(() => group?.querySelector<HTMLElement>("[aria-checked=true]")?.focus());
+          }}
+        >
           {o.label}
         </button>
       ))}
@@ -84,9 +103,6 @@ function Settings() {
           <Row label="Theme" help="Follow Windows, or choose.">
             <Segmented label="Theme" value={s.theme} onChange={(v) => void updateSettings({ theme: v })} options={[{ value: "system", label: "System" }, { value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} />
           </Row>
-          <Row label="Density" help="How tightly the bars are packed.">
-            <Segmented label="Density" value={s.density} onChange={(v) => void updateSettings({ density: v })} options={[{ value: "comfortable", label: "Comfortable" }, { value: "compact", label: "Compact" }]} />
-          </Row>
         </div>
         <div className="settings-group">
           <div className="group-title">Saving</div>
@@ -94,15 +110,17 @@ function Settings() {
         </div>
         <div className="settings-group">
           <div className="group-title">Editor</div>
-          <Row label="Live Markdown" help="Headings, bold and links formatted as you type.">{flag("markdownLivePreview", "Live Markdown")}</Row>
-          <Row label="Line numbers" help="For code and plain text; Markdown stays clean.">{flag("lineNumbers", "Line numbers")}</Row>
-          <Row label="Wrap long lines in code" help="Markdown always wraps.">{flag("wordWrapCode", "Wrap long lines")}</Row>
-          <Row label="Font size">
-            <Segmented label="Font size" value={s.fontSize} onChange={(v) => void updateSettings({ fontSize: v })} options={[12, 13, 14, 15, 16, 18, 20].map((n) => ({ value: n, label: String(n) }))} />
+          <Row label="Format notes as I type" help="Headings, bold, lists and links look formatted while you write.">{flag("markdownLivePreview", "Format notes as I type")}</Row>
+          <Row label="Text size">
+            <Segmented
+              label="Text size"
+              value={[13, 14, 16, 18].includes(s.fontSize) ? s.fontSize : s.fontSize < 14 ? 13 : s.fontSize < 16 ? 14 : s.fontSize < 18 ? 16 : 18}
+              onChange={(v) => void updateSettings({ fontSize: v })}
+              options={[{ value: 13, label: "Small" }, { value: 14, label: "Medium" }, { value: 16, label: "Large" }, { value: 18, label: "Larger" }]}
+            />
           </Row>
-          <Row label="Tab width" help="For new files; existing files keep their own indentation.">
-            <Segmented label="Tab width" value={s.tabSize} onChange={(v) => void updateSettings({ tabSize: v })} options={[2, 4, 8].map((n) => ({ value: n, label: String(n) }))} />
-          </Row>
+          <Row label="Line numbers in code" help="Notes stay clean either way.">{flag("lineNumbers", "Line numbers in code")}</Row>
+          <Row label="Wrap long lines in code" help="Notes always wrap.">{flag("wordWrapCode", "Wrap long lines in code")}</Row>
         </div>
         <div className="acts"><button className="btn primary" onClick={closeDialog}>Done</button></div>
       </div>
@@ -121,34 +139,55 @@ function useOfficeAvailable() {
 function NewFile() {
   const pick = (f: () => void) => { closeDialog(); f(); };
   const office = useOfficeAvailable();
+  // The same names and look as the home screen's Create cards.
+  const items: { kind: string; label: string; hint: string; icon: React.ReactNode; run: () => void }[] = [
+    { kind: "markdown", label: "Note", hint: "Markdown", icon: <NotebookText />, run: () => newFile("markdown") },
+    { kind: "text", label: "Text or code", hint: "Any language", icon: <FileText />, run: () => newFile("text") },
+    { kind: "csv", label: "Table", hint: "CSV", icon: <Sheet />, run: () => newFile("csv") },
+    ...(office
+      ? [
+          { kind: "docx", label: "Document", hint: "Word", icon: <FileType />, run: () => void newOfficeFile("docx") },
+          { kind: "xlsx", label: "Spreadsheet", hint: "Excel", icon: <FileSpreadsheet />, run: () => void newOfficeFile("xlsx") },
+          { kind: "pptx", label: "Presentation", hint: "PowerPoint", icon: <Presentation />, run: () => void newOfficeFile("pptx") },
+        ]
+      : []),
+  ];
   return (
     <Overlay onClose={closeDialog}>
-      <div className="dialog" role="dialog" aria-label="New file">
-        <h3>New</h3>
-        <div className="tiles" style={{ marginTop: 12 }}>
-          <button className="tile" autoFocus onClick={() => pick(() => newFile("markdown"))}><NotebookText style={{ color: "var(--k-markdown)" }} /><span className="t">Markdown note</span></button>
-          <button className="tile" onClick={() => pick(() => newFile("text"))}><FileText style={{ color: "var(--k-text)" }} /><span className="t">Text or code</span></button>
-          <button className="tile" onClick={() => pick(() => newFile("csv"))}><Sheet style={{ color: "var(--k-csv)" }} /><span className="t">CSV table</span></button>
-          {office && <button className="tile" onClick={() => pick(() => void newOfficeFile("docx"))}><FileType style={{ color: "var(--k-docx)" }} /><span className="t">Word document</span></button>}
-          {office && <button className="tile" onClick={() => pick(() => void newOfficeFile("xlsx"))}><FileSpreadsheet style={{ color: "var(--k-xlsx)" }} /><span className="t">Spreadsheet</span></button>}
-          {office && <button className="tile" onClick={() => pick(() => void newOfficeFile("pptx"))}><Presentation style={{ color: "var(--k-pptx)" }} /><span className="t">Presentation</span></button>}
-          <button className="tile" onClick={() => pick(() => void pickAndOpen())}><FileSearch style={{ color: "var(--accent)" }} /><span className="t">Open file…</span></button>
+      <div className="dialog new-dialog" role="dialog" aria-label="New file">
+        <h3>Create</h3>
+        <div className="create-grid" style={{ marginTop: 12 }}>
+          {items.map((c, i) => (
+            <button key={c.kind} className={`create-card k-${c.kind}`} autoFocus={i === 0} onClick={() => pick(c.run)}>
+              <span className="chip">{c.icon}</span>
+              <span className="t">{c.label}</span>
+              <span className="d">{c.hint}</span>
+            </button>
+          ))}
         </div>
-        {!office && <p style={{ marginTop: 14, marginBottom: 0, fontSize: 12 }}>Word, Excel and PowerPoint editing comes with the installer (the Office pack). Without it, those files open as read-only previews.</p>}
+        <div className="dialog-foot">
+          <button className="btn subtle" onClick={() => pick(() => void pickAndOpen())}><FileSearch /> Open a file instead</button>
+          <button className="btn" onClick={closeDialog}>Cancel</button>
+        </div>
       </div>
     </Overlay>
   );
 }
 
 function About() {
+  const [licenses, setLicenses] = useState(false);
   return (
     <Overlay onClose={closeDialog}>
       <div className="dialog" role="dialog" aria-label="About">
         <h3>Productivity 0.1</h3>
-        <p>One calm app for every kind of file. Local only: no account, no cloud, no tracking.</p>
-        <p style={{ fontSize: 12 }}>
-          Edits text, code, Markdown and CSV; views, annotates, signs and reorganises PDFs; and edits Word, Excel and PowerPoint files with the embedded Euro-Office editors (based on ONLYOFFICE, AGPL-3.0) when the Office pack is installed. Open-source components: Tauri, React, CodeMirror, PDF.js, pdf-lib, Euro-Office / ONLYOFFICE, docx-preview, JSZip, marked, DOMPurify, cmdk, Lucide.
-        </p>
+        <p>One calm app for notes, tables, PDFs, documents and code. Everything stays on this device: no account, no cloud, no tracking.</p>
+        {licenses ? (
+          <p className="help" style={{ lineHeight: 1.6 }}>
+            Built with open-source software: Tauri, React, CodeMirror, PDF.js, pdf-lib, docx-preview, JSZip, marked, DOMPurify, cmdk and Lucide icons. Word, Excel and PowerPoint editing, where installed, uses the Euro-Office editors, based on ONLYOFFICE (AGPL-3.0); their source and licence come with the app.
+          </p>
+        ) : (
+          <button className="btn subtle" style={{ paddingLeft: 0 }} onClick={() => setLicenses(true)}>Open-source licences</button>
+        )}
         <div className="acts"><button className="btn primary" onClick={closeDialog}>Close</button></div>
       </div>
     </Overlay>
@@ -221,7 +260,8 @@ function Export() {
         <span className="t">{title}</span>
         {sub && <span className="help">{sub}</span>}
       </span>
-      {busy === key ? <span className="spinner" style={{ width: 16, height: 16 }} /> : <span className={`q ${quality}`}>{QUALITY_LABEL[quality]}</span>}
+      {/* A label only where something is lost; full-quality formats need no badge. */}
+      {busy === key ? <span className="spinner" style={{ width: 16, height: 16 }} /> : quality === "text" ? <span className={`q ${quality}`}>{QUALITY_LABEL[quality]}</span> : null}
     </button>
   );
   return (
@@ -237,14 +277,14 @@ function Export() {
           )}
           {routes.map((r) => row(r.to, r.to, FORMAT_LABEL[r.to] ?? r.to.toUpperCase(), getRegistry().lossNote(r), r.quality, () => void run(r)))}
           {printable &&
-            row("print", "print", "Print…", platform.folders ? "Or save as PDF with \u201cMicrosoft Print to PDF\u201d" : "Or save as PDF from the print dialog", "good", () => {
+            row("print", "print", "Print or save as a formatted PDF…", "Choose \u201cSave as PDF\u201d (or a PDF printer) in the print window", "good", () => {
               closeDialog();
               void import("./print").then((m) => m.printActive());
             })}
         </div>
         {!routes.length && !printable && !engineFormats.length && <p>No export formats are available for this kind of file yet.</p>}
         <div className="dialog-foot">
-          <span className="help">Labels show how much of the document each format keeps.</span>
+          <span className="help">“Text only” means formatting is not kept.</span>
           <button className="btn" onClick={closeDialog}>Cancel</button>
         </div>
       </div>

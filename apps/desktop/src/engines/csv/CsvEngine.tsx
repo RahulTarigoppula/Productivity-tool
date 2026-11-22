@@ -325,18 +325,29 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
     const f = describeFormat(docRef.current.format);
     const items = [
       { id: "size", text: `${plural(rows.length - first, "row")} × ${plural(cols, "column")}` },
-      { id: "cell", text: `${colName(sel.c)}${sel.r + 1}` },
+      { id: "cell", text: `Cell ${colName(sel.c)}${sel.r + 1}` },
     ];
     if (stats.cells > 1 && stats.nums > 0) items.push({ id: "sum", text: `Sum ${+stats.sum.toFixed(10)} · Average ${+(stats.sum / stats.nums).toFixed(4)} · Count ${stats.count}` });
     else if (stats.cells > 1) items.push({ id: "sum", text: `Count ${stats.count}` });
     if (filter) items.push({ id: "filter", text: `Showing ${plural(view.length, "matching row")}` });
-    host.setStatus([...items, { id: "delim", text: delimName, align: "right", title: "Delimiter" } as never, { id: "enc", text: f.encoding, align: "right" } as never, { id: "eol", text: f.eol, align: "right" } as never]);
+    // Separator, text format and line endings only when unusual; all of them under Details.
+    const fmt = docRef.current.format;
+    const extra: never[] = [];
+    if (docRef.current.delimiter !== "," && docRef.current.delimiter !== "\t") extra.push({ id: "delim", text: `${delimName}-separated`, align: "right", title: "Separator" } as never);
+    if (fmt.encoding !== "utf-8") extra.push({ id: "enc", text: f.encoding, align: "right", title: "Text format" } as never);
+    const details = () =>
+      openMenu(window.innerWidth - 270, window.innerHeight - 40, [
+        { label: `Separator: ${delimName}`, disabled: true },
+        { label: `Text format: ${f.encoding}`, disabled: true },
+        { label: `Line endings: ${f.eol === "CRLF" ? "Windows (CRLF)" : f.eol === "LF" ? "Unix (LF)" : f.eol}`, disabled: true },
+      ]);
+    host.setStatus([...items, ...extra, { id: "details", text: "Details", align: "right", title: "Separator, text format and line endings", onClick: details } as never]);
   }, [rows, cols, sel, stats, filter, view.length, first, host, delimName]);
 
   useEffect(() => {
     const b = (id: string, label: string, icon: React.ReactNode, run: () => void, group: string, extra = {}) => ({ id, label, icon, run, group, ...extra });
     host.setToolbar([
-      b("header", "First row is a header", <Heading />, () => setHeader((h) => !h), "a", { active: header }),
+      b("header", "First row is a header", <Heading />, () => setHeader((h) => !h), "a", { active: header, text: "Header row" }),
       b("rowAbove", "Insert row above", <BetweenHorizontalStart />, () => opsRef.current.insertRow(false), "b"),
       b("rowBelow", "Insert row below", <Rows3 />, () => opsRef.current.insertRow(true), "b"),
       b("delRow", "Delete rows", <Trash2 />, () => opsRef.current.deleteRows(), "b"),

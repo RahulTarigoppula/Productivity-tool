@@ -19,7 +19,7 @@ Download `Productivity_0.1.0_android.apk` from **Actions → Android build → p
 
 ## What works
 
-**Every file in tabs, one window.** Open from the file picker, drag and drop, "Open with", the command line, recent files or the palette. Double-clicking another file while the app is open adds a tab to the same window.
+**Every file in tabs, one window.** Open from the file picker, drag and drop, "Open with", the command line, recent files or the palette. Double-clicking another file while the app is open adds a tab to the same window. Unchanged Office and PDF tabs left in the background release their memory and reload when you come back to them.
 
 | Format | What you can do |
 |---|---|
@@ -108,7 +108,6 @@ These are planned; none is hidden from the user in the app.
 | Language servers, terminal, git panel, minimap | W5 — light workbench |
 | PDF: annotation list panel, highlight colours, sticky-note comments, certificate signatures | W2 follow-up / later |
 | Printing PDFs goes through page images | Later |
-| Tab hibernation (all open tabs stay in memory; Office tabs are the heavy ones) | W6 |
 | Office lock files (`~$name`) are hidden but not created or respected | W6 |
 | Saved signatures are stored as plain images in the app's data folder (planned: encrypted) | W6 |
 | Native Mica title bar and Snap Layouts flyout (uses the standard Windows title bar) | W6 |

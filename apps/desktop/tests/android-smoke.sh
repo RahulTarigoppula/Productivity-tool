@@ -10,7 +10,7 @@ fail() {
   echo "FAIL: $*"
   adb logcat -d > "$OUT/logcat.txt" 2>/dev/null
   echo "---- relevant log lines ----"
-  grep -E "ProductivitySelfTest|AndroidRuntime|FATAL|panicked|RustStdoutStderr|Tauri|chromium|Console" "$OUT/logcat.txt" | grep -v "GoogleApi" | tail -80
+  grep -E "ProductivitySelfTest|AndroidRuntime|FATAL|panicked|Tauri|chromium|Console|RustStdoutStderr" "$OUT/logcat.txt" | grep -vE "GoogleApi|s_glBindAttribLocation|disk_cache|simple_index|simple_file" | tail -80
   exit 1
 }
 
@@ -52,11 +52,11 @@ adb logcat -c
 adb shell am start -n "$PKG/.MainActivity" --ez productivity.selftest true >/dev/null || fail "self-test start"
 RESULT=""
 for i in $(seq 1 100); do
-  RESULT=$(adb logcat -d -s ProductivitySelfTest:I | grep -o "SELFTEST passed=[0-9]* total=[0-9]*" | tail -1)
+  RESULT=$(adb logcat -d | grep -o "SELFTEST passed=[0-9]* total=[0-9]*" | tail -1)
   [ -n "$RESULT" ] && break
   sleep 3
 done
-adb logcat -d -s ProductivitySelfTest:I | grep SELFTEST | tee "$OUT/selftest.txt"
+adb logcat -d | grep -E "ProductivitySelfTest" | tee "$OUT/selftest.txt" | tail -60
 adb exec-out screencap -p > "$OUT/3-selftest.png"
 adb logcat -d > "$OUT/logcat-selftest.txt"
 [ -n "$RESULT" ] || fail "the self-test did not report within 5 minutes"

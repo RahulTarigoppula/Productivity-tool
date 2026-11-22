@@ -267,7 +267,9 @@ fn self_test_dir(app: tauri::AppHandle) -> Option<String> {
     #[cfg(target_os = "android")]
     if let Ok(d) = app.path().app_data_dir() {
         let dir = d.join("selftest");
-        if std::fs::remove_file(dir.join("RUN")).is_ok() {
+        let found = std::fs::remove_file(dir.join("RUN")).is_ok();
+        eprintln!("ProductivitySelfTest: marker {} at {}", if found { "found" } else { "absent" }, dir.display());
+        if found {
             return Some(dir.to_string_lossy().to_string());
         }
     }

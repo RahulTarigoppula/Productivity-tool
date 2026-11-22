@@ -445,6 +445,28 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     await page.evaluate(() => { const s = window.__app.getState(); return window.__app.closeTab(s.activeId); });
   });
 
+  await check("P-1", "large files stay fast: a 20 MB log opens in under 4 s and typing stays under 40 ms a key", async () => {
+    const openMs = await page.evaluate(async () => {
+      const line = "2026-11-22T10:00:00Z INFO request handled path=/api/items status=200 ms=12\n";
+      window.__fs.write("/work/perf/big.log", new TextEncoder().encode(line.repeat(Math.ceil(20e6 / line.length))));
+      const t0 = performance.now();
+      await window.__app.openPath("/work/perf/big.log");
+      while (!document.querySelector("section.doc-pane:not([hidden]) .cm-content")) await new Promise((r) => setTimeout(r, 20));
+      return performance.now() - t0;
+    });
+    assert(openMs < 4000, `opening took ${Math.round(openMs)} ms`);
+    await page.locator("section.doc-pane:not([hidden]) .cm-content").click();
+    const t0 = Date.now();
+    await page.keyboard.type("typing speed check");
+    const perKey = (Date.now() - t0) / 18;
+    assert(perKey < 40, `typing took ${perKey.toFixed(0)} ms per key`);
+    // Close without keeping the edit (do not wait inside the page: closing may ask first).
+    await page.evaluate(() => { const s = window.__app.getState(); void window.__app.closeTab(s.activeId); });
+    const dlg = page.getByRole("alertdialog");
+    await dlg.waitFor({ timeout: 3000 }).then(() => dlg.getByRole("button", { name: "Don't save" }).click()).catch(() => {});
+    await waitFor(async () => !(await page.evaluate(() => window.__app.getState().tabs.some((t) => t.name === "big.log"))), 8000, "the large file to close");
+  });
+
   await check("F-34", "dark theme applies", async () => {
     await page.evaluate(() => window.__app.updateSettings({ theme: "dark" }));
     await waitFor(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", 2000, "dark");

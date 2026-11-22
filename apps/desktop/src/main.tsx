@@ -43,11 +43,16 @@ if (platform.kind === "browser") {
 // Built-in self-test of the real file system bridge (run with PRODUCTIVITY_SELF_TEST=<folder>).
 if (platform.kind === "tauri") {
   void import("./app/backButton").then((m) => m.installBackButton()).catch(() => {});
-  void import("@tauri-apps/api/core").then(({ invoke }) =>
-    invoke<string | null>("self_test_dir").then((dir) => {
-      if (dir) void import("./selftest").then((m) => m.runSelfTest(dir));
-    }),
-  );
+  // Self-test mode (CI). On Android the start flag is noted by the activity as the window opens,
+  // so look again briefly if it is not there yet.
+  void import("@tauri-apps/api/core").then(async ({ invoke }) => {
+    for (const wait of [0, 800, 2500]) {
+      if (wait) await new Promise((r) => setTimeout(r, wait));
+      const dir = await invoke<string | null>("self_test_dir").catch(() => null);
+      if (dir) return void import("./selftest").then((m) => m.runSelfTest(dir));
+      if (!/Android/i.test(navigator.userAgent)) return;
+    }
+  });
 }
 
 installErrorHandlers();

@@ -123,5 +123,8 @@ pub async fn android_take_opened() -> Result<Vec<DocInfo>, String> {
 
 #[tauri::command]
 pub async fn android_log(message: String) -> Result<(), String> {
+    // Rust's stderr reaches the Android system log (tag RustStdoutStderr) on its own; the plugin
+    // also writes under its own tag.
+    eprintln!("ProductivitySelfTest: {message}");
     imp::log(message).await
 }

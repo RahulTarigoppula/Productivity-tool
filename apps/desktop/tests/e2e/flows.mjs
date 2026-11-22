@@ -168,10 +168,9 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     await page.keyboard.press("Escape");
   });
 
-  await check("F-24", "rotate and delete a PDF page, then save", async () => {
+  await check("F-24", "rotate and delete a PDF page, then save (the delete must not be lost while the rotate reloads)", async () => {
     await page.locator(".thumb").nth(1).click();
     await page.getByRole("button", { name: "Rotate right" }).click();
-    await waitFor(async () => (await activeTab())?.dirty, 5000, "dirty after rotate");
     await page.locator(".thumb").nth(2).click();
     await page.getByRole("button", { name: "Delete pages" }).click();
     await waitFor(async () => (await page.locator(".thumb").count()) === 2, 6000, "2 pages");
@@ -433,6 +432,17 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     assert(Date.now() - t0 < 2000, "main thread blocked");
     await waitFor(async () => (await page.locator(".md-preview").innerText()).length > 0, 8000, "preview settled or reported too complex");
     await page.getByRole("button", { name: "Side-by-side preview" }).click();
+  });
+
+  await check("R-11", "an Office file that is also open in Microsoft Office shows a warning", async () => {
+    const docx = Array.from(readFileSync(join(corpus, "report.docx")));
+    await page.evaluate(([b]) => {
+      window.__fs.write("/work/locked/Plan.docx", new Uint8Array(b));
+      window.__fs.write("/work/locked/~$Plan.docx", new Uint8Array([1, 2, 3]));
+    }, [docx]);
+    await open("/work/locked/Plan.docx");
+    await waitFor(() => page.getByText("looks open in Microsoft Office").isVisible(), 6000, "lock warning");
+    await page.evaluate(() => { const s = window.__app.getState(); return window.__app.closeTab(s.activeId); });
   });
 
   await check("F-34", "dark theme applies", async () => {

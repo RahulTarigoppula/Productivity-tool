@@ -146,12 +146,38 @@ export async function openPath(path: string, opts: OpenOptions = {}): Promise<st
       notice: opts.notice ?? (meta.readonly ? { text: "This file is read-only. Use Save As to keep your changes elsewhere.", tone: "info" } : undefined),
     });
     if (meta.exists) void platform.watch(path).catch(() => {});
+    if (!opts.notice && !meta.readonly) void warnIfOpenInOffice(id, path);
     void addRecent(path, kind);
     updateTitle();
     return id;
   } catch (e) {
     updateTab(id, { loading: false, error: e instanceof Error ? e.message : String(e) });
     return id;
+  }
+}
+
+/** Microsoft Office's owner-file names for a document: "~$" plus the name, and (Word, for longer
+ *  names) "~$" in place of the first one or two characters. */
+export function officeLockNames(name: string): string[] {
+  const names = [`~$${name}`];
+  const dot = name.lastIndexOf(".");
+  const stemLen = dot < 0 ? name.length : dot;
+  if (stemLen > 7) names.push(`~$${name.slice(2)}`);
+  if (stemLen > 6) names.push(`~$${name.slice(1)}`);
+  return names;
+}
+
+/** Warn when the file seems to be open in Microsoft Office too (its lock file exists next to it):
+ *  saving from both places would overwrite one set of changes. */
+async function warnIfOpenInOffice(id: string, path: string) {
+  if (!platform.folders || !/\.(docx|xlsx|pptx|doc|xls|ppt)$/i.test(path)) return;
+  const dir = dirname(path);
+  for (const n of officeLockNames(basename(path))) {
+    const m = await platform.stat(join(dir, n)).catch(() => null);
+    if (m?.exists) {
+      updateTab(id, (t) => (t.notice ? {} : { notice: { text: "This file looks open in Microsoft Office too. Save in one place only, or one set of changes will replace the other.", tone: "warn" } }));
+      return;
+    }
   }
 }
 

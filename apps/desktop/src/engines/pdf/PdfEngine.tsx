@@ -172,11 +172,15 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
 
   const keepView = () => ({ page: viewer.current?.currentPageNumber ?? 1, scale: viewer.current?.currentScaleValue ?? "page-width" });
 
-  const pageOp = async (label: string, fn: (b: Uint8Array) => Promise<Uint8Array>, keepPage?: number) => {
-    if (busy) return;
+  // Page operations run one after another: one started while another is still reloading the
+  // document waits for it instead of being dropped.
+  const pageOp = (label: string, fn: (b: Uint8Array) => Promise<Uint8Array>, keepPage?: number): Promise<void> => {
+    const run = pageOpDone.current.then(() => runPageOp(label, fn, keepPage));
+    pageOpDone.current = run.catch(() => {});
+    return run;
+  };
+  const runPageOp = async (label: string, fn: (b: Uint8Array) => Promise<Uint8Array>, keepPage?: number) => {
     setBusy(true);
-    let finish = () => {};
-    pageOpDone.current = new Promise((r) => (finish = r));
     try {
       const before = await currentBytes();
       const after = await fn(before);
@@ -192,13 +196,15 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
       host.toast(`${label} failed: ${e instanceof Error ? e.message : e}`, "error");
     } finally {
       setBusy(false);
-      finish();
     }
   };
   const targets = () => (selected.length ? selected : [page - 1]);
 
   const ops = {
-    rotate: (d: 90 | -90) => pageOp("Rotate", (b) => rotatePages(b, targets(), d)),
+    rotate: (d: 90 | -90) => {
+      const t = targets();
+      return pageOp("Rotate", (b) => rotatePages(b, t, d));
+    },
     remove: () => {
       const t = targets();
       return pageOp("Delete pages", (b) => deletePages(b, t)).then(() => setSelected([]));

@@ -108,7 +108,7 @@ These are planned; none is hidden from the user in the app.
 | Language servers, terminal, git panel, minimap | W5 — light workbench |
 | PDF: annotation list panel, highlight colours, sticky-note comments, certificate signatures | W2 follow-up / later |
 | Printing PDFs goes through page images | Later |
-| Office lock files (`~$name`) are hidden but not created or respected | W6 |
+| Office lock files: the app warns when Microsoft Office has the file open, but does not create its own lock file | W6 |
 | Saved signatures are stored as plain images in the app's data folder (planned: encrypted) | W6 |
 | Native Mica title bar and Snap Layouts flyout (uses the standard Windows title bar) | W6 |
 | Code signing (SmartScreen warning on first run) | Optional |

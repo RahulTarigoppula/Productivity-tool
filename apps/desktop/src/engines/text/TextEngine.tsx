@@ -26,10 +26,26 @@ import { openPalette } from "../../app/commands";
 const LARGE = 5_000_000;
 const defaultEol = (): TextFormat["eol"] => (navigator.userAgent.includes("Windows") ? "\r\n" : "\n");
 
+const WORD = /[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu;
+
 function countWords(text: string): number {
-  const m = text.match(/[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu);
+  const m = text.match(WORD);
   return m ? m.length : 0;
 }
+
+/** Words in a whole document, read line by line (no giant string for large files). Lines are
+ *  joined with a space, so a word never spans two lines. */
+function countDocWords(doc: EditorState["doc"]): number {
+  let n = 0;
+  for (const it = doc.iterLines(); !it.next().done; ) {
+    const m = it.value.match(WORD);
+    if (m) n += m.length;
+  }
+  return n;
+}
+
+/** Documents above this size get their word count after a pause in typing, not on every key. */
+const WORDS_SYNC_LIMIT = 200_000;
 
 export default function TextEngine({ host }: { host: EngineHost }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -111,6 +127,25 @@ export default function TextEngine({ host }: { host: EngineHost }) {
       host.setOutline(items);
     };
 
+    // Word count: cached per document version; large documents are counted after typing pauses.
+    let words: { doc: EditorState["doc"]; n: number } | null = null;
+    let wordsTimer = 0;
+    const wordCount = (state: EditorState): number | null => {
+      if (words?.doc === state.doc) return words.n;
+      if (state.doc.length <= WORDS_SYNC_LIMIT) {
+        words = { doc: state.doc, n: countDocWords(state.doc) };
+        return words.n;
+      }
+      clearTimeout(wordsTimer);
+      wordsTimer = window.setTimeout(() => {
+        const v = viewRef.current;
+        if (!v || v.state.doc !== state.doc) return;
+        words = { doc: state.doc, n: countDocWords(state.doc) };
+        updateStatus(v.state);
+      }, 600);
+      return words ? words.n : null;
+    };
+
     const updateStatus = (state: EditorState) => {
       const sel = state.selection.main;
       const line = state.doc.lineAt(sel.head);
@@ -118,12 +153,13 @@ export default function TextEngine({ host }: { host: EngineHost }) {
       const items = [
         { id: "pos", text: `Ln ${line.number}, Col ${sel.head - line.from + 1}`, onClick: () => openPalette(":") },
       ];
-      if (!sel.empty) {
+      if (!sel.empty && sel.to - sel.from <= 2_000_000) {
         const t = state.sliceDoc(sel.from, sel.to);
         items.push({ id: "sel", text: `${t.length} selected${isMd || host.kind === "text" ? `, ${countWords(t)} words` : ""}`, onClick: undefined as never });
       }
       if (isMd || /\.(txt|text)$/i.test(host.name) || langName.current === "Plain text") {
-        items.push({ id: "words", text: `${countWords(state.doc.toString()).toLocaleString()} words`, onClick: undefined as never });
+        const n = wordCount(state);
+        if (n !== null) items.push({ id: "words", text: `${n.toLocaleString()} words`, onClick: undefined as never });
       }
       host.setStatus([
         ...items,

@@ -85,8 +85,9 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
       val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
       if (text.length > 1_000_000) return
       val dir = File(activity.filesDir, "shared").apply { mkdirs() }
-      // Keep the 50 most recent shared notes.
-      dir.listFiles()?.sortedByDescending { it.lastModified() }?.drop(49)?.forEach { it.delete() }
+      // Tidy up: beyond the 50 most recent, notes untouched for 30 days are removed.
+      val cutoff = System.currentTimeMillis() - 30L * 24 * 3600 * 1000
+      dir.listFiles()?.sortedByDescending { it.lastModified() }?.drop(49)?.filter { it.lastModified() < cutoff }?.forEach { it.delete() }
       val stamp = SimpleDateFormat("yyyy-MM-dd HH.mm.ss", Locale.US).format(Date())
       val f = File(dir, "Shared text $stamp.md")
       f.writeText(text)

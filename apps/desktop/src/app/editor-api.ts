@@ -48,6 +48,7 @@ export interface EngineHandle {
    *  and may ask the user about lossy choices. Other callers must not change engine state. */
   serialize(opts?: { forSave?: boolean; fresh?: boolean }): Promise<Uint8Array>;
   /** A save that was prepared stopped before writing (cancelled, or nothing to write). */
+  // (markSaved receives { stillDirty } when the content changed after it was taken for the save.)
   cancelSave?(): void;
   focus(): void;
   /** Apply any edit still in progress (for example an open cell editor) before saving. */
@@ -64,7 +65,7 @@ export interface EngineHandle {
   /** False for read-only previews that cannot be saved back to their own format. */
   canSave?: boolean;
   /** Called after the bytes from the last serialize() were written successfully. */
-  markSaved?(): void;
+  markSaved?(info?: { stillDirty?: boolean }): void;
   /** Formats this engine can produce itself (in addition to the shared converters). */
   exportFormats?(): { ext: string; label: string }[];
   /** Produce the document in another format (for engine-provided export formats). */

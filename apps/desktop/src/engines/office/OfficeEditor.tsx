@@ -237,7 +237,9 @@ export function OfficeEditor({ host, onFailed }: { host: EngineHost; onFailed: (
         recoveryCache.current = { at: Date.now(), bytes };
         return bytes;
       },
-      markSaved() {
+      markSaved(info) {
+        // Edited again while saving: the editor must keep reporting changes.
+        if (info?.stillDirty) return;
         frameRef.current?.contentWindow?.postMessage({ type: "office:set-unchanged" }, officeOrigin);
       },
       cancelSave() {

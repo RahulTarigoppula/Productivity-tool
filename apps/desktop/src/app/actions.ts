@@ -399,8 +399,9 @@ async function saveTabNow(id: string, opts: { as?: boolean; explicit?: boolean }
       updateTab(id, (t) => ({ kind: newKind, version: t.version + 1 }));
     }
     if (!stillDirty) void clearRecovery(id);
-    // The engine adopts the saved content as its baseline only when nothing changed since.
-    if (!stillDirty) handle.markSaved?.();
+    // Engines adopt what was written as their baseline (and stay dirty themselves if the content
+    // has changed since); stillDirty lets engines that cannot compare (Office) keep their state.
+    handle.markSaved?.({ stillDirty });
     // Other tabs showing the same file (for example a CSV also open as text) must not keep stale content.
     for (const t of getState().tabs) {
       if (t.id === id || !t.path || !samePath(t.path, path)) continue;

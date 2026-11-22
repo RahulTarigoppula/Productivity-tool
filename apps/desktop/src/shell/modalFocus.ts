@@ -2,12 +2,26 @@
  *  Escape closes it, and focus returns to where it was when the dialog closes. */
 import { useEffect, type RefObject } from "react";
 
+/** Open dialogs and the palette, newest last: only the top one handles Tab and Escape. */
+const layers: symbol[] = [];
+export function pushLayer(): symbol {
+  const t = Symbol("layer");
+  layers.push(t);
+  return t;
+}
+export function popLayer(t: symbol): void {
+  const i = layers.lastIndexOf(t);
+  if (i >= 0) layers.splice(i, 1);
+}
+const isTop = (t: symbol) => layers[layers.length - 1] === t;
+
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export function useModalFocus(ref: RefObject<HTMLElement | null>, onClose?: () => void, opts: { trap?: boolean } = {}) {
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
     const root = ref.current;
+    const layer = pushLayer();
     // Let autoFocus (if any) win, otherwise focus the first control.
     const t = window.setTimeout(() => {
       if (root && !root.contains(document.activeElement)) {
@@ -16,7 +30,8 @@ export function useModalFocus(ref: RefObject<HTMLElement | null>, onClose?: () =
       }
     }, 0);
     const onKey = (e: KeyboardEvent) => {
-      if (!root) return;
+      // A dialog or the palette opened on top of this one handles the keys.
+      if (!root || !isTop(layer)) return;
       if (e.key === "Escape" && onClose) {
         e.stopPropagation();
         e.preventDefault();
@@ -40,6 +55,7 @@ export function useModalFocus(ref: RefObject<HTMLElement | null>, onClose?: () =
     return () => {
       window.clearTimeout(t);
       window.removeEventListener("keydown", onKey, true);
+      popLayer(layer);
       // Back to where the person was (or the open document, if that control is gone).
       window.setTimeout(() => {
         if (document.activeElement && document.activeElement !== document.body && !root?.contains(document.activeElement)) return;

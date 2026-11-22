@@ -171,8 +171,9 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
     host.changed();
   }
 
-  // Edits to annotations that already exist: typing in a text box, moving, resizing or deleting
-  // an annotation, and undo/redo of those, all inside the annotation editor layer.
+  // Edits to annotations that already exist: typing in a text box, moving with the keyboard or
+  // deleting, and undo/redo (a plain click to select one is not an edit). Dragging is caught by
+  // the editors' undo history below.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -187,7 +188,6 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
       if (inEditor(e.target) || ["Delete", "Backspace", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key) && el.querySelector(".annotationEditorLayer .selectedEditor")) markAnnotEdited();
     };
     el.addEventListener("input", onEdit, true);
-    el.addEventListener("pointerup", onEdit, true);
     el.addEventListener("keyup", onKey, true);
     // The editors' undo history changing means an annotation changed (selection alone does not).
     let lastHistory = "";
@@ -199,7 +199,6 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
     bus.current?.on("annotationeditorstateschanged", onState);
     return () => {
       el.removeEventListener("input", onEdit, true);
-      el.removeEventListener("pointerup", onEdit, true);
       el.removeEventListener("keyup", onKey, true);
       bus.current?.off("annotationeditorstateschanged", onState);
     };

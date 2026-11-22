@@ -1,5 +1,6 @@
 import { Command as Cmdk } from "cmdk";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { pushLayer, popLayer } from "./modalFocus";
 import { Terminal, Hash, CornerDownRight, FolderSearch, Keyboard, FileClock } from "lucide-react";
 import { useStore, setState, getState, handles } from "../app/store";
 import { allCommands } from "../app/commands";
@@ -74,7 +75,26 @@ export function Palette() {
   useEffect(() => {
     if (open) {
       focusBefore.current = document.activeElement as HTMLElement | null;
-      return;
+      // While the palette is open it is the top layer: dialogs below ignore Tab and Escape, Tab
+      // stays in the palette, and Escape closes it wherever focus is.
+      const layer = pushLayer();
+      const onKey = (e: KeyboardEvent) => {
+        const box = overlayRef.current;
+        if (!box) return;
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          setState({ palette: { open: false, query: "" } });
+        } else if (e.key === "Tab") {
+          e.preventDefault();
+          box.querySelector<HTMLElement>("[cmdk-input]")?.focus();
+        }
+      };
+      window.addEventListener("keydown", onKey, true);
+      return () => {
+        window.removeEventListener("keydown", onKey, true);
+        popLayer(layer);
+      };
     }
     const prev = focusBefore.current;
     focusBefore.current = null;

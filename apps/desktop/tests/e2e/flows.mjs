@@ -590,6 +590,50 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     void before;
   });
 
+  await check("D-4", "after typing during a save, undoing back to what is on disk reads as saved, and further back as unsaved", async () => {
+    await page.evaluate(() => { window.__fs.write("/work/loss/c.txt", new TextEncoder().encode("start")); window.__app.updateSettings({ autoSave: false }); });
+    await open("/work/loss/c.txt");
+    await page.locator("section.doc-pane:not([hidden]) .cm-content").click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.type("A");
+    await page.waitForTimeout(700); // separate undo steps (the editor groups quick typing)
+    await page.evaluate(() => { const p = window.__app.platform; window.__origWrite = p.writeFile; p.writeFile = async (...a) => { await new Promise((r) => setTimeout(r, 1000)); return window.__origWrite.apply(p, a); }; });
+    await page.keyboard.press("Control+s");
+    await page.waitForTimeout(100);
+    await page.keyboard.type("B");
+    await page.waitForTimeout(1500);
+    await page.evaluate(() => { window.__app.platform.writeFile = window.__origWrite; });
+    assert((await activeTab()).dirty, "B is not on disk, so the tab must be unsaved");
+    await page.keyboard.press("Control+z");
+    await waitFor(async () => !(await activeTab()).dirty, 2000, "clean when the text equals the disk");
+    await page.keyboard.press("Control+z");
+    await waitFor(async () => (await activeTab()).dirty, 2000, "unsaved again when the text differs from the disk");
+    await page.evaluate(() => window.__app.updateSettings({ autoSave: true }));
+  });
+
+  await check("U-4", "a question over Settings keeps Tab to itself and Escape closes only the question", async () => {
+    await page.evaluate(() => window.__app.newFile("markdown"));
+    await page.waitForSelector("section.doc-pane:not([hidden]) .cm-content");
+    await page.locator("section.doc-pane:not([hidden]) .cm-content").click();
+    await page.keyboard.type("unsaved note");
+    await page.keyboard.press("Control+,");
+    await waitFor(() => page.getByRole("dialog", { name: "Settings" }).isVisible(), 3000, "settings");
+    await page.evaluate(() => { const s = window.__app.getState(); void window.__app.closeTab(s.activeId); });
+    await waitFor(() => page.getByRole("alertdialog").isVisible(), 3000, "the save question");
+    const seen = new Set();
+    for (let i = 0; i < 4; i++) {
+      await page.keyboard.press("Tab");
+      seen.add(await page.evaluate(() => document.activeElement?.closest("[role=alertdialog]") ? document.activeElement.textContent : "outside"));
+    }
+    assert(!seen.has("outside"), "Tab left the question");
+    assert(seen.has("Don't save") && seen.has("Cancel"), `buttons reached: ${[...seen].join(", ")}`);
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(150);
+    assert(!(await page.getByRole("alertdialog").count()), "the question did not close");
+    assert(await page.getByRole("dialog", { name: "Settings" }).isVisible(), "Settings closed too");
+    await page.keyboard.press("Escape");
+  });
+
   await check("F-34", "dark theme applies", async () => {
     await page.evaluate(() => window.__app.updateSettings({ theme: "dark" }));
     await waitFor(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", 2000, "dark");

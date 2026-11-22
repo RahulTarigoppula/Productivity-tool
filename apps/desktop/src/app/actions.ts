@@ -29,17 +29,41 @@ export function takePendingGoTo(tabId: string): string | undefined {
 
 const isTsv = (p: string) => /\.(tsv|tab)$/i.test(p);
 
+/** Recovery writes and clears for one tab run in order (a late write must never follow a clear). */
+const recoveryChains = new Map<string, Promise<unknown>>();
+function recoveryOp(id: string, op: () => Promise<unknown>): Promise<unknown> {
+  const next = (recoveryChains.get(id) ?? Promise.resolve()).then(op, op).catch(() => {});
+  recoveryChains.set(id, next);
+  return next;
+}
+const clearRecovery = (id: string) => recoveryOp(id, () => platform.recoveryClear(id));
+
+/** Counts edits per tab; a save knows it is complete only if no edit came in after it serialized. */
+const editGen = new Map<string, number>();
+const bumpEdit = (id: string) => editGen.set(id, (editGen.get(id) ?? 0) + 1);
+
+/** Saves of one tab run one after another (an autosave and Ctrl+S never overlap). */
+const saveChains = new Map<string, Promise<boolean>>();
+
+/** Keys for remembered file info: the same file written two ways (slashes, letter case on
+ *  Windows drives) is one entry. */
+export function metaKey(p: string): string {
+  const s = p.replace(/\\/g, "/");
+  return /^[a-zA-Z]:\//.test(s) || s.startsWith("//") ? s.toLowerCase() : s;
+}
+
 /** Engines report clean/dirty; a tab whose starting content is not on disk stays dirty. */
 export function engineSetDirty(id: string, dirty: boolean) {
   const t = getState().tabs.find((x) => x.id === id);
   if (!t) return;
+  if (dirty) bumpEdit(id);
   if (!dirty && t.baselineUnsaved) return;
   if (t.dirty === dirty) return;
   updateTab(id, { dirty, saveState: dirty ? "edited" : t.path ? (t.readonly ? "readonly" : "saved") : "new" });
   if (!dirty) {
     clearTimeout(autoSaveTimers.get(id));
     clearTimeout(recoveryTimers.get(id));
-    void platform.recoveryClear(id);
+    void clearRecovery(id);
   }
   updateTitle();
 }
@@ -138,7 +162,7 @@ export async function openPath(path: string, opts: OpenOptions = {}): Promise<st
     if (meta.size > MAX_OPEN_BYTES) throw new Error(`The file is ${(meta.size / 1048576).toFixed(0)} MB, larger than this version can open.`);
     const diskBytes = opts.bytes ? null : await platform.readFile(path);
     const bytes = opts.bytes ?? diskBytes!;
-    if (meta.exists) knownMeta.set(path, { size: meta.size, modified: meta.modified });
+    if (meta.exists) knownMeta.set(metaKey(path), { size: meta.size, modified: meta.modified });
     const kind = opts.kind ?? detectKind(path, bytes);
     tabBytes.set(id, bytes);
     updateTab(id, {
@@ -295,7 +319,16 @@ function wantSnapshot(path: string, explicit: boolean): boolean {
   return true;
 }
 
-export async function saveTab(id: string, opts: { as?: boolean; explicit?: boolean } = {}): Promise<boolean> {
+export function saveTab(id: string, opts: { as?: boolean; explicit?: boolean } = {}): Promise<boolean> {
+  const run = (saveChains.get(id) ?? Promise.resolve(true)).then(
+    () => saveTabNow(id, opts),
+    () => saveTabNow(id, opts),
+  );
+  saveChains.set(id, run);
+  return run;
+}
+
+async function saveTabNow(id: string, opts: { as?: boolean; explicit?: boolean }): Promise<boolean> {
   const handle = handles.get(id);
   handle?.flush?.();
   const tab = getState().tabs.find((t) => t.id === id);
@@ -306,24 +339,28 @@ export async function saveTab(id: string, opts: { as?: boolean; explicit?: boole
   }
   if (tab.conflict === "changed" && !opts.as) {
     const choice = await ask("This file changed outside the app", "Saving now replaces the other changes. They are kept in version history either way.", ["Save mine", "Cancel"]);
-    if (choice !== "Save mine") return false;
+    if (choice !== "Save mine") return cancelSave(handle);
   }
   // Nothing to write: a clean tab already matches the file (keeps unedited files byte-identical).
-  if (!opts.as && tab.path && !tab.dirty && !tab.conflict && tab.saveState !== "new") return true;
+  if (!opts.as && tab.path && !tab.dirty && !tab.conflict && tab.saveState !== "new") {
+    cancelSave(handle);
+    return true;
+  }
   let path = tab.path;
   if (!path || opts.as || tab.readonly) {
     const def = tab.path ?? join(getState().workspace ?? "", tab.name);
     path = await platform.pickSave({ defaultPath: def, filters: filtersFor(tab.kind, tab.name) });
-    if (!path) return false;
+    if (!path) return cancelSave(handle);
     const other = getState().tabs.find((t) => t.id !== id && t.path && samePath(t.path, path!));
     if (other) {
       toast(`${basename(path)} is open in another tab. Close it first, or choose another name.`, "error");
-      return false;
+      return cancelSave(handle);
     }
   }
   clearTimeout(autoSaveTimers.get(id));
   updateTab(id, { saveState: "saving" });
   try {
+    const genAtSerialize = editGen.get(id) ?? 0;
     let bytes = await handle.serialize({ forSave: true });
     // Save As between .csv and .tsv changes the delimiter so the new file reads correctly.
     const fromTab = tab.kind === "csv" && tab.path ? isTsv(tab.path) : isTsv(tab.name);
@@ -336,7 +373,7 @@ export async function saveTab(id: string, opts: { as?: boolean; explicit?: boole
       remountBytes = bytes;
     }
     const meta = await platform.writeFile(path, bytes, { snapshot: wantSnapshot(path, !!opts.explicit) });
-    knownMeta.set(path, { size: meta.size, modified: meta.modified });
+    knownMeta.set(metaKey(path), { size: meta.size, modified: meta.modified });
     const current = getState().tabs.find((t) => t.id === id);
     const pathChanged = !tab.path || !samePath(tab.path, path);
     if (pathChanged) {
@@ -344,8 +381,8 @@ export async function saveTab(id: string, opts: { as?: boolean; explicit?: boole
       void platform.watch(path).catch(() => {});
     }
     const newKind = pathChanged ? kindFromName(path) : tab.kind;
-    // Still dirty if the user kept typing while the save ran.
-    const stillDirty = current?.saveState === "edited" ? true : false;
+    // Still dirty if the user kept typing after the content was taken for this save.
+    const stillDirty = (editGen.get(id) ?? 0) !== genAtSerialize;
     updateTab(id, {
       path,
       name: basename(path),
@@ -361,8 +398,9 @@ export async function saveTab(id: string, opts: { as?: boolean; explicit?: boole
       tabBytes.set(id, bytes);
       updateTab(id, (t) => ({ kind: newKind, version: t.version + 1 }));
     }
-    if (!stillDirty) void platform.recoveryClear(id);
-    handle.markSaved?.();
+    if (!stillDirty) void clearRecovery(id);
+    // The engine adopts the saved content as its baseline only when nothing changed since.
+    if (!stillDirty) handle.markSaved?.();
     // Other tabs showing the same file (for example a CSV also open as text) must not keep stale content.
     for (const t of getState().tabs) {
       if (t.id === id || !t.path || !samePath(t.path, path)) continue;
@@ -374,16 +412,29 @@ export async function saveTab(id: string, opts: { as?: boolean; explicit?: boole
     return true;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    updateTab(id, { saveState: "failed", error: undefined });
+    if (msg === "Save cancelled.") {
+      // The person chose Cancel in a question during the save: nothing went wrong.
+      updateTab(id, { saveState: "edited", dirty: true });
+      return cancelSave(handle);
+    }
+    // A failed save leaves the tab unsaved, so closing it still asks.
+    updateTab(id, { saveState: "failed", dirty: true, error: undefined });
     toast(`Could not save ${tab.name}: ${msg}`, "error", { label: "Save a copy", run: () => void saveTab(id, { as: true }) });
     return false;
   }
+}
+
+/** A save that stopped before writing: engines drop anything they prepared for it. */
+function cancelSave(handle: { cancelSave?: () => void } | undefined): false {
+  handle?.cancelSave?.();
+  return false;
 }
 
 /** Called by engines whenever content changes. */
 export function contentChanged(id: string) {
   const tab = getState().tabs.find((t) => t.id === id);
   if (!tab) return;
+  bumpEdit(id);
   if (!tab.dirty || tab.saveState === "saved" || tab.saveState === "saving") updateTab(id, { dirty: true, saveState: "edited" });
   updateTitle();
   const { autoSave } = getState().settings;
@@ -395,16 +446,16 @@ export function contentChanged(id: string) {
   recoveryTimers.set(id, window.setTimeout(() => void writeRecovery(id), 1500));
 }
 
-async function writeRecovery(id: string) {
+async function writeRecovery(id: string, fresh = false) {
   const tab = getState().tabs.find((t) => t.id === id);
   const handle = handles.get(id);
   if (!tab || !handle || !tab.dirty || handle.canSave === false) return;
   try {
-    const bytes = await handle.serialize();
+    const bytes = await handle.serialize({ fresh });
     // The tab may have been saved, cleaned or closed while serializing.
     const now = getState().tabs.find((t) => t.id === id);
     if (!now || !now.dirty || now.saveState === "saving") return;
-    await platform.recoveryWrite(id, JSON.stringify({ path: now.path, name: now.name, kind: now.kind }), bytes);
+    await recoveryOp(id, () => platform.recoveryWrite(id, JSON.stringify({ path: now.path, name: now.name, kind: now.kind }), bytes));
   } catch {
     /* recovery is best effort */
   }
@@ -412,7 +463,8 @@ async function writeRecovery(id: string) {
 
 export async function flushAll() {
   const tabs = getState().tabs.filter((t) => t.dirty);
-  await Promise.all(tabs.map((t) => writeRecovery(t.id)));
+  // On quit, recovery copies are taken now (not from a recent cache).
+  await Promise.all(tabs.map((t) => writeRecovery(t.id, true)));
   await persistSessionNow();
 }
 
@@ -433,7 +485,8 @@ export async function closeTab(id: string): Promise<boolean> {
   }
   clearTimeout(autoSaveTimers.get(id));
   clearTimeout(recoveryTimers.get(id));
-  void platform.recoveryClear(id);
+  void clearRecovery(id);
+  editGen.delete(id);
   handles.delete(id);
   tabBytes.delete(id);
   mru = mru.filter((x) => x !== id);
@@ -504,7 +557,7 @@ async function checkExternal(path: string) {
   const tabs = getState().tabs.filter((t) => t.path && samePath(t.path, path));
   if (!tabs.length) return;
   const meta = await platform.stat(path);
-  const known = knownMeta.get(path);
+  const known = knownMeta.get(metaKey(path));
   if (meta.exists && known && known.size === meta.size && known.modified === meta.modified) return;
   for (const tab of tabs) {
     if (!meta.exists) {
@@ -530,10 +583,10 @@ export async function reloadFromDisk(id: string, keepMineAsVersion = true) {
     }
     const bytes = await platform.readFile(tab.path);
     const meta = await platform.stat(tab.path);
-    knownMeta.set(tab.path, { size: meta.size, modified: meta.modified });
+    knownMeta.set(metaKey(tab.path), { size: meta.size, modified: meta.modified });
     tabBytes.set(id, bytes);
     updateTab(id, (t) => ({ version: t.version + 1, dirty: false, saveState: "saved", conflict: undefined, viewState: handle?.viewState?.() }));
-    void platform.recoveryClear(id);
+    void clearRecovery(id);
     updateTitle();
   } catch (e) {
     toast(`Could not reload: ${e instanceof Error ? e.message : e}`, "error");
@@ -585,9 +638,16 @@ async function readJson<T>(name: string, fallback: T): Promise<T> {
 
 export async function startup() {
   const settings = await readJson<Settings>("settings", DEFAULT_SETTINGS);
-  const recentRaw = await platform.stateGet("recent").catch(() => null);
-  const pinnedRaw = await platform.stateGet("pinned").catch(() => null);
-  setState({ settings, recent: recentRaw ? JSON.parse(recentRaw) : [], pinned: pinnedRaw ? JSON.parse(pinnedRaw) : [] });
+  const list = async <T,>(name: string): Promise<T[]> => {
+    try {
+      const raw = await platform.stateGet(name);
+      const v = raw ? JSON.parse(raw) : [];
+      return Array.isArray(v) ? v : [];
+    } catch {
+      return []; // a damaged state file must never stop the app from starting
+    }
+  };
+  setState({ settings, recent: await list("recent"), pinned: await list("pinned") });
 
   const session = await readJson<{ tabs: { path: string; kind: Kind; viewState?: unknown }[]; active: string | null; workspace: string | null; leftOpen?: boolean; leftView?: State["leftView"]; rightOpen?: boolean; rightView?: State["rightView"] }>("session", { tabs: [], active: null, workspace: null });
   setState({

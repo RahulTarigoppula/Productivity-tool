@@ -23,7 +23,8 @@ export function htmlDocument(title: string, body: string): string {
  *  app window), no styles (they could restyle the app or leak what is on screen), no frames. */
 export const SANITIZE = {
   FORBID_TAGS: ["style", "form", "video", "audio", "source", "picture", "track", "input", "button", "textarea", "select", "option", "iframe", "frame", "object", "embed", "link", "meta", "base", "svg", "math"],
-  FORBID_ATTR: ["style", "srcset", "formaction", "action", "background", "ping", "poster"],
+  // No id or name (a document could shadow the app's own elements); classes are filtered in a hook.
+  FORBID_ATTR: ["style", "srcset", "formaction", "action", "background", "ping", "poster", "id", "name"],
   ADD_ATTR: ["data-src"],
 };
 
@@ -64,11 +65,21 @@ let hooked = false;
 
 export async function markdownToHtml(md: string, timeoutMs = 4000): Promise<string> {
   const html = await renderInWorker(md, timeoutMs);
+  // A tiny file can expand into an enormous page (for example a table with thousands of columns).
+  if (html.length > 4_000_000) return "<p><em>This document is too large to preview. The editor still shows all of it.</em></p>";
   const DOMPurify = (await import("dompurify")).default;
   if (!hooked) {
     hooked = true;
     // Remote images are never loaded (a document must not be able to report that it was opened).
     DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+      // Only code-language classes survive, so a document cannot borrow the app's own styles
+      // (for example to draw a fake dialog over the window).
+      const cls = node.getAttribute?.("class");
+      if (cls !== null && cls !== undefined) {
+        const keep = cls.split(/\s+/).filter((c) => /^(language|lang|hljs)-[\w-]+$/.test(c)).join(" ");
+        if (keep) node.setAttribute("class", keep);
+        else node.removeAttribute("class");
+      }
       // Nothing is fetched by the browser itself: the source moves to data-src and the app
       // loads only local files through its own checked path resolver.
       if (node.nodeName === "IMG") {

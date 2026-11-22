@@ -208,7 +208,7 @@ export function createTauriPlatform(): Platform {
         .onCloseRequested(async (e) => {
           e.preventDefault();
           try {
-            await Promise.race([cb(), new Promise((r) => setTimeout(r, 3000))]);
+            await Promise.race([cb(), new Promise((r) => setTimeout(r, 12000))]);
           } finally {
             await win.destroy();
           }

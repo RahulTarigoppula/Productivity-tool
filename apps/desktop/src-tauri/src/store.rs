@@ -80,7 +80,9 @@ impl Store {
         let level: String = level.chars().filter(|c| c.is_ascii_alphabetic()).take(8).collect();
         let message: String = message.chars().take(8000).collect();
         if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&path) {
-            let _ = writeln!(f, "{} {} {}", now_ms(), level, message.replace('\n', "\n  "));
+            // One entry per line: line breaks are indented, other control characters shown as spaces.
+            let clean: String = message.chars().map(|c| if c == '\n' || !c.is_control() { c } else { ' ' }).collect();
+            let _ = writeln!(f, "{} {} {}", now_ms(), level, clean.replace('\n', "\n  "));
         }
     }
 

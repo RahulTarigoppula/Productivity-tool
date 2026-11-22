@@ -400,7 +400,8 @@ export default function TextEngine({ host }: { host: EngineHost }) {
           else if (choice !== "Replace them with ?") throw new Error("Save cancelled.");
           formatDirty.current = true;
         }
-        lastSerialized.current = doc;
+        // Only a real save may become the "saved" baseline (recovery and export copies must not).
+        if (opts?.forSave) lastSerialized.current = doc;
         return encodeText(textNow, f);
       },
       markSaved() {

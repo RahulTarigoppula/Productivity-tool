@@ -96,12 +96,7 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
     v.setDocument(d);
     linkService.setDocument(d);
     await old?.loadingTask.destroy();
-    (d.annotationStorage as unknown as { onSetModified: (() => void) | null }).onSetModified = () => {
-      annotEdits.current++;
-      annotDirty.current = true;
-      host.setDirty(true);
-      host.changed();
-    };
+    (d.annotationStorage as unknown as { onSetModified: (() => void) | null }).onSetModified = markAnnotEdited;
     setDoc(d);
     setNumPages(d.numPages);
     setSelected((s) => s.filter((i) => i < d.numPages));
@@ -164,6 +159,50 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
       host.toast(`That tool is not available for this PDF: ${e instanceof Error ? e.message : e}`, "error");
     }
   };
+
+  /** Annotation changes. PDF.js reports only the first change after each save, so edits to an
+   *  existing annotation (retyping, moving, deleting) are also caught from the editor layer below. */
+  function markAnnotEdited() {
+    annotEdits.current++;
+    annotDirty.current = true;
+    host.setDirty(true);
+    host.changed();
+  }
+
+  // Edits to annotations that already exist: typing in a text box, moving, resizing or deleting
+  // an annotation, and undo/redo of those, all inside the annotation editor layer.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const hasAnnotations = () => ((docRef.current?.annotationStorage as unknown as { size?: number })?.size ?? 0) > 0;
+    const inEditor = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.(".annotationEditorLayer");
+    const onEdit = (e: Event) => {
+      if (inEditor(e.target) && hasAnnotations()) markAnnotEdited();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      // Shortcuts (Ctrl+S and others) and lone modifier keys are not edits.
+      if (!hasAnnotations() || e.ctrlKey || e.metaKey || e.altKey || ["Control", "Shift", "Alt", "Meta", "Escape", "Tab"].includes(e.key)) return;
+      if (inEditor(e.target) || ["Delete", "Backspace", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key) && el.querySelector(".annotationEditorLayer .selectedEditor")) markAnnotEdited();
+    };
+    el.addEventListener("input", onEdit, true);
+    el.addEventListener("pointerup", onEdit, true);
+    el.addEventListener("keyup", onKey, true);
+    // The editors' undo history changing means an annotation changed (selection alone does not).
+    let lastHistory = "";
+    const onState = (e: { details?: { hasSomethingToUndo?: boolean; hasSomethingToRedo?: boolean } }) => {
+      const h = `${!!e.details?.hasSomethingToUndo}/${!!e.details?.hasSomethingToRedo}`;
+      if (h !== lastHistory && lastHistory && hasAnnotations()) markAnnotEdited();
+      lastHistory = h;
+    };
+    bus.current?.on("annotationeditorstateschanged", onState);
+    return () => {
+      el.removeEventListener("input", onEdit, true);
+      el.removeEventListener("pointerup", onEdit, true);
+      el.removeEventListener("keyup", onKey, true);
+      bus.current?.off("annotationeditorstateschanged", onState);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc]);
 
   const currentBytes = async (): Promise<Uint8Array> => {
     if (annotDirty.current && docRef.current) return docRef.current.saveDocument();

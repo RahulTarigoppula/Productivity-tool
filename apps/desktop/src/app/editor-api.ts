@@ -46,7 +46,9 @@ export interface EngineHandle {
   /** Current content as bytes, for save, export and recovery. With forSave, the engine
    *  remembers this exact content as what markSaved() will treat as being on disk,
    *  and may ask the user about lossy choices. Other callers must not change engine state. */
-  serialize(opts?: { forSave?: boolean }): Promise<Uint8Array>;
+  serialize(opts?: { forSave?: boolean; fresh?: boolean }): Promise<Uint8Array>;
+  /** A save that was prepared stopped before writing (cancelled, or nothing to write). */
+  cancelSave?(): void;
   focus(): void;
   /** Apply any edit still in progress (for example an open cell editor) before saving. */
   flush?(): void;

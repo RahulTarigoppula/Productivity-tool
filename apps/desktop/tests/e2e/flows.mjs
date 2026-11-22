@@ -479,6 +479,68 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     assert(bytes === src, "the document text changed");
   });
 
+  await check("D-1", "an edit typed during a slow save (with a recovery copy taken meanwhile) is never lost", async () => {
+    await page.evaluate(() => { window.__fs.write("/work/loss/a.md", new TextEncoder().encode("hello\n")); window.__app.updateSettings({ autoSave: false }); });
+    await open("/work/loss/a.md");
+    await page.locator("section.doc-pane:not([hidden]) .cm-content").click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.type("A");
+    await page.evaluate(() => { const p = window.__app.platform; window.__origWrite = p.writeFile; p.writeFile = async (...a) => { await new Promise((r) => setTimeout(r, 2500)); return window.__origWrite.apply(p, a); }; });
+    await page.keyboard.press("Control+s");
+    await page.waitForTimeout(150);
+    await page.keyboard.type("X");
+    await page.waitForTimeout(3500);
+    await page.evaluate(() => { window.__app.platform.writeFile = window.__origWrite; });
+    await page.keyboard.type("Y");
+    await page.keyboard.press("Backspace");
+    await page.waitForTimeout(200);
+    assert((await activeTab()).dirty, "the tab looks saved although X was never written");
+    await page.keyboard.press("Control+s");
+    await waitFor(async () => !(await activeTab()).dirty, 5000, "saved");
+    const disk = new TextDecoder().decode(new Uint8Array(await fsRead("/work/loss/a.md")));
+    assert(disk.includes("AX"), `disk has ${JSON.stringify(disk)}`);
+    await page.evaluate(() => window.__app.updateSettings({ autoSave: true }));
+  });
+
+  await check("D-2", "when a later save fails, the tab stays unsaved and closing it asks", async () => {
+    await page.evaluate(() => { window.__fs.write("/work/loss/b.md", new TextEncoder().encode("one\n")); window.__app.updateSettings({ autoSave: false }); });
+    await open("/work/loss/b.md");
+    await page.locator("section.doc-pane:not([hidden]) .cm-content").click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.type("1");
+    await page.evaluate(() => { const p = window.__app.platform; window.__origWrite = p.writeFile; let n = 0; p.writeFile = async (...a) => { n++; if (n === 1) { await new Promise((r) => setTimeout(r, 1500)); return window.__origWrite.apply(p, a); } throw new Error("disk full"); }; });
+    await page.keyboard.press("Control+s");
+    await page.waitForTimeout(100);
+    await page.keyboard.type("2");
+    await page.evaluate(() => { const s = window.__app.getState(); void window.__app.saveTab(s.activeId); });
+    await page.waitForTimeout(2500);
+    await page.evaluate(() => { window.__app.platform.writeFile = window.__origWrite; });
+    assert((await activeTab()).dirty, "a failed save left the tab looking saved");
+    await page.evaluate(() => { const s = window.__app.getState(); void window.__app.closeTab(s.activeId); });
+    await waitFor(() => page.getByRole("alertdialog").isVisible(), 3000, "the save question");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await waitFor(async () => !(await page.evaluate(() => window.__app.getState().tabs.some((t) => t.name === "b.md"))), 5000, "closed after saving");
+    const disk = new TextDecoder().decode(new Uint8Array(await fsRead("/work/loss/b.md")));
+    assert(disk.includes("12"), `disk has ${JSON.stringify(disk)}`);
+    await page.evaluate(() => window.__app.updateSettings({ autoSave: true }));
+  });
+
+  await check("D-3", "a CSV in an older encoding asks before characters it cannot hold are saved", async () => {
+    await page.evaluate(() => window.__fs.write("/work/loss/latin.csv", new Uint8Array([0x6e, 0x61, 0x6d, 0x65, 0x0a, 0x63, 0x61, 0x66, 0xe9, 0x0a])));
+    await open("/work/loss/latin.csv");
+    await waitFor(() => page.locator("section.doc-pane:not([hidden]) .csv-cell").first().isVisible(), 5000, "grid");
+    await page.locator("section.doc-pane:not([hidden]) .csv-cell").first().dblclick();
+    await page.keyboard.press("Control+a");
+    await page.keyboard.type("Łódź");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Control+s");
+    await waitFor(() => page.getByRole("alertdialog").isVisible(), 4000, "the encoding question");
+    await page.getByRole("button", { name: "Save as UTF-8" }).click();
+    await waitFor(async () => !(await activeTab()).dirty, 5000, "saved");
+    const disk = new TextDecoder().decode(new Uint8Array(await fsRead("/work/loss/latin.csv")));
+    assert(disk.includes("Łódź"), `disk has ${JSON.stringify(disk)}`);
+  });
+
   await check("F-34", "dark theme applies", async () => {
     await page.evaluate(() => window.__app.updateSettings({ theme: "dark" }));
     await waitFor(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", 2000, "dark");

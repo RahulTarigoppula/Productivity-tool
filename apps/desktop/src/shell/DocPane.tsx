@@ -1,7 +1,7 @@
 import { Suspense, useMemo, useEffect, useRef, useState, Component, type ReactNode } from "react";
 import { Info, TriangleAlert, FileWarning } from "lucide-react";
 import { setState, updateTab, handles, tabBytes, knownMeta, toast, type Tab } from "../app/store";
-import { contentChanged, keepMine, reloadFromDisk, saveTab, closeTab, openLink, reopenAs, takePendingGoTo, engineSetDirty } from "../app/actions";
+import { metaKey, contentChanged, keepMine, reloadFromDisk, saveTab, closeTab, openLink, reopenAs, takePendingGoTo, engineSetDirty } from "../app/actions";
 import type { EngineHost } from "../app/editor-api";
 import { engineFor } from "../engines";
 import { platform } from "../platform";
@@ -135,7 +135,7 @@ function useHibernation(tab: Tab, active: boolean): { asleep: boolean; waking: b
     const path = tab.path!;
     void Promise.all([platform.readFile(path), platform.stat(path)])
       .then(([bytes, meta]) => {
-        if (meta.exists) knownMeta.set(path, { size: meta.size, modified: meta.modified });
+        if (meta.exists) knownMeta.set(metaKey(path), { size: meta.size, modified: meta.modified });
         tabBytes.set(tab.id, bytes);
         updateTab(tab.id, (t) => ({ version: t.version + 1 }));
       })

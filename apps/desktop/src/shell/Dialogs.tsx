@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { NotebookText, FileText, Sheet, FileSearch, FileType, FileSpreadsheet, Presentation } from "lucide-react";
 import { useStore, setState, activeTab, handles, toast } from "../app/store";
 import { useAsk } from "../app/dialogs";
-import { updateSettings, newFile, newOfficeFile, pickAndOpen, suggestExportPath, openPath } from "../app/actions";
+import { updateSettings, newFile, newOfficeFile, pickAndOpen, suggestExportPath, openPath, handleExternalChange } from "../app/actions";
 import { getRegistry, sourceFormat, FORMAT_LABEL } from "../app/exporters";
 import { QUALITY_LABEL, type Route } from "../lib/convert";
 import { platform } from "../platform";
@@ -181,7 +181,9 @@ function Export() {
     setBusy(ext);
     try {
       const bytes = await handle.convert(ext);
-      await platform.writeFile(target, bytes);
+      // Exporting over an existing file keeps its previous version, and an open tab of it refreshes.
+      await platform.writeFile(target, bytes, { snapshot: true });
+      handleExternalChange(target);
       closeDialog();
       toast(`Exported ${basename(target)}`, "info", { label: "Open", run: () => void openPath(target) });
     } catch (e) {
@@ -203,7 +205,8 @@ function Export() {
       const written: string[] = [];
       for (const f of out.files) {
         const p = f.suffix ? join(dirname(target), `${stem(target)}${f.suffix}.${route.to}`) : target;
-        await platform.writeFile(p, f.bytes);
+        await platform.writeFile(p, f.bytes, { snapshot: true });
+        handleExternalChange(p);
         written.push(p);
       }
       closeDialog();

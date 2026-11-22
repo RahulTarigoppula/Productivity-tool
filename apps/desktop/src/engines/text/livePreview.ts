@@ -161,6 +161,9 @@ function buildTables(state: EditorState): DecorationSet {
         if (state.doc.sliceString(first.from, node.from).trim()) return false;
         for (let n = first.number; n <= last.number; n++) if (lines.has(n)) return false;
         const source = state.doc.sliceString(first.from, last.to);
+        // Very large tables stay as source (a short file could otherwise build millions of cells).
+        const rowsN = last.number - first.number + 1;
+        if (rowsN * tableCells(state.doc.line(first.number).text).length > 20_000) return false;
         decos.push(Decoration.replace({ widget: new TableWidget(source, first.from), block: true }).range(first.from, last.to));
         return false;
       },

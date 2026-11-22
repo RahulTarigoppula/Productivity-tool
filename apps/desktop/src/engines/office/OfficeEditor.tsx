@@ -60,10 +60,17 @@ interface Pending {
 
 export function OfficeEditor({ host, onFailed }: { host: EngineHost; onFailed: (reason: string) => void }) {
   const frameRef = useRef<HTMLIFrameElement>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [status, setStatusState] = useState<"loading" | "ready" | "error">("loading");
+  // The message handler is set up once; it reads the current status through this ref.
+  const statusRef = useRef<"loading" | "ready" | "error">("loading");
+  const setStatus = (s: "loading" | "ready" | "error") => {
+    statusRef.current = s;
+    setStatusState(s);
+  };
   const pending = useRef(new Map<string, Pending>());
   const seq = useRef(0);
-  const userSaved = useRef<Uint8Array | null>(null);
+  /** The file handed over by Ctrl+S inside the editor, used by the save that Ctrl+S starts. */
+  const userSaved = useRef<{ bytes: Uint8Array; at: number } | null>(null);
   const lastSavedAt = useRef(0);
   const lastSavedSize = useRef(-1);
   const recoveryCache = useRef<{ at: number; bytes: Uint8Array } | null>(null);
@@ -149,6 +156,8 @@ export function OfficeEditor({ host, onFailed }: { host: EngineHost; onFailed: (
         return;
       }
       if (type === "office:modified" || type === "document:modified") {
+        // Edited after a Ctrl+S inside the editor: that file is no longer the current content.
+        userSaved.current = null;
         host.setDirty(true);
         host.changed();
         return;
@@ -176,7 +185,7 @@ export function OfficeEditor({ host, onFailed }: { host: EngineHost; onFailed: (
         lastSavedAt.current = Date.now();
         lastSavedSize.current = size;
         void (payload.file as Blob).arrayBuffer().then((b) => {
-          userSaved.current = new Uint8Array(b);
+          userSaved.current = { bytes: new Uint8Array(b), at: Date.now() };
           host.save();
         });
         return;
@@ -187,7 +196,7 @@ export function OfficeEditor({ host, onFailed }: { host: EngineHost; onFailed: (
         clearTimeout(p.timer);
         if (type === "document:error") p.reject(new Error(String(payload?.message ?? "The editor reported an error.")));
         else p.resolve(payload);
-      } else if (type === "document:error" && status !== "ready") {
+      } else if (type === "document:error" && statusRef.current !== "ready") {
         setStatus("error");
         onFailed(String(payload?.message ?? "The editor could not open this file."));
       }
@@ -214,22 +223,25 @@ export function OfficeEditor({ host, onFailed }: { host: EngineHost; onFailed: (
     host.register({
       async serialize(opts) {
         if (opts?.forSave) {
-          if (userSaved.current) {
-            const b = userSaved.current;
-            userSaved.current = null;
-            return b;
-          }
+          // Use the editor's own Ctrl+S file only for the save it started, moments ago.
+          const u = userSaved.current;
+          userSaved.current = null;
+          if (u && Date.now() - u.at < 5000) return u.bytes;
           return saveAs(SAVE_EXT[kind]);
         }
-        // Recovery copies: converting the document has a cost, so reuse a recent copy.
+        // Recovery copies: converting the document has a cost, so reuse a recent copy
+        // (except when quitting, which takes a fresh one).
         const c = recoveryCache.current;
-        if (c && Date.now() - c.at < 20000) return c.bytes;
+        if (!opts?.fresh && c && Date.now() - c.at < 20000) return c.bytes;
         const bytes = await saveAs(SAVE_EXT[kind]);
         recoveryCache.current = { at: Date.now(), bytes };
         return bytes;
       },
       markSaved() {
         frameRef.current?.contentWindow?.postMessage({ type: "office:set-unchanged" }, officeOrigin);
+      },
+      cancelSave() {
+        userSaved.current = null;
       },
       convert: (ext: string) => saveAs(ext),
       exportFormats: () => OFFICE_EXPORTS[kind],
@@ -256,7 +268,7 @@ export function OfficeEditor({ host, onFailed }: { host: EngineHost; onFailed: (
         className="office-frame"
         allow="clipboard-read; clipboard-write"
         /* No top-level navigation and no pop-ups from a document's editor. */
-        sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-downloads"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
         referrerPolicy="no-referrer"
         style={{ visibility: status === "ready" ? "visible" : "hidden" }}
       />

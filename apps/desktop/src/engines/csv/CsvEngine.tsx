@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUpNarrowWide, ArrowDownWideNarrow, Rows3, Columns3, Trash2, Filter, Heading, FileText, X, BetweenHorizontalStart, BetweenVerticalStart } from "lucide-react";
 import type { EngineHost, Command } from "../../app/editor-api";
-import { loadCsv, saveCsv, columnCount, setCell, emptyRow, insertColumn, deleteColumn, compareCells, type CsvDoc, type CsvRow } from "../../lib/csv";
-import { describeFormat } from "../../lib/textcodec";
+import { loadCsv, saveCsv, serializeCsv, columnCount, setCell, emptyRow, insertColumn, deleteColumn, compareCells, type CsvDoc, type CsvRow } from "../../lib/csv";
+import { describeFormat, canEncode } from "../../lib/textcodec";
 import { extname } from "../../lib/paths";
 import { colName } from "../office/ooxml";
 
@@ -16,9 +16,12 @@ function measure(rows: CsvRow[], cols: number, header: boolean): number[] {
   const ctx = document.createElement("canvas").getContext("2d")!;
   ctx.font = "13px Segoe UI, system-ui, sans-serif";
   const w = Array.from({ length: cols }, () => 60);
-  const sample = rows.slice(0, 300);
-  for (const r of sample) for (let c = 0; c < cols; c++) w[c] = Math.max(w[c], Math.min(320, ctx.measureText(r.cells[c] ?? "").width + 22));
-  if (header && rows[0]) for (let c = 0; c < cols; c++) w[c] = Math.max(w[c], Math.min(320, ctx.measureText(rows[0].cells[c] ?? "").width + 30));
+  // Measure a sample: the first rows, and at most the first 300 columns (very wide tables keep
+  // a default width for the rest, so opening them stays quick).
+  const sample = rows.slice(0, cols > 300 ? 40 : 300);
+  const mc = Math.min(cols, 300);
+  for (const r of sample) for (let c = 0; c < mc; c++) w[c] = Math.max(w[c], Math.min(320, ctx.measureText(r.cells[c] ?? "").width + 22));
+  if (header && rows[0]) for (let c = 0; c < mc; c++) w[c] = Math.max(w[c], Math.min(320, ctx.measureText(rows[0].cells[c] ?? "").width + 30));
   return w;
 }
 
@@ -66,7 +69,7 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
     setEditingState(e);
   };
   const [filter, setFilter] = useState<string | null>(null);
-  const [scroll, setScroll] = useState({ top: 0, height: 600 });
+  const [scroll, setScroll] = useState({ top: 0, height: 600, left: 0, width: 1200 });
   const scrollRef = useRef<HTMLDivElement>(null);
   const undo = useRef<CsvRow[][]>([]);
   const redo = useRef<CsvRow[][]>([]);
@@ -142,16 +145,21 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
     setSel((s) => {
       const r = Math.max(0, Math.min(view.length - 1, (extend ? s.r2 : s.r) + dr));
       const c = Math.max(0, Math.min(cols - 1, (extend ? s.c2 : s.c) + dc));
-      ensureVisible(r);
+      ensureVisible(r, c);
       return extend ? { ...s, r2: r, c2: c } : { r, c, r2: r, c2: c };
     });
   };
-  const ensureVisible = (r: number) => {
+  const ensureVisible = (r: number, c?: number) => {
     const el = scrollRef.current;
     if (!el) return;
     const top = r * ROW_H, bottom = top + ROW_H + ROW_H;
     if (top < el.scrollTop) el.scrollTop = top;
     else if (bottom > el.scrollTop + el.clientHeight) el.scrollTop = bottom - el.clientHeight;
+    if (c !== undefined) {
+      const x0 = left(c) - NUM_W, x1 = left(c + 1);
+      if (x0 < el.scrollLeft) el.scrollLeft = x0;
+      else if (x1 > el.scrollLeft + el.clientWidth) el.scrollLeft = x1 - el.clientWidth;
+    }
   };
 
   const selectionTable = (): string[][] => {
@@ -341,11 +349,24 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
     ];
     host.register({
       async serialize(opts) {
-        if (opts?.forSave) {
-          commitPendingRef.current();
-          lastSaved.current = docRef.current.rows;
+        if (opts?.forSave) commitPendingRef.current();
+        let doc = docRef.current;
+        // An older encoding (for example Windows-1252 from Excel) cannot hold every character:
+        // ask, as the text editor does, instead of silently writing "?".
+        if (!canEncode(serializeCsv(doc), doc.format.encoding)) {
+          if (!opts?.forSave) return saveCsv({ ...doc, format: { ...doc.format, encoding: "utf-8", bom: false } });
+          const { ask } = await import("../../app/dialogs");
+          const choice = await ask(
+            `Some characters can't be saved as ${describeFormat(doc.format).encoding}`,
+            "This table uses an older encoding that cannot hold some of the characters you typed. Saving as UTF-8 keeps them, but programs that expect the old encoding may show accented letters differently.",
+            ["Save as UTF-8", "Replace them with ?", "Cancel"],
+          );
+          if (choice === "Save as UTF-8") {
+            doc = docRef.current = { ...doc, format: { ...doc.format, encoding: "utf-8", bom: false } };
+          } else if (choice !== "Replace them with ?") throw new Error("Save cancelled.");
         }
-        return saveCsv(docRef.current);
+        if (opts?.forSave) lastSaved.current = doc.rows;
+        return saveCsv(doc);
       },
       markSaved() {
         if (!lastSaved.current) return;
@@ -375,16 +396,35 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setScroll({ top: el.scrollTop, height: el.clientHeight }));
+    const ro = new ResizeObserver(() => setScroll({ top: el.scrollTop, height: el.clientHeight, left: el.scrollLeft, width: el.clientWidth }));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
   const start = Math.max(0, Math.floor(scroll.top / ROW_H) - 5);
   const end = Math.min(view.length, Math.ceil((scroll.top + scroll.height) / ROW_H) + 5);
-  const totalW = NUM_W + widths.slice(0, cols).reduce((a, b) => a + b, 0);
+  // Column positions, summed once (not per cell); only the columns in view are drawn.
+  const offsets = useMemo(() => {
+    const o = new Float64Array(cols + 1);
+    o[0] = NUM_W;
+    for (let c = 0; c < cols; c++) o[c + 1] = o[c] + (widths[c] ?? 100);
+    return o;
+  }, [widths, cols]);
+  const totalW = offsets[cols];
   const { r1, r2, c1, c2 } = norm(sel);
-  const left = (c: number) => NUM_W + widths.slice(0, c).reduce((a, b) => a + b, 0);
+  const left = (c: number) => offsets[Math.min(c, cols)];
+  const colAt = (x: number) => {
+    let lo = 0, hi = cols - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (offsets[mid] <= x) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  };
+  const colStart = Math.max(0, colAt(scroll.left) - 2);
+  const colEnd = Math.min(cols, colAt(scroll.left + scroll.width) + 3);
+  const visibleCols = Array.from({ length: Math.max(0, colEnd - colStart) }, (_, i) => colStart + i);
 
   const resize = (c: number, e: React.MouseEvent) => {
     e.preventDefault();
@@ -416,12 +456,12 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
         aria-rowcount={view.length}
         aria-colcount={cols}
         onKeyDown={onKeyDown}
-        onScroll={(e) => setScroll({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}
+        onScroll={(e) => setScroll({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight, left: e.currentTarget.scrollLeft, width: e.currentTarget.clientWidth })}
       >
         <div style={{ height: (view.length + 1) * ROW_H, width: totalW, position: "relative" }}>
           <div className="csv-head" style={{ width: totalW }}>
             <div className="csv-corner" style={{ width: NUM_W }} onClick={() => setSel({ r: 0, c: 0, r2: view.length - 1, c2: cols - 1 })} />
-            {Array.from({ length: cols }, (_, c) => (
+            {visibleCols.map((c) => (
               <div key={c} className={`csv-hcell ${c >= c1 && c <= c2 ? "sel" : ""}`} style={{ left: left(c), width: widths[c] }} onClick={(e) => setSel(e.shiftKey ? { ...sel, r2: view.length - 1, c2: c } : { r: 0, c, r2: view.length - 1, c2: c })} title={header ? rows[0]?.cells[c] : colName(c)}>
                 <span className="t">{header ? rows[0]?.cells[c] || colName(c) : colName(c)}</span>
                 <span className="grip" onMouseDown={(e) => resize(c, e)} />
@@ -435,7 +475,7 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
             return (
               <div key={di} className="csv-row" style={{ top: (r + 1) * ROW_H, width: totalW }} role="row">
                 <div className={`csv-num ${r >= r1 && r <= r2 ? "sel" : ""}`} style={{ width: NUM_W }} onClick={(e) => setSel(e.shiftKey ? { ...sel, r2: r, c2: cols - 1 } : { r, c: 0, r2: r, c2: cols - 1 })}>{di - first + 1}</div>
-                {Array.from({ length: cols }, (_, c) => {
+                {visibleCols.map((c) => {
                   const inSel = r >= r1 && r <= r2 && c >= c1 && c <= c2;
                   const isCur = r === sel.r && c === sel.c;
                   const v = row?.cells[c] ?? "";

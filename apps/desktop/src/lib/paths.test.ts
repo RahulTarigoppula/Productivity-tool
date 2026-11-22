@@ -28,6 +28,11 @@ describe("paths", () => {
     expect(relative("/a/b", "/a/b/c.md")).toBe("c.md");
     expect(resolve("/a/b", "c.md")).toBe("/a/b/c.md");
   });
+  it("never climbs above a drive or a network share", () => {
+    expect(resolveDocumentRef("\\\\fileserver\\team\\docs", "../../../evil.example@SSL/a.png")).toBe("\\\\fileserver\\team\\evil.example@SSL\\a.png");
+    expect(resolveDocumentRef("C:\\Users\\me", "../../../../Windows/win.ini")).toBe("C:\\Windows\\win.ini");
+    expect(resolveDocumentRef("/home/me", "../../../etc/passwd")).toBe("/etc/passwd");
+  });
   it("refuses document references that reach other machines", () => {
     expect(isRemoteOrDevicePath("\\\\attacker\\share\\a.png")).toBe(true);
     expect(isRemoteOrDevicePath("//attacker.com/s/a.png")).toBe(true);

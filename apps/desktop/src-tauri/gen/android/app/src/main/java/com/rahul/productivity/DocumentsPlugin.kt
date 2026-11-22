@@ -59,7 +59,9 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
 
   override fun load(webView: WebView) {
     // Test builds in CI start the app with this flag to run its self-test (see tests/android-smoke.sh).
-    if (activity.intent?.getBooleanExtra("productivity.selftest", false) == true) {
+    // Only on a device with USB debugging turned on, so other apps cannot start it on a normal phone.
+    val adb = android.provider.Settings.Global.getInt(activity.contentResolver, android.provider.Settings.Global.ADB_ENABLED, 0) == 1
+    if (adb && activity.intent?.getBooleanExtra("productivity.selftest", false) == true) {
       // Tauri's app data folder on Android is the app's data folder itself.
       val dir = File(activity.dataDir, "selftest").apply { mkdirs() }
       File(dir, "RUN").writeText("1")
@@ -81,8 +83,10 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
     if (uri == null && intent.action == Intent.ACTION_SEND) {
       // Text shared from another app (no file): keep it as a new note in the app's own storage.
       val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
-      if (text.length > 5_000_000) return
+      if (text.length > 1_000_000) return
       val dir = File(activity.filesDir, "shared").apply { mkdirs() }
+      // Keep the 50 most recent shared notes.
+      dir.listFiles()?.sortedByDescending { it.lastModified() }?.drop(49)?.forEach { it.delete() }
       val stamp = SimpleDateFormat("yyyy-MM-dd HH.mm.ss", Locale.US).format(Date())
       val f = File(dir, "Shared text $stamp.md")
       f.writeText(text)
@@ -92,7 +96,9 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
     }
     if (uri == null || uri.scheme != "content") return
     // Never act on this app's own files on another app's behalf.
-    if (uri.authority?.startsWith(activity.packageName) == true) return
+    // (The authority may carry a "user@" prefix, which Android ignores when it finds the provider.)
+    val authority = uri.authority?.substringAfterLast('@') ?: return
+    if (authority == activity.packageName || authority.startsWith(activity.packageName + ".")) return
     val s = uri.toString()
     synchronized(opened) { if (!opened.contains(s)) opened.add(s) }
     // Handled: do not hand the same file over again when the activity is recreated.

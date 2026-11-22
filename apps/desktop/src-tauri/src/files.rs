@@ -100,10 +100,22 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     ))
 }
 
+/// Largest file the app reads (matches the interface's limit).
+pub const MAX_READ: u64 = 300 * 1024 * 1024;
+
+/// Read a regular file, up to MAX_READ bytes. Devices, pipes and folders are refused (a device such
+/// as /dev/zero never ends).
 pub fn read(path: &Path) -> Result<Vec<u8>, String> {
-    let mut f = fs::File::open(path).map_err(|e| format!("Could not open {}: {e}", path.display()))?;
+    let f = fs::File::open(path).map_err(|e| format!("Could not open {}: {e}", path.display()))?;
+    let meta = f.metadata().map_err(|e| format!("Could not read: {e}"))?;
+    if !meta.is_file() {
+        return Err("This is not a regular file.".into());
+    }
     let mut buf = Vec::new();
-    f.read_to_end(&mut buf).map_err(|e| format!("Could not read: {e}"))?;
+    f.take(MAX_READ + 1).read_to_end(&mut buf).map_err(|e| format!("Could not read: {e}"))?;
+    if buf.len() as u64 > MAX_READ {
+        return Err("The file is larger than this version can open.".into());
+    }
     Ok(buf)
 }
 
@@ -225,6 +237,17 @@ pub fn search(root: &Path, query: &str, opts: &SearchOptions) -> Result<Vec<Sear
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_refuses_folders_and_devices() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(read(dir.path()).is_err());
+        #[cfg(unix)]
+        assert!(read(Path::new("/dev/zero")).is_err());
+        let p = dir.path().join("a.txt");
+        fs::write(&p, b"ok").unwrap();
+        assert_eq!(read(&p).unwrap(), b"ok");
+    }
 
     #[test]
     fn atomic_write_creates_and_replaces() {

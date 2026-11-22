@@ -133,11 +133,18 @@ async fn write_file(request: Request<'_>, state: tauri::State<'_, AppState>, app
         .map_err(|e| e.to_string())?;
     }
     let p = PathBuf::from(&path);
-    if header(&request, "x-snapshot").as_deref() == Some("1") && p.exists() {
-        store::snapshot_before_overwrite(&state.store, &p);
-    }
-    files::write_atomic(&p, &bytes)?;
-    Ok(files::meta(&p))
+    let snapshot = header(&request, "x-snapshot").as_deref() == Some("1");
+    let store = state.store.clone();
+    // Disk work (fsync, rename retries) runs on the blocking pool, not the async workers.
+    tauri::async_runtime::spawn_blocking(move || {
+        if snapshot && p.exists() {
+            store::snapshot_before_overwrite(&store, &p);
+        }
+        files::write_atomic(&p, &bytes)?;
+        Ok(files::meta(&p))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Commands run off the window's thread: disk access never freezes the window, and a
@@ -475,7 +482,8 @@ pub fn run() {
                     }
                     let host = u.host_str().unwrap_or("");
                     // Office editor frames (their own scheme, or http://office.<tab>.localhost).
-                    let office = u.scheme() == "office" || (host.starts_with("office.") && host.ends_with(".localhost"));
+                    let office = (u.scheme() == "office" && u.port().is_none())
+                        || ((u.scheme() == "http" || u.scheme() == "https") && u.port().is_none() && host.starts_with("office.") && host.ends_with(".localhost"));
                     u.scheme() == "tauri"
                         || office
                         || host == "tauri.localhost"

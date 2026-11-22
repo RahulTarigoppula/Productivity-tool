@@ -95,10 +95,13 @@ export function resolve(fromDir: string, rel: string): string {
   if (/^[a-zA-Z]:[\\/]/.test(rel) || rel.startsWith("/") || rel.startsWith("\\\\")) return rel;
   const s = sep(fromDir);
   const parts = fromDir.replace(/[\\/]+$/, "").split(/[\\/]/);
+  // ".." never climbs above the root: a drive (C:), a network share (\\server\share) or "/".
+  const rootLen = /^[\\/]{2}/.test(fromDir) ? 4 : /^[a-zA-Z]:/.test(fromDir) || fromDir.startsWith("/") || fromDir.startsWith("\\") ? 1 : 0;
   for (const seg of rel.split(/[\\/]/)) {
     if (seg === "" || seg === ".") continue;
-    if (seg === "..") parts.pop();
-    else parts.push(seg);
+    if (seg === "..") {
+      if (parts.length > Math.max(rootLen, 1)) parts.pop();
+    } else parts.push(seg);
   }
   return parts.join(s);
 }
@@ -118,7 +121,12 @@ export function resolveDocumentRef(fromDir: string, ref: string): string | null 
   // Documents opened through Android's picker have no folder to resolve against.
   if (!fromDir || isContentUri(fromDir)) return null;
   if (!r || isRemoteOrDevicePath(r) || /^[a-zA-Z]:/.test(r) || r.startsWith("/") || r.startsWith("\\") || /^[a-z][a-z0-9+.-]*:/i.test(r)) return null;
-  return resolve(fromDir, r);
+  const out = resolve(fromDir, r);
+  // The result must stay on the same drive or share as the document (never another server).
+  const server = (p: string) => (/^[\\/]{2}([^\\/]+)[\\/]([^\\/]+)/.exec(p)?.slice(1).join("/") ?? "").toLowerCase();
+  if (server(out) !== server(fromDir)) return null;
+  if (/^[a-zA-Z]:/.test(fromDir) && out.slice(0, 2).toLowerCase() !== fromDir.slice(0, 2).toLowerCase()) return null;
+  return out;
 }
 
 export function samePath(a: string, b: string): boolean {

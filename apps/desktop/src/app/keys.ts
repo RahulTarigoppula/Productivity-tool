@@ -29,7 +29,10 @@ export function handleShortcut(e: KeyLike): boolean {
     else if (k === "p" && !e.shiftKey && (!tab || tab.kind === "text" || tab.kind === "markdown" || tab.kind === "csv")) openPalette("");
     else if (k === "n" && !e.shiftKey) newFile("markdown");
     else if (k === "o" && !e.shiftKey) void pickAndOpen();
-    else if (k === "s" && tab) void saveTab(tab.id, { as: e.shiftKey, explicit: true });
+    else if (k === "s" && tab) {
+      // Holding the keys down repeats them; that is still one save.
+      if (!(e as { repeat?: boolean }).repeat) void saveTab(tab.id, { as: e.shiftKey, explicit: true });
+    }
     else if (k === "w" && tab && !e.shiftKey) void closeTab(tab.id);
     else if (k === "t" && e.shiftKey) void reopenClosed();
     else if (k === "e" && tab && !e.shiftKey) setState({ dialog: { kind: "export" } });

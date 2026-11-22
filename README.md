@@ -6,3 +6,5 @@ A local, single-window, all-in-one app for personal use: open, create, edit, con
 
 - The app: [apps/desktop](apps/desktop/README.md) (install, features, keyboard, build, known gaps)
 - Plans, research and user flows: [docs/README.md](docs/README.md)
+
+**Picking this up?** Start with [docs/HANDOFF.md](docs/HANDOFF.md): how to get the apps, how people use them, how to build, test and release, and what is left.

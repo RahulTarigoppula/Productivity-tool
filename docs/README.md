@@ -1,6 +1,6 @@
 # All-in-one productivity tool — plans and research
 
-Last updated: 2026-11-22 · Stage: **v0.1 of the Windows app is built; the Android app has started** — see [apps/desktop](../apps/desktop/README.md)
+Last updated: 2026-11-22 · Stage: **v0.1 of the Windows app is built; the Android app has started** — start with the [handoff](HANDOFF.md), then [apps/desktop](../apps/desktop/README.md)
 
 One local, single-window, multi-tab app for personal use that opens, creates, edits, connects, converts and saves office documents, spreadsheets, presentations, PDFs, Markdown, and any text or code file — on Windows first, then Android, then Mac and iPhone/iPad.
 

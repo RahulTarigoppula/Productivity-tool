@@ -35,11 +35,6 @@ class CreateArgs {
 }
 
 @InvokeArg
-class LogArgs {
-  var message: String = ""
-}
-
-@InvokeArg
 class UriArgs {
   lateinit var uri: String
 }
@@ -70,14 +65,6 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
       File(dir, "RUN").writeText("1")
     }
     collect(activity.intent)
-  }
-
-  /** Self-test report lines, to the system log (read by the CI smoke test). */
-  @Command
-  fun log(invoke: Invoke) {
-    val msg = invoke.parseArgs(LogArgs::class.java).message
-    msg.chunked(3000).forEach { android.util.Log.i("ProductivitySelfTest", it) }
-    invoke.resolve()
   }
 
   override fun onNewIntent(intent: Intent) {

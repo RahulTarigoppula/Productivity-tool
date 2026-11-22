@@ -69,9 +69,6 @@ mod imp {
     pub async fn take_opened() -> Result<Vec<DocInfo>, String> {
         Ok(call::<Files>("takeOpened", serde_json::json!({})).await?.files)
     }
-    pub async fn log(message: String) -> Result<(), String> {
-        call::<serde_json::Value>("log", serde_json::json!({ "message": message })).await.map(|_| ())
-    }
 }
 
 #[cfg(not(target_os = "android"))]
@@ -89,9 +86,6 @@ mod imp {
     }
     pub async fn take_opened() -> Result<Vec<DocInfo>, String> {
         Ok(Vec::new())
-    }
-    pub async fn log(_: String) -> Result<(), String> {
-        Ok(())
     }
 }
 
@@ -123,8 +117,7 @@ pub async fn android_take_opened() -> Result<Vec<DocInfo>, String> {
 
 #[tauri::command]
 pub async fn android_log(message: String) -> Result<(), String> {
-    // Rust's stderr reaches the Android system log (tag RustStdoutStderr) on its own; the plugin
-    // also writes under its own tag.
+    // Rust's stderr reaches the Android system log (tag RustStdoutStderr) by itself.
     eprintln!("ProductivitySelfTest: {message}");
-    imp::log(message).await
+    Ok(())
 }

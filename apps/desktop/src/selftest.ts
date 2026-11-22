@@ -26,12 +26,15 @@ export async function runSelfTest(dir: string) {
   if (!platform.folders) await seedCorpus(dir).catch((e) => androidLog(`SELFTEST seed failed: ${e}`));
   const results: { name: string; ok: boolean; detail?: string }[] = [];
   const t = async (name: string, fn: () => Promise<void>) => {
-    await androidLog(`SELFTEST step ${name}`);
+    void androidLog(`SELFTEST step ${name}`);
     try {
-      await fn();
+      // A step that hangs is reported as a failure; the rest of the checks still run.
+      await Promise.race([fn(), new Promise((_, reject) => setTimeout(() => reject(new Error("timed out after 60 s")), 60000))]);
       results.push({ name, ok: true });
+      void androidLog(`SELFTEST ok ${name}`);
     } catch (e) {
       results.push({ name, ok: false, detail: e instanceof Error ? e.message : String(e) });
+      void androidLog(`SELFTEST FAIL ${name}: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
   const assert = (c: unknown, m: string) => {

@@ -58,7 +58,7 @@ One local, single-window, multi-tab app for personal use that opens, creates, ed
 
 | Release 2 (Android) | Status |
 |---|---|
-| A1 Same app on Android | Started: text, code, Markdown, CSV, PDF; Office as previews; system document picker with persistent access; Open with; APK built in CI ([decision 0003](decisions/0003-android.md)) |
+| A1 Same app on Android | Started: text, code, Markdown, CSV, PDF; Office as previews; system document picker with persistent access; Open with; APK built and self-tested on an Android 15 emulator in CI (23/23) ([decision 0003](decisions/0003-android.md)) |
 
 Decisions made while building are in [decisions/](decisions/).
 

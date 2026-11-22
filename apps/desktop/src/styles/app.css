@@ -458,3 +458,9 @@ a { color: var(--accent); }
 .tooltip.show { opacity: 1; }
 .tooltip-key { padding: 0 5px; border-radius: 4px; background: rgba(255, 255, 255, 0.14); color: #d9d9e3; font-size: 11px; white-space: nowrap; }
 :root[data-theme="dark"] .tooltip { background: #3a3a44; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); }
+
+/* Tabs: close buttons appear on hover (always on the active tab); a thin accent line marks the active tab. */
+.tab:not(.active):not(:hover):not(:focus-within) .close { opacity: 0; }
+.tab .close { transition: opacity var(--motion); }
+.tab.active::before { content: ""; position: absolute; left: 10px; right: 10px; top: -1px; height: 2px; border-radius: 0 0 2px 2px; background: var(--accent); }
+@media (hover: none) { .tab .close { opacity: 1 !important; } }

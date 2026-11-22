@@ -18,7 +18,7 @@ function Notice({ host }: { host: EngineHost }) {
   );
 }
 
-function DocxView({ bytes, zoom }: { bytes: Uint8Array; zoom: number }) {
+function DocxView({ bytes, zoom, onLink }: { bytes: Uint8Array; zoom: number; onLink: (href: string) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
@@ -27,7 +27,16 @@ function DocxView({ bytes, zoom }: { bytes: Uint8Array; zoom: number }) {
       if (!ref.current || !live) return;
       ref.current.innerHTML = "";
       try {
-        await renderAsync(new Blob([bytes.slice()]), ref.current, undefined, { inWrapper: true, ignoreLastRenderedPageBreak: false, breakPages: true, renderHeaders: true, renderFooters: true, renderFootnotes: true, useBase64URL: true });
+        await renderAsync(new Blob([bytes.slice()]), ref.current, undefined, {
+          inWrapper: true, ignoreLastRenderedPageBreak: false, breakPages: true, renderHeaders: true, renderFooters: true, renderFootnotes: true, useBase64URL: true,
+          // Embedded HTML chunks would render in a same-origin frame; never allow them.
+          renderAltChunks: false,
+        });
+        // Strip anything that could load remote content or navigate the window.
+        ref.current.querySelectorAll("iframe, object, embed, form, base, meta, link, script").forEach((el) => el.remove());
+        ref.current.querySelectorAll("img").forEach((img) => {
+          if (!/^(data:|blob:)/i.test(img.getAttribute("src") ?? "")) img.remove();
+        });
       } catch (e) {
         if (live) setErr(e instanceof Error ? e.message : String(e));
       }
@@ -37,7 +46,25 @@ function DocxView({ bytes, zoom }: { bytes: Uint8Array; zoom: number }) {
     };
   }, [bytes]);
   if (err) return <div className="center-note"><h3>Preview failed</h3><div>{err}</div></div>;
-  return <div className="docx-host" style={{ zoom }} ref={ref} />;
+  return (
+    <div
+      className="docx-host"
+      data-links="app"
+      style={{ zoom }}
+      ref={ref}
+      onClickCapture={(e) => {
+        const a = (e.target as HTMLElement).closest("a");
+        if (!a) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const href = a.getAttribute("href") ?? "";
+        if (href.startsWith("#")) {
+          const target = ref.current?.querySelector(`[id="${CSS.escape(href.slice(1))}"], a[name="${CSS.escape(href.slice(1))}"]`);
+          target?.scrollIntoView({ block: "start" });
+        } else onLink(href);
+      }}
+    />
+  );
 }
 
 function XlsxView({ sheets }: { sheets: SheetData[] }) {
@@ -75,6 +102,7 @@ function XlsxView({ sheets }: { sheets: SheetData[] }) {
           </tbody>
         </table>
         {s.rows.length > MAX_ROWS && <div className="empty-note">Showing the first {MAX_ROWS.toLocaleString()} of {s.rows.length.toLocaleString()} rows.</div>}
+        {s.truncated && <div className="empty-note">This sheet is larger than the preview limits; some cells are not shown.</div>}
       </div>
       <div className="xlsx-tabs" role="tablist">
         {sheets.map((sh, k) => (
@@ -148,7 +176,7 @@ export default function OfficeEngine({ host }: { host: EngineHost }) {
         {err ? (
           <div className="center-note"><h3>This file could not be previewed</h3><div>{err}</div></div>
         ) : host.kind === "docx" ? (
-          <DocxView bytes={host.bytes} zoom={zoom} />
+          <DocxView bytes={host.bytes} zoom={zoom} onLink={(href) => host.openLink(href)} />
         ) : host.kind === "xlsx" ? (
           sheets ? <XlsxView sheets={sheets} /> : <div className="center-note"><div className="spinner" /></div>
         ) : slides ? (

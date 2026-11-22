@@ -19,7 +19,7 @@ import { toggleWrap, setHeading, toggleLinePrefix, insertLink, insertBlock } fro
 import { detectLanguage, loadLanguage, ALL_LANGUAGES, detectIndent } from "./language";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { platform } from "../../platform";
-import { dirname, relative, resolve } from "../../lib/paths";
+import { dirname, relative, resolveDocumentRef } from "../../lib/paths";
 import { openMenu } from "../../shell/Menu";
 import { openPalette } from "../../app/commands";
 
@@ -51,13 +51,21 @@ export default function TextEngine({ host }: { host: EngineHost }) {
 
   // Resolve images in Markdown relative to the file's folder.
   const resolveImage = async (src: string): Promise<string | null> => {
-    if (/^(https?:|data:)/i.test(src)) return src;
+    // Remote images are never loaded (privacy: a document must not report that it was opened).
+    if (/^data:image\//i.test(src)) return src;
     const cached = imageCache.current.get(src);
     if (cached) return cached;
     const base = host.path ? dirname(host.path) : getState().workspace;
     if (!base) return null;
+    let target: string | null;
     try {
-      const bytes = await platform.readFile(resolve(base, decodeURIComponent(src)));
+      target = resolveDocumentRef(base, decodeURIComponent(src));
+    } catch {
+      return null;
+    }
+    if (!target) return null;
+    try {
+      const bytes = await platform.readFile(target);
       const ext = src.split(".").pop()?.toLowerCase();
       const type = ext === "svg" ? "image/svg+xml" : ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : "image/jpeg";
       const url = URL.createObjectURL(new Blob([bytes.slice()], { type }));
@@ -77,11 +85,15 @@ export default function TextEngine({ host }: { host: EngineHost }) {
       host.toast("This file mixes line-ending styles. Saving will use one style consistently.");
     }
     const text = decoded.text;
-    const large = text.length > LARGE;
+    // Extremely deep nesting (hostile or broken files) is shown as plain text: the Markdown
+    // parser would exhaust the stack on it.
+    const tooDeep = isMd && (/^(?:[ \t]*>){200}/m.test(text) || /^[ \t]{400,}(?:[-*+]|\d+[.)]) /m.test(text));
+    if (tooDeep) host.toast("This Markdown file is nested too deeply to format, so it is shown as plain text.");
+    const large = text.length > LARGE || tooDeep;
     const indent = detectIndent(text, getState().settings.tabSize);
     const c = comps.current;
     const s = getState().settings;
-    const mdExt = isMd ? [markdown({ base: markdownLanguage, codeLanguages: ALL_LANGUAGES })] : [];
+    const mdExt = isMd && !tooDeep ? [markdown({ base: markdownLanguage, codeLanguages: ALL_LANGUAGES })] : [];
 
     const updateOutline = (state: EditorState) => {
       if (!isMd) return;

@@ -210,8 +210,41 @@ fn launch_files(state: tauri::State<'_, AppState>) -> Vec<String> {
     std::mem::take(&mut *state.launch_files.lock().unwrap())
 }
 
+/// File types that run code when opened. "Open in default app" refuses them, so a document
+/// can never trick the app into launching a program.
+const RUNNABLE: &[&str] = &[
+    "exe", "com", "bat", "cmd", "ps1", "psm1", "psd1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "msc", "msi", "msp", "mst",
+    "scr", "pif", "lnk", "url", "hta", "cpl", "jar", "reg", "scf", "inf", "application", "appref-ms", "gadget", "chm", "hlp",
+    "website", "msix", "msixbundle", "appx", "appxbundle", "appinstaller", "library-ms", "search-ms", "searchconnector-ms",
+    "settingcontent-ms", "diagcab", "iso", "img", "vhd", "vhdx", "sys", "dll", "ocx", "drv", "xll", "xlam", "ppam", "py", "pyw",
+    "rb", "pl", "sh", "command", "desktop", "app",
+];
+
+pub(crate) fn is_network_path(p: &str) -> bool {
+    let s = p.trim_start();
+    s.starts_with("\\\\") || s.starts_with("//") || s.starts_with("\\/") || s.starts_with("/\\")
+}
+
+fn check_openable_file(path: &str) -> Result<PathBuf, String> {
+    if is_network_path(path) {
+        return Err("Files on other computers are not opened from here.".into());
+    }
+    let p = PathBuf::from(path);
+    if !p.is_file() {
+        return Err("Not found".into());
+    }
+    let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    if RUNNABLE.contains(&ext.as_str()) {
+        return Err(format!("For safety, .{ext} files are not opened from this app. Open it from File Explorer if you trust it."));
+    }
+    Ok(p)
+}
+
 #[tauri::command]
 fn reveal_in_folder(path: String) -> Result<(), String> {
+    if is_network_path(&path) || path.contains('"') || !Path::new(&path).exists() {
+        return Err("Cannot show this file.".into());
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -228,22 +261,24 @@ fn reveal_in_folder(path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Open a file or a web link with the system's default application.
+/// Open a web link (http, https, mailto) in the system browser or mail app, or a document file
+/// with its default application. Program and script files are refused.
 #[tauri::command]
 fn open_external(target: String) -> Result<(), String> {
-    let is_url = target.starts_with("http://") || target.starts_with("https://") || target.starts_with("mailto:");
-    if !is_url && !Path::new(&target).exists() {
-        return Err("Not found".into());
+    let lower = target.trim().to_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:") {
+        let parsed = url::Url::parse(target.trim()).map_err(|_| "Not a valid link".to_string())?;
+        if !matches!(parsed.scheme(), "http" | "https" | "mailto") {
+            return Err("Only web and mail links are opened.".into());
+        }
+        // Re-serialised by the URL parser, so it cannot smuggle extra arguments.
+        return open::that_detached(parsed.as_str()).map_err(|e| e.to_string());
     }
-    #[cfg(windows)]
-    {
-        std::process::Command::new("explorer.exe").arg(&target).spawn().map_err(|e| e.to_string())?;
+    if lower.contains("://") || (lower.contains(':') && !lower.chars().nth(1).map(|c| c == ':').unwrap_or(false)) {
+        return Err("Only web and mail links are opened.".into());
     }
-    #[cfg(not(windows))]
-    {
-        std::process::Command::new("xdg-open").arg(&target).spawn().map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    let p = check_openable_file(&target)?;
+    open::that_detached(&p).map_err(|e| e.to_string())
 }
 
 fn file_args(args: &[String], cwd: Option<&str>) -> Vec<String> {
@@ -279,6 +314,19 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
+                .title("Productivity")
+                .inner_size(1280.0, 820.0)
+                .min_inner_size(360.0, 480.0)
+                .center()
+                // The window only ever shows the app's own pages; documents cannot navigate it away.
+                .on_navigation(|u| {
+                    let host = u.host_str().unwrap_or("");
+                    u.scheme() == "tauri"
+                        || host == "tauri.localhost"
+                        || (cfg!(debug_assertions) && (host == "localhost" || host == "127.0.0.1"))
+                })
+                .build()?;
             let data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir().join("productivity"));
             let handle = app.handle().clone();
             let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
@@ -331,6 +379,25 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refuses_runnable_and_network_files() {
+        let dir = std::env::temp_dir().join("productivity-open-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.exe", "b.LNK", "c.bat", "d.url", "e.hta", "f.ps1"] {
+            let p = dir.join(name);
+            std::fs::write(&p, b"x").unwrap();
+            assert!(check_openable_file(&p.to_string_lossy()).is_err(), "{name} should be refused");
+        }
+        let ok = dir.join("notes.pdf");
+        std::fs::write(&ok, b"x").unwrap();
+        assert!(check_openable_file(&ok.to_string_lossy()).is_ok());
+        assert!(check_openable_file("\\\\evil\\share\\a.pdf").is_err());
+        assert!(check_openable_file("//evil/share/a.pdf").is_err());
+        assert!(open_external("javascript:alert(1)".into()).is_err());
+        assert!(open_external("file:///C:/Windows/system32/calc.exe".into()).is_err());
+        assert!(open_external("ms-settings:privacy".into()).is_err());
+    }
 
     #[test]
     fn decodes_percent_encoded_paths() {

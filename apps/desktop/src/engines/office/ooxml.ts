@@ -2,6 +2,20 @@
  *  Full-fidelity Office editing is planned through the embedded office engine (W3). */
 import JSZip from "jszip";
 
+/** Limits that keep a small crafted file from exhausting memory. */
+export const LIMITS = { unzippedBytes: 300 * 1024 * 1024, rows: 200_000, cols: 2_000, cells: 5_000_000 };
+
+/** Open an Office package after checking its declared unzipped size (zip-bomb guard). */
+export async function openZip(bytes: Uint8Array): Promise<JSZip> {
+  const zip = await JSZip.loadAsync(bytes);
+  let total = 0;
+  zip.forEach((_p, f) => {
+    total += (f as unknown as { _data?: { uncompressedSize?: number } })._data?.uncompressedSize ?? 0;
+  });
+  if (total > LIMITS.unzippedBytes) throw new Error(`This file would unpack to ${(total / 1048576).toFixed(0)} MB, more than the preview allows.`);
+  return zip;
+}
+
 const parse = (xml: string) => new DOMParser().parseFromString(xml, "application/xml");
 const byTag = (el: Document | Element, ns: string, tag: string) => Array.from(el.getElementsByTagNameNS(ns, tag));
 
@@ -37,6 +51,8 @@ async function rels(zip: JSZip, path: string): Promise<Map<string, string>> {
 
 export interface SheetData {
   name: string;
+  /** True when the sheet was larger than the preview limits and was cut short. */
+  truncated?: boolean;
   /** rows[r][c] = displayed value */
   rows: string[][];
   formulas: Map<string, string>;
@@ -49,6 +65,7 @@ function colIndex(ref: string): number {
     const c = ch.charCodeAt(0);
     if (c < 65 || c > 90) break;
     n = n * 26 + (c - 64);
+    if (n > 20_000) return NaN;
   }
   return n - 1;
 }
@@ -65,7 +82,7 @@ export function colName(i: number): string {
 }
 
 export async function readXlsx(bytes: Uint8Array): Promise<SheetData[]> {
-  const zip = await JSZip.loadAsync(bytes);
+  const zip = await openZip(bytes);
   const wbXml = await zip.file("xl/workbook.xml")?.async("string");
   if (!wbXml) throw new Error("This does not look like an Excel workbook.");
   const wbRels = await rels(zip, "xl/workbook.xml");
@@ -80,15 +97,25 @@ export async function readXlsx(bytes: Uint8Array): Promise<SheetData[]> {
     const rows: string[][] = [];
     const formulas = new Map<string, string>();
     let maxCol = 0;
+    let truncated = false;
+    let cellCount = 0;
     if (xml) {
       for (const row of byTag(parse(xml), NS.main, "row")) {
         const r = Number(row.getAttribute("r") ?? rows.length + 1) - 1;
+        if (!Number.isFinite(r) || r < 0 || r >= LIMITS.rows) {
+          truncated = true;
+          continue;
+        }
         const vals: string[] = rows[r] ?? [];
         let next = 0;
         for (const c of byTag(row, NS.main, "c")) {
           const ref = c.getAttribute("r");
           const ci = ref ? colIndex(ref) : next;
           next = ci + 1;
+          if (!Number.isFinite(ci) || ci < 0 || ci >= LIMITS.cols || ++cellCount > LIMITS.cells) {
+            truncated = true;
+            continue;
+          }
           const t = c.getAttribute("t");
           const v = byTag(c, NS.main, "v")[0]?.textContent ?? "";
           const f = byTag(c, NS.main, "f")[0]?.textContent;
@@ -103,8 +130,9 @@ export async function readXlsx(bytes: Uint8Array): Promise<SheetData[]> {
         rows[r] = vals;
       }
     }
+    // Fill gaps (sparse rows) only up to the data actually present.
     for (let i = 0; i < rows.length; i++) rows[i] = Array.from({ length: maxCol }, (_, c) => rows[i]?.[c] ?? "");
-    sheets.push({ name: s.getAttribute("name") ?? `Sheet${sheets.length + 1}`, rows, formulas, maxCol });
+    sheets.push({ name: s.getAttribute("name") ?? `Sheet${sheets.length + 1}`, rows, formulas, maxCol, truncated });
   }
   return sheets;
 }
@@ -124,7 +152,7 @@ function paragraphs(xml: string): string[] {
 }
 
 export async function readPptx(bytes: Uint8Array): Promise<SlideText[]> {
-  const zip = await JSZip.loadAsync(bytes);
+  const zip = await openZip(bytes);
   const presXml = await zip.file("ppt/presentation.xml")?.async("string");
   if (!presXml) throw new Error("This does not look like a PowerPoint presentation.");
   const presRels = await rels(zip, "ppt/presentation.xml");
@@ -146,7 +174,7 @@ export async function readPptx(bytes: Uint8Array): Promise<SlideText[]> {
 // ---------- documents ----------
 
 export async function readDocxText(bytes: Uint8Array): Promise<{ style: string; text: string }[]> {
-  const zip = await JSZip.loadAsync(bytes);
+  const zip = await openZip(bytes);
   const xml = await zip.file("word/document.xml")?.async("string");
   if (!xml) throw new Error("This does not look like a Word document.");
   return byTag(parse(xml), NS.w, "p").map((p) => {

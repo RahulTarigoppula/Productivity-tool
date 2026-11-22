@@ -90,6 +90,16 @@ function activeLines(state: EditorState, focused: boolean): Set<number> {
 }
 
 function build(view: EditorView, resolver: ImageResolver): DecorationSet {
+  // Pathological documents (thousands of nesting levels) can exhaust the stack; fall back to
+  // plain source for them rather than failing.
+  try {
+    return buildUnsafe(view, resolver);
+  } catch {
+    return Decoration.none;
+  }
+}
+
+function buildUnsafe(view: EditorView, resolver: ImageResolver): DecorationSet {
   const { state } = view;
   const active = activeLines(state, view.hasFocus);
   const decos: Range<Decoration>[] = [];

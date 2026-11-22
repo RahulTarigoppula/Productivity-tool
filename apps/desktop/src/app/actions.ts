@@ -1,6 +1,6 @@
 /** File actions: open, create, save, close, auto-save, recovery, session restore and external changes. */
 import { platform } from "../platform";
-import { basename, dirname, extname, join, resolve, samePath, withExtension } from "../lib/paths";
+import { basename, dirname, extname, join, samePath, withExtension, resolveDocumentRef } from "../lib/paths";
 import { detectKind, kindFromName, type Kind } from "../lib/formats";
 import {
   getState, setState, updateTab, handles, tabBytes, knownMeta, toast, newId,
@@ -216,11 +216,24 @@ export function openLink(fromTab: Tab, target: string) {
   }
   const [rawPath, loc] = target.split("#");
   const base = fromTab.path ? dirname(fromTab.path) : getState().workspace;
-  if (!base && !/^[a-zA-Z]:[\\/]|^\//.test(rawPath)) {
+  if (!base) {
     toast("Save this file first so relative links have a folder to start from.");
     return;
   }
-  const abs = resolve(base ?? "", decodeURIComponent(rawPath));
+  let decoded = rawPath;
+  try {
+    decoded = decodeURIComponent(rawPath);
+  } catch {
+    /* keep as written */
+  }
+  // Links inside documents may only point to other files by relative path. Network shares,
+  // absolute paths and other URL schemes are refused so a document cannot make the app
+  // contact another machine or open arbitrary system files.
+  const abs = resolveDocumentRef(base, decoded);
+  if (!abs) {
+    toast(`This link was not opened because it points outside the document's folder or to another computer: ${target.slice(0, 120)}`, "error");
+    return;
+  }
   void openPath(abs, { goTo: loc ? decodeURIComponent(loc) : undefined });
 }
 

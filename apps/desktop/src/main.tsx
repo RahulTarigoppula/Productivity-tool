@@ -4,6 +4,27 @@ import "./styles/app.css";
 import { App } from "./shell/App";
 import { platform } from "./platform";
 
+// No document content may navigate the app window: links go through the app's own link handling
+// (which only opens web links in the system browser), and forms are never submitted.
+window.addEventListener(
+  "click",
+  (e) => {
+    const a = (e.target as HTMLElement | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+    if (!a || e.defaultPrevented) return;
+    const href = a.getAttribute("href") ?? "";
+    if (href.startsWith("#") || href === "") return;
+    e.preventDefault();
+    // Views that route links themselves (Markdown preview, Word view, PDF) handle the click.
+    if (a.closest("[data-links]")) return;
+    if (/^(https?:|mailto:)/i.test(href)) void platform.openExternal(href);
+  },
+  true,
+);
+window.addEventListener("submit", (e) => e.preventDefault(), true);
+window.addEventListener("auxclick", (e) => {
+  if ((e.target as HTMLElement | null)?.closest?.("a[href]")) e.preventDefault();
+}, true);
+
 // Disable the webview's own context menu except in text fields and editors.
 window.addEventListener("contextmenu", (e) => {
   const t = e.target as HTMLElement;

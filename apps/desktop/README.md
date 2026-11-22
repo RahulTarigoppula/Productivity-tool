@@ -76,6 +76,21 @@ Conversions run through a registry that finds multi-step routes and labels the r
 
 Everything else follows each format's usual keys (VS Code-style editing keys in text and code; spreadsheet keys in the CSV grid).
 
+## Security and privacy
+
+Documents are untrusted: you may open a file someone sent you. v0.1 was audited for what a malicious file could do, and these protections are in place (each has an automated test):
+
+- **No network access from documents.** Images and links inside a document are followed only by relative path. Network shares (`\\server\share`), `//host` and `file:` references are refused, so opening a file can never make Windows send your credentials to another computer. Remote images are never loaded, so a document cannot report that you opened it. Nothing in the app phones home.
+- **No code from documents.** A strict content security policy forbids scripts other than the app's own. Rendered Markdown and Word previews are sanitised: no scripts, forms, styles, frames or event handlers. Embedded HTML inside Word files is not rendered. PDF.js runs without scripting or `eval`.
+- **The window cannot be taken over.** The app window only ever shows the app itself; links and forms in documents cannot navigate it. Web links open in your browser.
+- **"Open in default app" never runs programs.** Executables, scripts, shortcuts and installers (`.exe`, `.bat`, `.ps1`, `.lnk`, `.url`, `.hta`, `.msi` and similar) are refused, as are files on network shares.
+- **Hostile files cannot hang or exhaust the app.** Markdown is rendered in a background worker with a time limit; pathologically nested Markdown is shown as plain text; Office previews cap unpacked size, rows, columns and cells.
+- **Build pipeline.** GitHub Actions runs read-only by default, every third-party action is pinned to an exact commit, and each build publishes SHA-256 checksums of the downloads.
+
+Dependency scans: `pnpm audit --prod` reports no known vulnerabilities. `cargo audit` reports no vulnerabilities, only six "unmaintained" or "unsound" warnings, all in crates that are Linux-only (GTK) or used only at build time and are not part of the Windows app.
+
+Not yet done: code signing (so Windows shows "unknown publisher"), and limiting which files the app's core may write to (today any script running inside the app could reach any file; the protections above exist so that no document can run script there).
+
 ## Known gaps in v0.1
 
 These are planned; none is hidden from the user in the app.
@@ -88,7 +103,6 @@ These are planned; none is hidden from the user in the app.
 | PDF: annotation list panel, highlight colours, sticky-note comments, certificate signatures | W2 follow-up / later |
 | Printing PDFs goes through page images | Later |
 | Tab hibernation (all open tabs stay in memory) | W3 |
-| The folder tree does not refresh itself (use the refresh button) | W4 follow-up |
 | Office lock files (`~$name`) are hidden but not created or respected | W6 |
 | Saved signatures are stored as plain images in the app's data folder (planned: encrypted) | W6 |
 | Native Mica title bar and Snap Layouts flyout (uses the standard Windows title bar) | W6 |
@@ -118,10 +132,10 @@ Tests:
 
 | Command | What it checks |
 |---|---|
-| `pnpm test` | Unit tests: text codec byte round trips, CSV preservation, paths, fuzzy matching, conversion routing, PDF page tools (50 tests) |
-| `cd src-tauri && cargo test` | Rust: atomic writes (including symlinks and permissions), folder listing and search, version snapshots and pruning, recovery and state storage (12 tests) |
-| `pnpm build && pnpm preview --port 4173 & pnpm e2e` | 33 end-to-end user flows in Chromium, named after the flow IDs in `docs/flows/` plus regression checks from code review, checking the bytes written to disk |
-| `PRODUCTIVITY_SELF_TEST=<empty folder> <app exe>` | Self-test of the real app: exercises the file system bridge (binary, Unicode paths, byte-identical saves, versions, recovery, search) and writes `selftest-report.json` into the folder, then exits |
+| `pnpm test` | Unit tests: text codec byte round trips, CSV preservation, paths and document-reference safety, fuzzy matching, conversion routing, PDF page tools, Office preview limits (54 tests) |
+| `cd src-tauri && cargo test` | Rust: atomic writes (including symlinks and permissions), folder listing and search, version snapshots and pruning, recovery and state storage, refusal to open programs or network files (12 tests) |
+| `pnpm build && pnpm preview --port 4173 & pnpm e2e` | 35 end-to-end flows in Chromium: user flows named after `docs/flows/`, regression checks from code review, and security checks (hostile Markdown, nesting bombs). Fails on any outbound network request |
+| `PRODUCTIVITY_SELF_TEST=<folder> <app exe>` | Self-test of the real app: exercises the file system bridge (binary, Unicode paths, byte-identical saves, versions, recovery, search), opens every sample file in the folder through the interface with timings, writes `selftest-report.json`, then exits. CI runs it on Windows against the built exe |
 
 GitHub Actions (`.github/workflows/windows.yml`) runs the unit and Rust tests, builds the installer and portable exe on Windows, runs the end-to-end flows on Linux, and publishes a release when a `v*` tag is pushed.
 

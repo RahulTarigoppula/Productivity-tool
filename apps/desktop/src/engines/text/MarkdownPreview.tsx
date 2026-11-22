@@ -6,7 +6,9 @@ export function MarkdownPreview({ text, onLink, resolveImage, scrollSource }: { 
   const [html, setHtml] = useState("");
   useEffect(() => {
     let live = true;
-    void markdownToHtml(text).then((h) => live && setHtml(h));
+    void markdownToHtml(text)
+      .then((h) => live && setHtml(h))
+      .catch((e) => live && setHtml(`<p><em>${String(e?.message ?? e).replace(/[<&>]/g, "")}</em></p>`));
     return () => {
       live = false;
     };
@@ -14,9 +16,12 @@ export function MarkdownPreview({ text, onLink, resolveImage, scrollSource }: { 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.querySelectorAll("img").forEach((img) => {
-      const src = img.getAttribute("src");
-      if (src && !/^(https?:|data:|blob:)/.test(src)) void resolveImage(src).then((u) => u && (img.src = u));
+    el.querySelectorAll("img[data-src]").forEach((img) => {
+      const src = img.getAttribute("data-src") ?? "";
+      void resolveImage(src).then((u) => {
+        if (u) img.setAttribute("src", u);
+        else img.setAttribute("alt", `Image not loaded: ${src.slice(0, 80)}`);
+      });
     });
   }, [html, resolveImage]);
   useEffect(() => {
@@ -34,6 +39,7 @@ export function MarkdownPreview({ text, onLink, resolveImage, scrollSource }: { 
     <div
       ref={ref}
       className="md-preview"
+      data-links="app"
       aria-label="Preview"
       onClick={(e) => {
         const a = (e.target as HTMLElement).closest("a");

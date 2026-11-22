@@ -62,6 +62,22 @@ export function resolve(fromDir: string, rel: string): string {
   return parts.join(s);
 }
 
+/** True for paths that would reach another machine (network shares, file: URLs, \\?\ forms).
+ *  Documents must never make the app touch these on their own: on Windows that sends the
+ *  user's credentials to the remote server. */
+export function isRemoteOrDevicePath(p: string): boolean {
+  const s = p.trim();
+  return /^(\\\\|\/\/|\\\/|\/\\)/.test(s) || /^file:/i.test(s) || /^[a-z][a-z0-9+.-]*:\/\//i.test(s) && !/^[a-zA-Z]:[\\/]/.test(s);
+}
+
+/** Resolve a link or image reference found inside a document. Only relative references
+ *  are followed; absolute, network and URL-like references are refused (null). */
+export function resolveDocumentRef(fromDir: string, ref: string): string | null {
+  const r = ref.trim();
+  if (!r || isRemoteOrDevicePath(r) || /^[a-zA-Z]:/.test(r) || r.startsWith("/") || r.startsWith("\\") || /^[a-z][a-z0-9+.-]*:/i.test(r)) return null;
+  return resolve(fromDir, r);
+}
+
 export function samePath(a: string, b: string): boolean {
   const n = (s: string) => s.replace(/\\/g, "/").replace(/\/+$/, "");
   return /^[a-zA-Z]:/.test(a) ? n(a).toLowerCase() === n(b).toLowerCase() : n(a) === n(b);

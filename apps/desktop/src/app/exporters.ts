@@ -19,10 +19,68 @@ export function htmlDocument(title: string, body: string): string {
   return `<!doctype html>\n<html><head><meta charset="utf-8"><title>${esc}</title><style>${HTML_STYLE}</style></head><body>\n${body}\n</body></html>\n`;
 }
 
-export async function markdownToHtml(md: string): Promise<string> {
-  const { marked } = await import("marked");
+/** Elements and attributes removed from rendered documents: no forms (they could navigate the
+ *  app window), no styles (they could restyle the app or leak what is on screen), no frames. */
+export const SANITIZE = {
+  FORBID_TAGS: ["style", "form", "video", "audio", "source", "picture", "track", "input", "button", "textarea", "select", "option", "iframe", "frame", "object", "embed", "link", "meta", "base", "svg", "math"],
+  FORBID_ATTR: ["style", "srcset", "formaction", "action", "background", "ping", "poster"],
+  ADD_ATTR: ["data-src"],
+};
+
+let worker: Worker | null = null;
+let nextId = 1;
+const pending = new Map<number, { resolve: (h: string) => void; reject: (e: Error) => void }>();
+
+function renderInWorker(md: string, timeoutMs: number): Promise<string> {
+  if (typeof Worker === "undefined") return import("marked").then(({ marked }) => marked.parse(md, { gfm: true, async: true }));
+  if (!worker) {
+    worker = new Worker(new URL("./markdown.worker.ts", import.meta.url), { type: "module" });
+    worker.onmessage = (e: MessageEvent<{ id: number; html?: string; error?: string }>) => {
+      const p = pending.get(e.data.id);
+      pending.delete(e.data.id);
+      if (!p) return;
+      if (e.data.error !== undefined) p.reject(new Error(e.data.error));
+      else p.resolve(e.data.html ?? "");
+    };
+  }
+  const id = nextId++;
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
+    worker!.postMessage({ id, md });
+    setTimeout(() => {
+      if (!pending.has(id)) return;
+      pending.delete(id);
+      // The renderer is stuck on this document: replace it so later renders still work.
+      worker?.terminate();
+      worker = null;
+      for (const [, p] of pending) p.reject(new Error("Preview stopped"));
+      pending.clear();
+      reject(new Error("This document is too complex to preview."));
+    }, timeoutMs);
+  });
+}
+
+let hooked = false;
+
+export async function markdownToHtml(md: string, timeoutMs = 4000): Promise<string> {
+  const html = await renderInWorker(md, timeoutMs);
   const DOMPurify = (await import("dompurify")).default;
-  return DOMPurify.sanitize(await marked.parse(md, { gfm: true }));
+  if (!hooked) {
+    hooked = true;
+    // Remote images are never loaded (a document must not be able to report that it was opened).
+    DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+      // Nothing is fetched by the browser itself: the source moves to data-src and the app
+      // loads only local files through its own checked path resolver.
+      if (node.nodeName === "IMG") {
+        const src = node.getAttribute("src") ?? "";
+        if (!/^data:image\//i.test(src)) {
+          node.removeAttribute("src");
+          node.setAttribute("data-src", src.slice(0, 2000));
+        }
+      }
+    });
+  }
+  return DOMPurify.sanitize(html, SANITIZE);
 }
 
 const escHtml = (s: string) => s.replace(/[<&>"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" })[c]!);

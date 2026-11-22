@@ -427,7 +427,7 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
           </div>
         )}
         {placing && <div className="pdf-hint">Click where the signature should go. Press Esc to cancel.</div>}
-        <div ref={containerRef} className={`pdf-container ${placing ? "placing" : ""}`} tabIndex={0}>
+        <div ref={containerRef} className={`pdf-container ${placing ? "placing" : ""}`} tabIndex={0} data-links="app">
           <div ref={viewerDivRef} className="pdfViewer" />
         </div>
         {busy && <div className="pdf-busy"><div className="spinner" /></div>}

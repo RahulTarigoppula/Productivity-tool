@@ -143,7 +143,9 @@ Tests:
 | `pnpm office-pack`, then `node tests/office-server.mjs & pnpm preview --port 1420 & pnpm e2e:office` | Builds the Office pack, then runs 7 Office editing flows: open each format in the editor, edit and save (including Ctrl+S inside the editor and a second save), shortcuts forwarded from the editor, export to PDF, close with unsaved changes |
 | `PRODUCTIVITY_SELF_TEST=<folder> <app exe>` | Self-test of the real app: exercises the file system bridge (binary, Unicode paths, byte-identical saves, versions, recovery, search), opens every sample file in the folder through the interface with timings, writes `selftest-report.json`, then exits. CI runs it on Windows against the built exe |
 
-GitHub Actions (`.github/workflows/windows.yml`) runs the unit and Rust tests, builds the installer and portable exe on Windows, runs the end-to-end flows on Linux, and publishes a release when a `v*` tag is pushed.
+GitHub Actions (`.github/workflows/windows.yml`) runs the unit and Rust tests, builds the installer and portable exe on Windows, runs the end-to-end flows on Linux, and publishes a release when a `v*` tag is pushed. `.github/workflows/android.yml` builds and signs the Android APK and runs it on an emulator (launch, Open with, and the app's self-test).
+
+To publish a release: set the version in `src-tauri/tauri.conf.json`, commit, then `git tag v0.1.0 && git push origin v0.1.0`. The Windows workflow attaches the installer, the portable exe and `SHA256SUMS.txt` to the release. For Android updates that install over the previous version, add the signing secrets described in [decision 0003](../../docs/decisions/0003-android.md).
 
 ## How it is built
 

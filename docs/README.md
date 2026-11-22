@@ -1,6 +1,6 @@
 # All-in-one productivity tool — plans and research
 
-Last updated: 2026-11-21 · Stage: research and planning complete, no application code yet
+Last updated: 2026-11-22 · Stage: research and planning complete, no application code yet
 
 One local, single-window, multi-tab app for personal use that opens, creates, edits, connects, converts and saves office documents, spreadsheets, presentations, PDFs, Markdown, and any text or code file — on Windows first, then Android, then Mac and iPhone/iPad.
 
@@ -9,12 +9,12 @@ One local, single-window, multi-tab app for personal use that opens, creates, ed
 1. **Do not rebuild Word, Excel or PowerPoint.** Embed a real office engine and put our effort into everything around it.
 2. **The gap we fill.** No product found combines real Office and PDF editing, plain files with no account, and a notes-style layer of links and search across everything.
 3. **Two tiers.** A small, fast base app for text, code, Markdown, CSV and PDF; the office engine (about 100 MB) is a separate pack that loads only when an office file is opened.
-4. **One codebase, four platforms.** Tauri shell, Rust core, one responsive TypeScript interface. Windows → Android → macOS and iOS.
+4. **One codebase, four platforms.** Tauri shell, Rust core, one responsive TypeScript interface. Windows → Android → macOS and iOS → sync across them.
 5. **Engines.** ONLYOFFICE (offline, WebAssembly converter) for docx/xlsx/pptx; CodeMirror 6 for any text or code file, on desktop and touch; PDF.js for PDF.
 6. **Interface.** Four things always visible on desktop (tabs, one toolbar, the document, a thin status bar); the same product reshapes itself for tablets and phones; one palette lists every action.
 7. **Connected.** Links, backlinks, tags and universal search across every format, stored in the files themselves so nothing is locked in.
 8. **Export anything to anything**, offline, with an honest quality label on every conversion.
-9. **Across devices** through a synced folder and per-device state, with no server to run; conflicts are merged for text and never silently overwritten for anything.
+9. **Across devices, built last.** Sync is the final release: a synced folder and per-device state, with no server to run; conflicts are merged for text and never silently overwritten for anything.
 10. **Prove it first.** Short experiments and a clickable prototype before any build; fidelity, speed and size checked automatically on every change.
 
 ## The honest limits
@@ -40,13 +40,13 @@ One local, single-window, multi-tab app for personal use that opens, creates, ed
 | [plans/10-universal-export.md](plans/10-universal-export.md) | Formats, converters, the conversion matrix with quality labels, the export experience |
 | [plans/11-sync-and-continuity.md](plans/11-sync-and-continuity.md) | Files and state across devices, conflicts, continuing where you left off |
 | [plans/08-performance-and-footprint.md](plans/08-performance-and-footprint.md) | Measured sizes, two-tier packaging, speed and size budgets |
-| [plans/03-roadmap.md](plans/03-roadmap.md) | Phase 0 spikes, then the Windows, Android and Apple releases with exit checks |
+| [plans/03-roadmap.md](plans/03-roadmap.md) | Phase 0 spikes, then the Windows, Android, Apple and sync releases with exit checks |
 | [plans/04-verification.md](plans/04-verification.md) | How open → edit → save → reload is proven lossless, on one device and across devices |
 | [plans/05-risks-and-open-questions.md](plans/05-risks-and-open-questions.md) | Decisions needed from you, risks, licences, and what research could not confirm |
 | [research/](research/) | The research report and the fifteen sets of source notes behind these plans |
 
 ## Where to start next session
 
-1. Answer the questions at the top of `plans/05-risks-and-open-questions.md`: your exact devices, and which cloud you already use.
+1. The first questions in `plans/05-risks-and-open-questions.md` are answered; the remaining ones can wait for their phases.
 2. Try ONLYOFFICE Desktop Editors for a few days and note what still feels wrong.
 3. Run the Phase 0 spikes in `plans/03-roadmap.md`, starting with S13, S1 and S14, and build the design prototype alongside.

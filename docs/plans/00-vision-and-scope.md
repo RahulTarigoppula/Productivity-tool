@@ -33,7 +33,7 @@ Before the build starts, it is worth using ONLYOFFICE Desktop Editors for a few 
 10. Fast and light: instant launch and tab switching, a small base app, and heavy engines loaded only when needed (see `08-performance-and-footprint.md`).
 11. Connected: links, backlinks, tags and universal search across every format, stored in the files themselves (see `09-differentiators-and-interconnection.md`).
 12. Export anything to anything, with an honest quality label (see `10-universal-export.md`).
-13. Every device: Windows, then Android, then macOS and iOS/iPadOS, from one codebase, with files and working state moving between them (see `11-sync-and-continuity.md` and `12-platforms-and-mobile.md`).
+13. Every device: Windows, then Android, then macOS and iOS/iPadOS, from one codebase (`12-platforms-and-mobile.md`). Files and working state moving between devices is the final release (`11-sync-and-continuity.md`).
 
 ## Non-goals
 

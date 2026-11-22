@@ -8,9 +8,9 @@ These change the plan and only you can answer them. Each has a default that the 
 
 | # | Question | Default assumed | Why it matters |
 |---|---|---|---|
-| 1 | **Which devices exactly?** Windows version, Android phone and/or tablet model, which Mac, iPhone and/or iPad | Windows 11 PC; one mid-range Android phone | Sets the test devices, the performance targets and which layouts matter most |
-| 1b | **Which cloud do you already use across your devices?** OneDrive, Google Drive, Dropbox, iCloud, none | OneDrive on Windows | Decides the default sync route and the first built-in connector (`11-sync-and-continuity.md`) |
-| 1c | **Is view-plus-light-edit acceptable for office files on phones at first?** Tablets and desktops get the full editor | Yes | No open-source touch editor for office formats exists today (`12-platforms-and-mobile.md`) |
+| 1 | Which devices? | **Answered 2026-11-22: as assumed.** Windows 11 PC first; a mid-range Android phone; Mac and iPhone/iPad later. Exact models still to be noted when each phase starts | Sets the test devices and performance targets |
+| 1b | Which cloud to build sync around? | **Deferred 2026-11-22 to the final release.** Sync is built last, after all platforms; the cloud is chosen then | See Release 4 in `03-roadmap.md` and `11-sync-and-continuity.md` |
+| 1c | Is view-plus-light-edit acceptable for office files on phones at first? | **Answered 2026-11-22: yes.** Tablets and desktops get the full editor | No open-source touch editor for office formats exists today (`12-platforms-and-mobile.md`) |
 | 1d | **For iPhone/iPad later: pay Apple's $99 yearly developer fee, or reinstall weekly for free?** | Decide when that phase starts | The only two ways to run your own app on iOS |
 | 2 | Is this repository public, and will you ever share the app? | Private use only, never distributed | The office engine is AGPL; see below |
 | 3 | Have you tried ONLYOFFICE Desktop Editors? | Not yet; try it before Phase 1 | It already does tabbed docx/xlsx/pptx/pdf. Your reaction tells us what the shell must do better |

@@ -2,7 +2,7 @@
 
 Status: draft for review · Last updated: 2026-11-21
 
-Three releases, in a fixed order: **Windows → Android → macOS and iOS/iPadOS.** Each platform ships and is used daily before the next begins.
+Four releases, in a fixed order: **Windows → Android → macOS and iOS/iPadOS → sync across devices.** Each ships and is used daily before the next begins.
 
 Within each release the order is risk-first: prove the uncertain things with throwaway experiments, build the shell on the light formats, then bring in the heavy engine. Every phase ends with something usable and a written exit check. Durations are rough guesses for one person working with an AI coding assistant, not commitments.
 
@@ -11,6 +11,7 @@ flowchart LR
     P0["Phase 0<br/>Spikes and<br/>design prototype"] --> W["Release 1<br/>Windows"]
     W --> A["Release 2<br/>Android"]
     A --> M["Release 3<br/>macOS, iOS, iPadOS"]
+    M --> X["Release 4<br/>Across devices"]
     W -.-> W1["W1 Shell + text and code"] -.-> W2["W2 PDF"] -.-> W3["W3 Office"] -.-> W4["W4 Connected:<br/>search, links, export"] -.-> W5["W5 Light workbench"] -.-> W6["W6 Hardening"]
 ```
 
@@ -45,8 +46,6 @@ Throwaway prototypes in a `spikes/` folder. Nothing here is kept as product code
 | S21 | Does converter route-finding work end to end? | Multi-step conversion succeeds | `10` |
 | S22 | How good are the top ten conversions on real files? | A measured label per pair | `10` |
 | S24 | Is Windows' built-in OCR good enough? | Searchable PDF produced | `10` |
-| S25 | Does the save strategy behave inside each cloud folder on Windows? | No duplicates or lock errors | `11` |
-| S26 | What do real conflict copies look like per provider? | Naming recorded | `11` |
 
 **Run order.** S13, then S1 and S14 together, then the rest in any order. S13, S1 and S14 decide whether the plan stands.
 
@@ -158,7 +157,7 @@ The v2 tier in `06-code-and-text-editor.md`. Desktop only.
 
 ## Release 2 — Android
 
-Starts only after Windows is in daily use. Before any build work: device spikes **M1–M5, M9 and M10** (`12-platforms-and-mobile.md`) and sync spike **S27** (`11-sync-and-continuity.md`).
+Starts only after Windows is in daily use. Before any build work: device spikes **M1–M5, M9 and M10** (`12-platforms-and-mobile.md`).
 
 ### A1 — The app on a phone and tablet (about 4–6 weeks)
 
@@ -167,6 +166,7 @@ Starts only after Windows is in daily use. Before any build work: device spikes 
 - Text, code, Markdown and CSV editing with touch and the extra key row.
 - PDF reading, annotation with finger and S Pen, signing, page tools.
 - Search, links and backlinks from the shared core.
+- Inbox on the device: share target, quick note, scan with on-device text recognition.
 - Material styling: edge-to-edge, dynamic colour, adaptive layouts for foldables and tablets.
 
 **Exit check:** all P1 flows pass at phone width on a real device; typing and scrolling meet the budgets on a mid-range phone.
@@ -181,23 +181,13 @@ Starts only after Windows is in daily use. Before any build work: device spikes 
 
 **Exit check:** the fidelity suite passes on Android for files edited there; nothing edited on the phone fails to reopen on Windows.
 
-### A3 — Across devices (about 3–4 weeks)
-
-Stage 2 of `11-sync-and-continuity.md`.
-
-- The hidden state folder with one writer per file; per-device sessions.
-- "Continue from PC" on the home screen; QR hand-off; deep links.
-- Inbox: share target, quick note, scan with on-device text recognition.
-- Conflict handling: three-way merge for text, keep-both with compare for office and PDF; the "open on another device" hint.
-- Setup guide for the companion sync tool; sync on open and on save, with last-synced time.
-
-**Exit check:** two weeks of working across the PC and the phone with no lost edit and no unexplained duplicate file.
+Until Release 4, files move between the PC and the phone by whatever you already do (a cable, a cloud app's own share button, email). The inbox share target and quick note are part of A1 because they work on a single device.
 
 ---
 
 ## Release 3 — macOS and iOS/iPadOS
 
-Starts only after Android is in daily use. Before any build work: device spikes **M6–M8** and sync spike **S28**. These decide whether Apple's webview can host the office editors at all.
+Starts only after Android is in daily use. Before any build work: device spikes **M6–M8**. These decide whether Apple's webview can host the office editors at all.
 
 ### P1 — macOS (about 3–4 weeks)
 
@@ -214,12 +204,27 @@ Starts only after Android is in daily use. Before any build work: device spikes 
 - PDF rendering adapted to the webview's canvas limits.
 - Signing and distribution set up (the yearly developer fee, or weekly reinstall).
 
-### P3 — Apple continuity (about 2 weeks)
+**Exit check for release 3:** a week of real work on each Apple device.
 
-- iCloud Drive folders; the system's file versions; Handoff between Apple devices.
-- A built-in connector (stage 4 of the sync plan) if the folder approach has not been smooth enough across all four platforms.
+---
 
-**Exit check for release 3:** a week of working across all four devices.
+## Release 4 — Across devices (about 6–8 weeks)
+
+Decided on 2026-11-22: the cloud and sync work comes last, after the app exists on every platform. The full design is in `11-sync-and-continuity.md`; the choice of cloud is made at the start of this release, with the spikes below run on your real devices.
+
+Before any build work: sync spikes **S25–S30**.
+
+- The hidden state folder with one writer per file; per-device sessions.
+- "Continue from…" on the home screen; QR hand-off; deep links between devices.
+- Conflict handling: three-way merge for text, keep-both with compare for office and PDF; the "open on another device" hint.
+- Good behaviour inside cloud folders on desktop: placeholder awareness, adopting the provider's conflict copies.
+- The route per platform: synced folder on Windows and macOS; local folder plus companion tool, or a built-in connector, on Android; iCloud Drive or a built-in connector on iOS.
+- Handoff between Apple devices.
+- One built-in connector if the folder approach is not smooth enough on phones.
+
+**Exit check:** two weeks of working across all four devices with no lost edit and no unexplained duplicate file.
+
+**What is still done early, in W1, so this release is an addition and not a rewrite:** stable file identifiers, relative links, document handles, safe saves, and keeping caches and indexes out of the documents folder. These cost almost nothing now and are expensive to retrofit.
 
 ---
 
@@ -242,10 +247,11 @@ Starts only after Android is in daily use. Before any build work: device spikes 
 
 - **Windows first** because it is where the work happens, every capability is available there, and its webview is the low-risk case.
 - **Android second** because its webview is the same engine family as Windows, so the engines are most likely to carry over, and personal installs are free.
-- **Apple last** because its webview is the unproven one, iOS has the tightest memory limit, and installing your own app there costs money or weekly effort.
+- **Apple third** because its webview is the unproven one, iOS has the tightest memory limit, and installing your own app there costs money or weekly effort.
+- **Sync last** because it is the least certain area (no single cloud folder works well for third-party apps on all four platforms), it is best chosen with all your devices in hand, and the app is fully useful on each device without it.
 - **Within Windows:** text and code first because that engine is small, used most, and exercises the whole shell; PDF second because it is independent of the office engine; office third because it carries the most risk; the connected layer fourth because it needs every engine in place; the workbench last because it deepens one format.
 - **Design for phones from the first screen**, even though phones ship second, because retrofitting touch and small screens into a desktop interface is far more expensive than building it responsive from the start.
 
 ## Honest size of this
 
-Three releases across four platforms is a long project for one person: by these rough estimates, about a year of full-time work even with AI assistance, and longer part-time. The plan is built so that it is useful long before the end. After W1 you have a text and code editor; after W2, a PDF tool; after W3, the all-in-one app on Windows. Each later phase adds to something already in daily use.
+Four releases across four platforms is a long project for one person: by these rough estimates, about a year of full-time work even with AI assistance, and longer part-time. The plan is built so that it is useful long before the end. After W1 you have a text and code editor; after W2, a PDF tool; after W3, the all-in-one app on Windows. Each later phase adds to something already in daily use.

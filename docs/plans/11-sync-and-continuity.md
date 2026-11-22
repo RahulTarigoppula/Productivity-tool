@@ -28,17 +28,21 @@ Two things follow:
 - **iCloud is a poor bridge to Windows.** iCloud for Windows is widely reported to duplicate and corrupt files in app folders. A setup that spans Windows, Android and Apple devices should not rest on iCloud alone.
 - **No single consumer cloud folder works well on all four platforms for third-party apps.** This is the central difficulty, and why a built-in connector is likely needed by the Apple stage.
 
-## Staged plan
+## When this is built
+
+**Decided on 2026-11-22: the cloud and sync work comes at the end**, as its own release after the app runs on Windows, Android and Apple devices (Release 4 in `03-roadmap.md`). The choice of cloud is made then, with all devices in hand.
 
 | Stage | When | What is built |
 |---|---|---|
-| **0** | Now, in the design | Stable file identifiers; the state-folder layout; relative links; the conflict policy. These cost little now and are painful to retrofit |
-| **1** | Windows release | **No sync code.** Be a good citizen inside a synced folder (below) |
-| **2** | Android release | A local folder on the phone kept in sync by a companion tool, plus a share-target inbox for quick capture. Sync happens on open and on save, not continuously |
-| **3** | Apple release | iCloud Drive or File Provider folders; the system's own file versions; Handoff between Apple devices |
-| **4** | Only if stages 2–3 are not smooth enough | One built-in connector, so the app syncs a chosen folder itself on every platform |
+| **0** | Now, in the design, and in the first Windows phase | Stable file identifiers; relative links; document handles; safe saves; caches and indexes kept out of the documents folder. These cost little now and are painful to retrofit |
+| **—** | Windows, Android and Apple releases | **No sync features.** The app is complete on each device; files move between devices however you already move them |
+| **1** | Release 4 | Good behaviour inside synced folders on desktop; the state folder; per-device sessions; "Continue from…"; QR hand-off; conflict handling |
+| **2** | Release 4 | The route for phones: local folder plus companion tool on Android, iCloud Drive on iOS, or one built-in connector for both |
+| **3** | Release 4, if needed | A built-in connector so the app syncs a chosen folder itself on every platform |
 
-**Choosing the connector for stage 4**, for a single-user app:
+One consequence to accept: until Release 4, opening a file on the phone that you edited on the PC means getting it there yourself. If the app happens to be pointed at a folder your cloud already syncs on the desktop, that works without any special support, because the app saves safely from the start.
+
+**Choosing the connector**, for a single-user app:
 
 | Service | Friction for a personal app |
 |---|---|
@@ -49,11 +53,11 @@ Two things follow:
 
 Dropbox or OneDrive first; Google last.
 
-**Companion tools on Android** (stage 2): a folder-sync app for your cloud provider, or Syncthing for direct device-to-device sync with no cloud. Syncthing's Android situation is unsettled: the official app was discontinued in 2024 and the main fork changed hands in late 2025 with some trust concerns, though it still has active releases. A cloud-provider sync app is the lower-risk default.
+**Companion tools on Android:** a folder-sync app for your cloud provider, or Syncthing for direct device-to-device sync with no cloud. Syncthing's Android situation is unsettled: the official app was discontinued in 2024 and the main fork changed hands in late 2025 with some trust concerns, though it still has active releases. A cloud-provider sync app is the lower-risk default.
 
 ## Being a good citizen in a synced folder
 
-What stage 1 actually requires:
+What this requires. Safe saves and reload-on-change are built in the first Windows phase; the rest waits for Release 4:
 
 - **Safe saves** that sync tools handle cleanly: write a temporary file and rename it over the original.
 - **Placeholder awareness.** Cloud folders show files that are not downloaded yet. Opening one triggers a download; the app shows progress instead of an error, and never indexes or snapshots a file in a way that forces thousands of downloads.
@@ -75,7 +79,7 @@ A hidden folder at the root of the synced workspace (called `.app/` here) carrie
 | PDF annotations | Yes | In the PDF itself as standard annotations. A sidecar keyed by annotation id is the fallback if concurrent edits prove common |
 | Tags, links | Yes | Inside the documents (see `09-differentiators-and-interconnection.md`) |
 | Search index, backlink index | No | Rebuilt on each device |
-| Version snapshots | No (stage 1–3) | Local to each device; too large and too conflict-prone to sync |
+| Version snapshots | No | Local to each device; too large and too conflict-prone to sync |
 | Engine packs, fonts, caches | No | Per device |
 | Signatures | Opt-in | Encrypted, because it is sensitive |
 
@@ -113,7 +117,7 @@ So the portable design is the app's own:
 - **Deep links.** The link format from `09-differentiators-and-interconnection.md` opens a specific file at a specific place on any device.
 - **QR hand-off.** The desktop shows a code for the current file and position; the phone scans it and opens the same place. Works with no platform support at all.
 - **Inbox.** The phone's share sheet and a quick-note shortcut drop text, links, photos and scans into an inbox folder that is waiting on the desktop.
-- **Handoff on Apple devices** is added on top at stage 3, since it is free there.
+- **Handoff on Apple devices** is added on top, since it is free there.
 
 ## Mobile realities to design for
 
@@ -125,14 +129,14 @@ So the portable design is the app's own:
 ## Privacy
 
 - With a consumer cloud folder, the provider can read your files. That is the same as using that cloud today.
-- For stage 4, optional end-to-end encryption of a chosen folder, with the key shared between devices by QR code. It costs the ability to view those files in the provider's own web interface.
+- With a built-in connector, optional end-to-end encryption of a chosen folder, with the key shared between devices by QR code. It costs the ability to view those files in the provider's own web interface.
 - Sensitive app state (signatures) is always encrypted before it enters the synced folder.
 
 ## Risks
 
 | Risk | Response |
 |---|---|
-| No cloud folder works well for third-party apps on all four platforms | Staged plan; built-in connector at stage 4; spikes before the Android and Apple stages |
+| No cloud folder works well for third-party apps on all four platforms | Decide with all devices in hand; built-in connector if needed; spikes at the start of Release 4 |
 | Conflict copies pile up and confuse | Adopt and group them; three-way merge for text; hints to prevent them |
 | Shared state files cause conflict storms | One writer per file |
 | Cloud placeholders trigger mass downloads | Index and snapshot only downloaded files |
@@ -140,10 +144,9 @@ So the portable design is the app's own:
 | The Android companion-tool landscape shifts | Do not depend on one tool; the app only needs a folder |
 | Sync was researched without primary sources | The spikes below, run on your actual devices and cloud |
 
-## Questions for you
+## Decision deferred
 
-- **Which cloud do you already use across your devices?** It decides the default and the first connector.
-- **Is it acceptable that the phone needs a small companion sync tool at first**, before a built-in connector exists?
+**Which cloud to build around** is decided at the start of Release 4, not now. Nothing in the earlier releases depends on the answer.
 
 ## Additional spikes
 

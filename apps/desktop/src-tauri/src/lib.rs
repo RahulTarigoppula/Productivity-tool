@@ -438,9 +438,23 @@ pub fn run() {
                 .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
                 .and_then(|v| v.get("theme").and_then(|t| t.as_str()).map(|t| t.to_string()));
             let window = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()));
+            // The page's own early background follows the system; this script overrides it with the
+            // saved choice as soon as the page exists.
+            let paint = |c: &str| {
+                format!(
+                    "(function(){{function a(){{var d=document.documentElement;if(d){{d.style.background='{c}';return true}}}}\
+                     if(!a()){{new MutationObserver(function(m,o){{if(a())o.disconnect()}}).observe(document,{{childList:true}})}}}})();"
+                )
+            };
             let window = match saved_theme.as_deref() {
-                Some("dark") => window.theme(Some(tauri::Theme::Dark)).background_color(tauri::webview::Color(0x18, 0x18, 0x1c, 0xff)),
-                Some("light") => window.theme(Some(tauri::Theme::Light)).background_color(tauri::webview::Color(0xf4, 0xf4, 0xf6, 0xff)),
+                Some("dark") => window
+                    .theme(Some(tauri::Theme::Dark))
+                    .background_color(tauri::webview::Color(0x18, 0x18, 0x1c, 0xff))
+                    .initialization_script(paint("#18181c")),
+                Some("light") => window
+                    .theme(Some(tauri::Theme::Light))
+                    .background_color(tauri::webview::Color(0xf4, 0xf4, 0xf6, 0xff))
+                    .initialization_script(paint("#f4f4f6")),
                 _ => window,
             };
             #[cfg(desktop)]

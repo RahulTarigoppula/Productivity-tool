@@ -10,7 +10,7 @@ import { Home } from "./Home";
 import { Sidebar } from "./Sidebar";
 import { RightPanel } from "./RightPanel";
 import { Palette } from "./Palette";
-import { Dialogs, Toasts } from "./Dialogs";
+import { ConfirmDialog, Dialogs, Toasts } from "./Dialogs";
 import { DocPane } from "./DocPane";
 import { MenuHost } from "./Menu";
 import { Boundary } from "./Boundary";
@@ -117,6 +117,8 @@ export function App() {
       <Boundary name="status bar"><StatusBar /></Boundary>
       <Boundary name="command palette" variant="silent"><Palette /></Boundary>
       <Boundary name="dialog" variant="silent"><Dialogs /></Boundary>
+      {/* Questions such as "Save changes?" have their own boundary: other dialogs failing never blocks them. */}
+      <Boundary name="question" variant="silent"><ConfirmDialog /></Boundary>
       <Boundary name="notifications" variant="silent"><Toasts /></Boundary>
       <Boundary name="menu" variant="silent"><MenuHost /></Boundary>
     </div>

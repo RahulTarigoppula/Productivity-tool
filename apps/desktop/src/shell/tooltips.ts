@@ -21,8 +21,13 @@ function ensureTip(): HTMLDivElement {
 function hide() {
   window.clearTimeout(timer);
   if (current?.dataset.tip !== undefined) {
-    current.setAttribute("title", current.dataset.tip);
+    // If the interface set a new title meanwhile, keep that one.
+    if (!current.hasAttribute("title")) current.setAttribute("title", current.dataset.tip);
     delete current.dataset.tip;
+    if (current.dataset.tipAria !== undefined) {
+      current.removeAttribute("aria-label");
+      delete current.dataset.tipAria;
+    }
   }
   current = null;
   if (tip?.classList.contains("show")) hiddenAt = Date.now();
@@ -67,7 +72,10 @@ export function installTooltips(): () => void {
     const title = el.getAttribute("title");
     if (title) {
       // Keep the accessible name while the native tooltip is suppressed.
-      if (!el.hasAttribute("aria-label") && !el.textContent?.trim()) el.setAttribute("aria-label", title.replace(/\s*\([^()]*\)\s*$/, ""));
+      if (!el.hasAttribute("aria-label") && !el.textContent?.trim()) {
+        el.setAttribute("aria-label", title.replace(/\s*\([^()]*\)\s*$/, ""));
+        el.dataset.tipAria = "";
+      }
       el.dataset.tip = title;
       el.removeAttribute("title");
     }

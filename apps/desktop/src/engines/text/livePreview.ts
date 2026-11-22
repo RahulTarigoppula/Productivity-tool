@@ -153,8 +153,12 @@ function buildTables(state: EditorState): DecorationSet {
   try {
     syntaxTree(state).iterate({
       enter: (node) => {
-        if (node.name !== "Table") return;
+        // Tables sit at block level: skip inline content, quotes and lists (a table there keeps
+        // its source, since its lines start with > or a list mark).
+        if (node.name === "Document") return;
+        if (node.name !== "Table") return false;
         const first = state.doc.lineAt(node.from), last = state.doc.lineAt(node.to);
+        if (state.doc.sliceString(first.from, node.from).trim()) return false;
         for (let n = first.number; n <= last.number; n++) if (lines.has(n)) return false;
         const source = state.doc.sliceString(first.from, last.to);
         decos.push(Decoration.replace({ widget: new TableWidget(source, first.from), block: true }).range(first.from, last.to));

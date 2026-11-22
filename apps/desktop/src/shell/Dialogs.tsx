@@ -105,7 +105,7 @@ function Settings() {
           <Row label="Line numbers" help="For code and plain text; Markdown stays clean.">{flag("lineNumbers", "Line numbers")}</Row>
           <Row label="Wrap long lines in code" help="Markdown always wraps.">{flag("wordWrapCode", "Wrap long lines")}</Row>
           <Row label="Font size">
-            <Segmented label="Font size" value={s.fontSize} onChange={(v) => void updateSettings({ fontSize: v })} options={[12, 13, 14, 16, 18].map((n) => ({ value: n, label: String(n) }))} />
+            <Segmented label="Font size" value={s.fontSize} onChange={(v) => void updateSettings({ fontSize: v })} options={[12, 13, 14, 15, 16, 18, 20].map((n) => ({ value: n, label: String(n) }))} />
           </Row>
           <Row label="Tab width" help="For new files; existing files keep their own indentation.">
             <Segmented label="Tab width" value={s.tabSize} onChange={(v) => void updateSettings({ tabSize: v })} options={[2, 4, 8].map((n) => ({ value: n, label: String(n) }))} />
@@ -264,7 +264,6 @@ export function Dialogs() {
       {d?.kind === "newFile" && <NewFile />}
       {d?.kind === "about" && <About />}
       {d?.kind === "export" && <Export />}
-      <ConfirmDialog />
     </>
   );
 }

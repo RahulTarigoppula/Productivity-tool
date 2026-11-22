@@ -14,6 +14,19 @@ interface Props {
 
 export class Boundary extends Component<Props, { error: Error | null; key: number }> {
   state = { error: null as Error | null, key: 0 };
+  /** Failures in a row; cleared once the panel has rendered fine for a few seconds. */
+  private failures = 0;
+  private calm = 0;
+
+  componentDidUpdate() {
+    if (this.state.error || !this.failures) return;
+    window.clearTimeout(this.calm);
+    this.calm = window.setTimeout(() => (this.failures = 0), 5000);
+  }
+
+  componentWillUnmount() {
+    window.clearTimeout(this.calm);
+  }
 
   static getDerivedStateFromError(error: unknown) {
     return { error: error instanceof Error ? error : new Error(String(error)) };
@@ -21,8 +34,11 @@ export class Boundary extends Component<Props, { error: Error | null; key: numbe
 
   componentDidCatch(error: unknown) {
     reportError(this.props.name, error, { quiet: true });
-    // Overlays (palette, dialogs, menus) have no room for a notice: try again quietly, a few times.
-    if (this.props.variant === "silent" && this.state.key < 3) window.setTimeout(this.retry, 400);
+    this.failures++;
+    window.clearTimeout(this.calm);
+    // Overlays (palette, dialogs, menus) have no room for a notice: try again quietly, a few times
+    // in a row; a later, unrelated failure starts the count again.
+    if (this.props.variant === "silent" && this.failures <= 3) window.setTimeout(this.retry, 400);
   }
 
   retry = () => this.setState((s) => ({ error: null, key: s.key + 1 }));

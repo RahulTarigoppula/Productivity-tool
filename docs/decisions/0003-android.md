@@ -56,6 +56,8 @@ An independent review of the Android code against the Tauri, file-system plugin 
 
 ## Known gaps
 
+- PDFs on very old system WebViews (Chromium 113 and earlier, e.g. a phone that never updated "Android System WebView") lay out but may not draw their pages; the app adds polyfills and uses PDF.js's legacy build, which fixed loading and layout. Phones that receive Google Play updates have a current WebView.
+
 - Not yet run on a real phone in this session: the APK is built in CI, but there is no Android emulator here. The first manual check is to open, edit and save a Markdown file from Downloads and from Google Drive.
 - No Office editing; no folders.
 - Files shared once by another app ("Open with") cannot be reopened from Recent after a restart (Android grants them temporarily).

@@ -106,7 +106,7 @@ jobs:
       - name: Smoke test on an Android emulator
         uses: ReactiveCircus/android-emulator-runner@c9c93e6ba9c4194322e114c40970d5983d9a07cc # v2.38.0
         with:
-          api-level: 34
+          api-level: 35
           target: google_apis
           arch: x86_64
           disable-animations: true

@@ -65,7 +65,8 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
   override fun load(webView: WebView) {
     // Test builds in CI start the app with this flag to run its self-test (see tests/android-smoke.sh).
     if (activity.intent?.getBooleanExtra("productivity.selftest", false) == true) {
-      val dir = File(File(activity.dataDir, activity.packageName), "selftest").apply { mkdirs() }
+      // Tauri's app data folder on Android is the app's data folder itself.
+      val dir = File(activity.dataDir, "selftest").apply { mkdirs() }
       File(dir, "RUN").writeText("1")
     }
     collect(activity.intent)

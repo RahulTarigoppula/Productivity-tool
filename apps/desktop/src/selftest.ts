@@ -101,6 +101,8 @@ export async function runSelfTest(dir: string) {
   const timings: Record<string, number> = { startupToSelfTestMs: Math.round(performance.now()) };
   const { openPath } = await import("./app/actions");
   const { getState, handles } = await import("./app/store");
+  // Let start-up (session restore) finish first, as a person would.
+  for (let i = 0; i < 200 && !getState().ready; i++) await new Promise((r) => setTimeout(r, 50));
   const selector: Record<string, string> = {
     md: ".cm-content", txt: ".cm-content", py: ".cm-content", csv: ".csv-cell",
     pdf: ".pdfViewer .page canvas", docx: ".docx-host section, .office-frame[style*='visible']", xlsx: ".xlsx-table td, .office-frame[style*='visible']", pptx: ".slide-card, .office-frame[style*='visible']",
@@ -126,7 +128,11 @@ export async function runSelfTest(dir: string) {
         assert(tab && !tab.error, tab?.error ?? "tab missing");
         const pane = document.querySelector(selector[ext].split(",").map((part) => `section.doc-pane:not([hidden]) ${part.trim()}`).join(", "));
         if (pane && handles.has(id!)) break;
-        assert(performance.now() < deadline, "engine did not render in time");
+        if (performance.now() >= deadline) {
+          const tb = getState().tabs.find((x) => x.id === id);
+          const active = getState().activeId === id;
+          throw new Error(`engine did not render in time (active=${active} handle=${handles.has(id!)} pane=${!!pane} tab=${JSON.stringify({ kind: tb?.kind, loading: tb?.loading, version: tb?.version, dirty: tb?.dirty, saveState: tb?.saveState })} spinner=${!!document.querySelector("section.doc-pane:not([hidden]) .spinner")})`);
+        }
         await new Promise((r) => setTimeout(r, 50));
       }
       timings[`open:${f.name}`] = Math.round(performance.now() - t0);

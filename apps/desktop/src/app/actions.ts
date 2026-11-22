@@ -115,7 +115,12 @@ export interface OpenOptions {
   notice?: Tab["notice"];
 }
 
+/** Set while the previous session is being restored; a file the user opens meanwhile wins focus. */
+let restoringSession = false;
+let openedDuringRestore = false;
+
 export async function openPath(path: string, opts: OpenOptions = {}): Promise<string | null> {
+  if (restoringSession && opts.activate !== false) openedDuringRestore = true;
   const existing = findTabByPath(path, opts.kind);
   if (existing && !opts.bytes) {
     if (opts.activate !== false) activate(existing.id);
@@ -592,6 +597,7 @@ export async function startup() {
     rightOpen: !!session.rightOpen,
     rightView: session.rightView ?? "preview",
   });
+  restoringSession = true;
   for (const t of session.tabs ?? []) {
     const meta = await platform.stat(t.path).catch(() => null);
     if (meta?.exists) await openPath(t.path, { kind: t.kind, activate: false, viewState: t.viewState });
@@ -624,8 +630,10 @@ export async function startup() {
 
   const activePath = session.active;
   const active = (activePath && findTabByPath(activePath)) || getState().tabs[getState().tabs.length - 1];
+  restoringSession = false;
   setState({ ready: true });
-  activate(active?.id ?? null);
+  // Do not take focus away from a file opened while the session was coming back.
+  if (!openedDuringRestore || !getState().activeId) activate(active?.id ?? null);
 
   for (const p of await platform.launchFiles().catch(() => [])) await openPath(p);
 }

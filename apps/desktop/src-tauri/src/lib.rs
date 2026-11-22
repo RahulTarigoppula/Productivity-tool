@@ -140,7 +140,9 @@ async fn write_file(request: Request<'_>, state: tauri::State<'_, AppState>, app
     Ok(files::meta(&p))
 }
 
-#[tauri::command]
+/// Commands run off the window's thread: disk access never freezes the window, and a
+/// panic fails the call instead of closing the app.
+#[tauri::command(async)]
 fn list_dir(path: String) -> Result<Vec<files::DirEntry>, String> {
     files::list_dir(Path::new(&path))
 }
@@ -172,17 +174,17 @@ async fn search_folder(
     .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn state_get(name: String, state: tauri::State<'_, AppState>) -> Option<String> {
     state.store.state_get(&name)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn state_set(name: String, value: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     state.store.state_set(&name, &value)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn snapshot_list(path: String, state: tauri::State<'_, AppState>) -> Vec<SnapshotInfo> {
     state.store.snapshot_list(&path)
 }
@@ -208,24 +210,24 @@ async fn recovery_write(request: Request<'_>, state: tauri::State<'_, AppState>)
     state.store.recovery_write(&id, &meta, &body_bytes(&request)?)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn recovery_list(state: tauri::State<'_, AppState>) -> Vec<RecoveryInfo> {
     state.store.recovery_list()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn recovery_read(id: String, state: tauri::State<'_, AppState>) -> Result<Response, String> {
     state.store.recovery_read(&id).map(Response::new)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn recovery_clear(id: String, state: tauri::State<'_, AppState>) {
     state.store.recovery_clear(&id)
 }
 
 /// Watch the folder that contains a file. Watching the folder (not the file) keeps working after
 /// a save replaces the file, and the interface ignores events for files it has not opened.
-#[tauri::command]
+#[tauri::command(async)]
 fn watch_file(path: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     if uri::is_content_uri(&path) {
         return Ok(()); // Android documents cannot be watched.
@@ -245,7 +247,7 @@ fn watch_file(path: String, state: tauri::State<'_, AppState>) -> Result<(), Str
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn unwatch_file(path: String, state: tauri::State<'_, AppState>) {
     let p = PathBuf::from(&path);
     let mut watched = state.watched.lock().unwrap_or_else(|e| e.into_inner());
@@ -261,7 +263,7 @@ fn unwatch_file(path: String, state: tauri::State<'_, AppState>) {
 }
 
 /// Folder for the built-in self-test, set by the PRODUCTIVITY_SELF_TEST environment variable.
-#[tauri::command]
+#[tauri::command(async)]
 fn self_test_dir(app: tauri::AppHandle) -> Option<String> {
     // Android: started with the self-test flag (the activity leaves a marker in the app's folder).
     #[cfg(target_os = "android")]
@@ -278,17 +280,17 @@ fn self_test_dir(app: tauri::AppHandle) -> Option<String> {
 }
 
 /// The interface's error log (unexpected errors, for diagnosis; stays on this computer).
-#[tauri::command]
+#[tauri::command(async)]
 fn log_event(level: String, message: String, state: tauri::State<'_, AppState>) {
     state.store.log(&level, &message);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn office_pack_info(app: tauri::AppHandle) -> office::PackInfo {
     office::info(&app)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn launch_files(state: tauri::State<'_, AppState>) -> Vec<String> {
     std::mem::take(&mut *state.launch_files.lock().unwrap_or_else(|e| e.into_inner()))
 }
@@ -323,7 +325,7 @@ fn check_openable_file(path: &str) -> Result<PathBuf, String> {
     Ok(p)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn reveal_in_folder(path: String) -> Result<(), String> {
     if is_network_path(&path) || path.contains('"') || !Path::new(&path).exists() {
         return Err("Cannot show this file.".into());
@@ -346,7 +348,7 @@ fn reveal_in_folder(path: String) -> Result<(), String> {
 
 /// Open a web link (http, https, mailto) in the system browser or mail app, or a document file
 /// with its default application. Program and script files are refused.
-#[tauri::command]
+#[tauri::command(async)]
 fn open_external(target: String) -> Result<(), String> {
     let lower = target.trim().to_lowercase();
     if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:") {
@@ -397,6 +399,9 @@ fn guarded<R: tauri::Runtime>(
 ) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
     move |invoke| {
         let origin = invoke.message.headers().get("origin").and_then(|v| v.to_str().ok());
+        if cfg!(debug_assertions) && std::env::var("PRODUCTIVITY_DEBUG_IPC").is_ok() {
+            eprintln!("ipc {} origin={:?}", invoke.message.command(), origin);
+        }
         if from_office_origin(origin) {
             invoke.resolver.reject("Not allowed from a document editor.");
             return true;
@@ -431,6 +436,9 @@ pub fn run() {
             std::thread::spawn(move || responder.respond(office::handle(&app, &request)));
         })
         .setup(|app| {
+            if cfg!(debug_assertions) && std::env::var("PRODUCTIVITY_DEBUG_IPC").is_ok() {
+                eprintln!("setup start");
+            }
             // The saved theme decides the window's first paint and (on Windows) the title bar.
             let data_dir_early = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir().join("productivity"));
             let saved_theme = Store::new(data_dir_early)
@@ -462,6 +470,9 @@ pub fn run() {
             window
                 // The window only ever shows the app's own pages; documents cannot navigate it away.
                 .on_navigation(|u| {
+                    if cfg!(debug_assertions) && std::env::var("PRODUCTIVITY_DEBUG_IPC").is_ok() {
+                        eprintln!("navigate {u}");
+                    }
                     let host = u.host_str().unwrap_or("");
                     // Office editor frames (their own scheme, or http://office.<tab>.localhost).
                     let office = u.scheme() == "office" || (host.starts_with("office.") && host.ends_with(".localhost"));

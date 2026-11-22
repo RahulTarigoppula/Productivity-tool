@@ -53,7 +53,7 @@ export function Home() {
     <div className="home">
       <div className="home-inner">
         <h1>Productivity</h1>
-        <p className="sub">Every kind of file, in one calm place. Press <span className="kbd">Ctrl+K</span> to find anything.</p>
+        <p className="sub">Every kind of file, in one calm place.<span className="keys-only"> Press <span className="kbd">Ctrl+K</span> to find anything.</span></p>
         <div className="search">
           <input
             className="input"
@@ -106,7 +106,7 @@ export function Home() {
           <button className="tile" onClick={() => void pickAndOpen()}>
             <FileSearch style={{ color: "var(--accent)" }} />
             <span className="t">Open file</span>
-            <span className="d">Ctrl+O</span>
+            <span className="d"><span className="keys-only">Ctrl+O</span><span className="touch-only">From this device</span></span>
           </button>
           {platform.folders && (
             <button className="tile" onClick={() => void openFolder()}>

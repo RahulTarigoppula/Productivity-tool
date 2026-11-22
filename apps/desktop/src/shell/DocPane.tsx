@@ -1,10 +1,11 @@
-import { Suspense, useMemo, Component, type ReactNode } from "react";
+import { Suspense, useMemo, useEffect, useRef, useState, Component, type ReactNode } from "react";
 import { Info, TriangleAlert, FileWarning } from "lucide-react";
 import { setState, updateTab, handles, tabBytes, toast, type Tab } from "../app/store";
 import { contentChanged, keepMine, reloadFromDisk, saveTab, closeTab, openLink, reopenAs, takePendingGoTo, engineSetDirty } from "../app/actions";
 import type { EngineHost } from "../app/editor-api";
 import { engineFor } from "../engines";
 import { platform } from "../platform";
+import { touch, setAwake, forget, shouldSleep } from "../app/hibernation";
 
 class EngineBoundary extends Component<{ children: ReactNode; tab: Tab }, { error: string | null }> {
   state = { error: null as string | null };
@@ -100,7 +101,56 @@ function EngineMount({ tab }: { tab: Tab }) {
   );
 }
 
+/** Keeps a heavy background tab asleep (no editor mounted) until it is shown again. */
+function useHibernation(tab: Tab, active: boolean): { asleep: boolean; waking: boolean } {
+  const [asleep, setAsleep] = useState(false);
+  const [waking, setWaking] = useState(false);
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+
+  useEffect(() => () => forget(tab.id), [tab.id]);
+  // Remember when the tab was last shown or left.
+  useEffect(() => touch(tab.id), [active, tab.id]);
+  useEffect(() => setAwake(tab.id, !asleep && !tab.loading && !tab.error), [asleep, tab.id, tab.loading, tab.error]);
+
+  // Fall asleep: checked every 15 seconds while in the background.
+  useEffect(() => {
+    if (active || asleep) return;
+    const check = () => {
+      if (shouldSleep(tabRef.current, false)) {
+        handles.delete(tab.id);
+        setAsleep(true);
+      }
+    };
+    const timer = window.setInterval(check, 15000);
+    check();
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, asleep, tab.id, tab.dirty, tab.saveState]);
+
+  // Wake up: the tab's content is the file on disk (it had no unsaved changes), so read it again.
+  useEffect(() => {
+    if (!active || !asleep || waking) return;
+    setWaking(true);
+    void platform
+      .readFile(tab.path!)
+      .then((bytes) => {
+        tabBytes.set(tab.id, bytes);
+        updateTab(tab.id, (t) => ({ version: t.version + 1 }));
+      })
+      .catch((e) => updateTab(tab.id, { error: e instanceof Error ? e.message : String(e) }))
+      .finally(() => {
+        setAsleep(false);
+        setWaking(false);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, asleep]);
+
+  return { asleep, waking };
+}
+
 export function DocPane({ tab, active }: { tab: Tab; active: boolean }) {
+  const { asleep } = useHibernation(tab, active);
   return (
     <section className="doc-pane" hidden={!active} aria-label={tab.name}>
       <Banner tab={tab} />
@@ -117,6 +167,8 @@ export function DocPane({ tab, active }: { tab: Tab; active: boolean }) {
               <button className="btn subtle" onClick={() => void closeTab(tab.id)}>Close</button>
             </div>
           </div>
+        ) : asleep ? (
+          <div className="center-note"><div className="spinner" /></div>
         ) : (
           <EngineMount tab={tab} />
         )}

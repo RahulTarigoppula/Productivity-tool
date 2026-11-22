@@ -156,6 +156,24 @@ const frameBox = async () => page.locator("section.doc-pane:not([hidden]) .offic
     assert(!(await page.locator("[cmdk-input]").isVisible().catch(() => false)), "a forged shortcut opened the palette");
   });
 
+  await check("O-10", "an unchanged background Office tab sleeps and comes back from its file", async () => {
+    const before = await page.locator(".office-frame").count();
+    // Pick a saved, unchanged Office tab that is not visible.
+    const target = await page.evaluate(() => {
+      const s = window.__app.getState();
+      const t = s.tabs.find((x) => x.id !== s.activeId && ["docx", "xlsx"].includes(x.kind) && !x.dirty && x.path);
+      return t && { id: t.id, path: t.path };
+    });
+    assert(target, "no clean background Office tab to test with");
+    await page.evaluate(() => { window.__hibernateAfterMs = 0; });
+    await waitFor(async () => (await page.locator(".office-frame").count()) < before, 20000, "the editor to be released");
+    await page.evaluate(() => { window.__hibernateAfterMs = 600000; });
+    await page.evaluate((id) => window.__app.activate(id), target.id);
+    await waitFor(editorReady, 90000, "the editor to come back");
+    const t = await activeTab();
+    assert(!t.dirty, "a woken tab must not be marked unsaved");
+  });
+
   await page.screenshot({ path: join(shots, "office-final.png") });
   await browser.close();
   const failed = results.filter((r) => !r.ok);

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useEffect } from "react";
-import { NotebookText, FileText, Sheet, FolderOpen, FileSearch, Pin, PinOff, X, FileType, FileSpreadsheet, Presentation } from "lucide-react";
+import { NotebookText, FileCode2, Sheet, FolderOpen, FileSearch, Pin, PinOff, X, FileType, FileSpreadsheet, Presentation, Search, Clock, Sparkles } from "lucide-react";
 import { platform } from "../platform";
 import { useStore } from "../app/store";
 import { newFile, newOfficeFile, pickAndOpen, openFolder, openPath, togglePin, removeRecent } from "../app/actions";
@@ -49,15 +49,36 @@ export function Home() {
     </div>
   );
 
+  const hour = new Date().getHours();
+  const greeting = hour < 5 ? "Working late" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const create: { kind: string; label: string; hint: string; icon: React.ReactNode; run: () => void }[] = [
+    { kind: "markdown", label: "Note", hint: "Markdown", icon: <NotebookText />, run: () => newFile("markdown") },
+    { kind: "text", label: "Text or code", hint: "Any language", icon: <FileCode2 />, run: () => newFile("text") },
+    { kind: "csv", label: "Table", hint: "CSV", icon: <Sheet />, run: () => newFile("csv") },
+    ...(office
+      ? [
+          { kind: "docx", label: "Document", hint: "Word", icon: <FileType />, run: () => void newOfficeFile("docx") },
+          { kind: "xlsx", label: "Spreadsheet", hint: "Excel", icon: <FileSpreadsheet />, run: () => void newOfficeFile("xlsx") },
+          { kind: "pptx", label: "Presentation", hint: "PowerPoint", icon: <Presentation />, run: () => void newOfficeFile("pptx") },
+        ]
+      : []),
+  ];
+
   return (
     <div className="home">
       <div className="home-inner">
-        <h1>Productivity</h1>
-        <p className="sub">Every kind of file, in one calm place.<span className="keys-only"> Press <span className="kbd">Ctrl+K</span> to find anything.</span></p>
-        <div className="search">
+        <header className="home-head">
+          <div className="app-mark" aria-hidden><Sparkles /></div>
+          <div>
+            <h1>{greeting}</h1>
+            <p className="sub">Every kind of file, in one calm place.</p>
+          </div>
+        </header>
+        <div className="home-search">
+          <Search className="lead" />
           <input
             className="input"
-            placeholder="Find a recent file…"
+            placeholder="Find a recent file"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => {
@@ -66,65 +87,55 @@ export function Home() {
             }}
             aria-label="Find a recent file"
           />
+          <button className="kbd keys-only search-kbd" onClick={() => openPalette("")} title="Search files and commands">Ctrl K</button>
         </div>
-        <h2>New</h2>
-        <div className="tiles">
-          <button className="tile" onClick={() => newFile("markdown")}>
-            <NotebookText style={{ color: "var(--k-markdown)" }} />
-            <span className="t">Markdown note</span>
-            <span className="d">Headings, lists, links</span>
-          </button>
-          <button className="tile" onClick={() => newFile("text")}>
-            <FileText style={{ color: "var(--k-text)" }} />
-            <span className="t">Text or code</span>
-            <span className="d">Any language</span>
-          </button>
-          <button className="tile" onClick={() => newFile("csv")}>
-            <Sheet style={{ color: "var(--k-csv)" }} />
-            <span className="t">CSV table</span>
-            <span className="d">Rows and columns</span>
-          </button>
-          {office && (
-            <>
-              <button className="tile" onClick={() => void newOfficeFile("docx")}>
-                <FileType style={{ color: "var(--k-docx)" }} />
-                <span className="t">Word document</span>
-                <span className="d">Pages and styles</span>
-              </button>
-              <button className="tile" onClick={() => void newOfficeFile("xlsx")}>
-                <FileSpreadsheet style={{ color: "var(--k-xlsx)" }} />
-                <span className="t">Spreadsheet</span>
-                <span className="d">Formulas and charts</span>
-              </button>
-              <button className="tile" onClick={() => void newOfficeFile("pptx")}>
-                <Presentation style={{ color: "var(--k-pptx)" }} />
-                <span className="t">Presentation</span>
-                <span className="d">Slides</span>
-              </button>
-            </>
-          )}
-          <button className="tile" onClick={() => void pickAndOpen()}>
-            <FileSearch style={{ color: "var(--accent)" }} />
-            <span className="t">Open file</span>
-            <span className="d"><span className="keys-only">Ctrl+O</span><span className="touch-only">From this device</span></span>
+
+        <h2>Create</h2>
+        <div className="create-grid">
+          {create.map((c) => (
+            <button key={c.kind} className={`create-card k-${c.kind}`} onClick={c.run}>
+              <span className="chip">{c.icon}</span>
+              <span className="t">{c.label}</span>
+              <span className="d">{c.hint}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="open-row">
+          <button className="open-btn" onClick={() => void pickAndOpen()}>
+            <FileSearch />
+            <span className="t">Open a file</span>
+            <span className="kbd keys-only">Ctrl O</span>
           </button>
           {platform.folders && (
-            <button className="tile" onClick={() => void openFolder()}>
-              <FolderOpen style={{ color: "var(--accent)" }} />
-              <span className="t">Open folder</span>
-              <span className="d">Browse and search</span>
+            <button className="open-btn" onClick={() => void openFolder()}>
+              <FolderOpen />
+              <span className="t">Open a folder</span>
+              <span className="d">browse and search everything in it</span>
             </button>
           )}
         </div>
+
         {pinnedItems.length > 0 && (
           <>
             <h2>Pinned</h2>
-            {pinnedItems.map(row)}
+            <div className="recent-list">{pinnedItems.map(row)}</div>
           </>
         )}
         <h2>{q ? "Matches" : "Recent"}</h2>
-        {items.length ? items.map(row) : <div className="empty-note">{q ? "No recent file matches. Press Enter to search everywhere." : "Files you open will appear here."}</div>}
-        <div className="drop-hint">Drop files anywhere in this window to open them.</div>
+        {items.length ? (
+          <div className="recent-list">{items.map(row)}</div>
+        ) : (
+          <div className="home-empty">
+            <Clock />
+            <div>
+              <div className="t">{q ? "No recent file matches" : "Nothing here yet"}</div>
+              <div className="d">
+                {q ? "Press Enter to search everywhere." : <>Files you open or create show up here.<span className="keys-only"> You can also drop files anywhere in the window.</span></>}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

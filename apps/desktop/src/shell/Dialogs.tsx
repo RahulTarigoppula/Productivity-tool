@@ -48,49 +48,69 @@ export function ConfirmDialog() {
   );
 }
 
+function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+  return (
+    <button type="button" role="switch" aria-checked={checked} aria-label={label} className={`switch ${checked ? "on" : ""}`} onClick={() => onChange(!checked)}>
+      <span className="knob" />
+    </button>
+  );
+}
+
+function Segmented<T extends string | number>({ value, options, onChange, label }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; label: string }) {
+  return (
+    <div className="segmented" role="radiogroup" aria-label={label}>
+      {options.map((o) => (
+        <button key={String(o.value)} type="button" role="radio" aria-checked={o.value === value} className={o.value === value ? "on" : ""} onClick={() => onChange(o.value)}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function Settings() {
   const s = useStore((st) => st.settings);
-  const Toggle = ({ k, label, help }: { k: "autoSave" | "wordWrapCode" | "lineNumbers" | "markdownLivePreview"; label: string; help: string }) => (
-    <label className="field">
-      <span><div className="lbl">{label}</div><div className="help">{help}</div></span>
-      <input type="checkbox" checked={s[k]} onChange={(e) => void updateSettings({ [k]: e.target.checked })} />
-    </label>
+  const Row = ({ label, help, children }: { label: string; help?: string; children: React.ReactNode }) => (
+    <div className="field">
+      <span>
+        <div className="lbl">{label}</div>
+        {help && <div className="help">{help}</div>}
+      </span>
+      {children}
+    </div>
+  );
+  const flag = (k: "autoSave" | "wordWrapCode" | "lineNumbers" | "markdownLivePreview", label: string) => (
+    <Switch label={label} checked={s[k]} onChange={(v) => void updateSettings({ [k]: v })} />
   );
   return (
     <Overlay onClose={closeDialog}>
-      <div className="dialog" role="dialog" aria-label="Settings">
+      <div className="dialog settings-dialog" role="dialog" aria-label="Settings">
         <h3>Settings</h3>
-        <label className="field">
-          <span><div className="lbl">Theme</div><div className="help">Follow Windows, or choose.</div></span>
-          <select className="select" value={s.theme} onChange={(e) => void updateSettings({ theme: e.target.value as typeof s.theme })}>
-            <option value="system">System</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select>
-        </label>
-        <label className="field">
-          <span><div className="lbl">Density</div><div className="help">How tightly the bars are packed.</div></span>
-          <select className="select" value={s.density} onChange={(e) => void updateSettings({ density: e.target.value as typeof s.density })}>
-            <option value="comfortable">Comfortable</option>
-            <option value="compact">Compact</option>
-          </select>
-        </label>
-        <Toggle k="autoSave" label="Auto-save text files" help="Text, Markdown, code and CSV save themselves shortly after you stop typing. PDFs save when you press Ctrl+S." />
-        <Toggle k="markdownLivePreview" label="Live Markdown" help="Show headings, bold and links formatted as you type. Turn off to see plain source." />
-        <Toggle k="lineNumbers" label="Line numbers in code" help="Shown for code and plain text; Markdown stays clean." />
-        <Toggle k="wordWrapCode" label="Wrap long lines in code" help="Markdown always wraps." />
-        <label className="field">
-          <span><div className="lbl">Editor font size</div></span>
-          <select className="select" value={s.fontSize} onChange={(e) => void updateSettings({ fontSize: Number(e.target.value) })}>
-            {[12, 13, 14, 15, 16, 18, 20].map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-        </label>
-        <label className="field">
-          <span><div className="lbl">Tab width</div><div className="help">For new files; existing files keep their own indentation.</div></span>
-          <select className="select" value={s.tabSize} onChange={(e) => void updateSettings({ tabSize: Number(e.target.value) })}>
-            {[2, 4, 8].map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-        </label>
+        <div className="settings-group">
+          <div className="group-title">Appearance</div>
+          <Row label="Theme" help="Follow Windows, or choose.">
+            <Segmented label="Theme" value={s.theme} onChange={(v) => void updateSettings({ theme: v })} options={[{ value: "system", label: "System" }, { value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} />
+          </Row>
+          <Row label="Density" help="How tightly the bars are packed.">
+            <Segmented label="Density" value={s.density} onChange={(v) => void updateSettings({ density: v })} options={[{ value: "comfortable", label: "Comfortable" }, { value: "compact", label: "Compact" }]} />
+          </Row>
+        </div>
+        <div className="settings-group">
+          <div className="group-title">Saving</div>
+          <Row label="Auto-save" help="Text, Markdown, code and CSV save themselves a moment after you stop typing. PDFs and Office files save with Ctrl+S.">{flag("autoSave", "Auto-save")}</Row>
+        </div>
+        <div className="settings-group">
+          <div className="group-title">Editor</div>
+          <Row label="Live Markdown" help="Headings, bold and links formatted as you type.">{flag("markdownLivePreview", "Live Markdown")}</Row>
+          <Row label="Line numbers" help="For code and plain text; Markdown stays clean.">{flag("lineNumbers", "Line numbers")}</Row>
+          <Row label="Wrap long lines in code" help="Markdown always wraps.">{flag("wordWrapCode", "Wrap long lines")}</Row>
+          <Row label="Font size">
+            <Segmented label="Font size" value={s.fontSize} onChange={(v) => void updateSettings({ fontSize: v })} options={[12, 13, 14, 16, 18].map((n) => ({ value: n, label: String(n) }))} />
+          </Row>
+          <Row label="Tab width" help="For new files; existing files keep their own indentation.">
+            <Segmented label="Tab width" value={s.tabSize} onChange={(v) => void updateSettings({ tabSize: v })} options={[2, 4, 8].map((n) => ({ value: n, label: String(n) }))} />
+          </Row>
+        </div>
         <div className="acts"><button className="btn primary" onClick={closeDialog}>Done</button></div>
       </div>
     </Overlay>
@@ -198,38 +218,39 @@ function Export() {
     }
   };
   const printable = tab.kind !== "binary";
+  const row = (key: string, ext: string, title: string, sub: string | null, quality: keyof typeof QUALITY_LABEL, onRun: () => void) => (
+    <button key={key} type="button" className={`export-row ${busy && busy !== key ? "unavailable" : ""}`} disabled={!!busy && busy !== key} onClick={() => !busy && onRun()}>
+      <span className={`fmt-badge fmt-${ext}`}>{ext}</span>
+      <span className="desc">
+        <span className="t">{title}</span>
+        {sub && <span className="help">{sub}</span>}
+      </span>
+      {busy === key ? <span className="spinner" style={{ width: 16, height: 16 }} /> : <span className={`q ${quality}`}>{QUALITY_LABEL[quality]}</span>}
+    </button>
+  );
   return (
     <Overlay onClose={closeDialog}>
-      <div className="dialog" role="dialog" aria-label="Export">
-        <h3>Export {tab.name}</h3>
-        <p>The original file is never changed. Labels say how faithful each format is.</p>
-        {engineFormats.map((f) => (
-          <div key={`engine-${f.ext}`} className={`export-row ${busy && busy !== f.ext ? "unavailable" : ""}`} role="button" tabIndex={0} onClick={() => !busy && void runEngine(f.ext, f.label)} onKeyDown={(e) => e.key === "Enter" && !busy && void runEngine(f.ext, f.label)}>
-            <span className="fmt">{f.ext}</span>
-            <span className="desc">{f.label}<div className="help">Produced by the Office editor itself, with its full layout.</div></span>
-            {busy === f.ext ? <span className="spinner" style={{ width: 16, height: 16 }} /> : <span className={`q ${f.ext === "txt" || f.ext === "csv" ? "text" : "exact"}`}>{f.ext === "txt" || f.ext === "csv" ? QUALITY_LABEL.text : QUALITY_LABEL.exact}</span>}
-          </div>
-        ))}
-        {routes.map((r) => (
-          <div key={r.to} className={`export-row ${busy && busy !== r.to ? "unavailable" : ""}`} role="button" tabIndex={0} onClick={() => !busy && void run(r)} onKeyDown={(e) => e.key === "Enter" && !busy && void run(r)}>
-            <span className="fmt">{r.to}</span>
-            <span className="desc">
-              {FORMAT_LABEL[r.to] ?? r.to.toUpperCase()}
-              {getRegistry().lossNote(r) && <div className="help">{getRegistry().lossNote(r)}</div>}
-            </span>
-            {busy === r.to ? <span className="spinner" style={{ width: 16, height: 16 }} /> : <span className={`q ${r.quality}`}>{QUALITY_LABEL[r.quality]}</span>}
-          </div>
-        ))}
-        {printable && (
-          <div className="export-row" role="button" tabIndex={0} onClick={() => { closeDialog(); void import("./print").then((m) => m.printActive()); }}>
-            <span className="fmt">PDF</span>
-            <span className="desc">Print or save as PDF<div className="help">Opens the print dialog; choose "Microsoft Print to PDF" to save a file.</div></span>
-            <span className="q good">Good</span>
-          </div>
-        )}
-        {!routes.length && !printable && <p>No export formats are available for this kind of file yet.</p>}
-        <div className="help" style={{ marginTop: 12 }}>Word, Excel and PowerPoint as targets, and Markdown ↔ Word, arrive with the conversion pack in a later release.</div>
-        <div className="acts"><button className="btn" onClick={closeDialog}>Cancel</button></div>
+      <div className="dialog export-dialog" role="dialog" aria-label="Export">
+        <h3>Export</h3>
+        <p className="dialog-sub">
+          <span className="file-chip">{tab.name}</span> stays as it is; a new file is written.
+        </p>
+        <div className="export-list">
+          {engineFormats.map((f) =>
+            row(f.ext, f.ext, f.label, "Full layout, made by the Office editor", f.ext === "txt" || f.ext === "csv" ? "text" : "exact", () => void runEngine(f.ext, f.label)),
+          )}
+          {routes.map((r) => row(r.to, r.to, FORMAT_LABEL[r.to] ?? r.to.toUpperCase(), getRegistry().lossNote(r), r.quality, () => void run(r)))}
+          {printable &&
+            row("print", "print", "Print…", platform.folders ? "Or save as PDF with \u201cMicrosoft Print to PDF\u201d" : "Or save as PDF from the print dialog", "good", () => {
+              closeDialog();
+              void import("./print").then((m) => m.printActive());
+            })}
+        </div>
+        {!routes.length && !printable && !engineFormats.length && <p>No export formats are available for this kind of file yet.</p>}
+        <div className="dialog-foot">
+          <span className="help">Labels show how much of the document each format keeps.</span>
+          <button className="btn" onClick={closeDialog}>Cancel</button>
+        </div>
       </div>
     </Overlay>
   );

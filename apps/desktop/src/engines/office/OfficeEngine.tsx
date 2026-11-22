@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Info, ExternalLink, Share, ZoomIn, ZoomOut } from "lucide-react";
+import { Info, ExternalLink, ZoomIn, ZoomOut } from "lucide-react";
 import type { EngineHost } from "../../app/editor-api";
 import { readXlsx, readPptx, colName, type SheetData, type SlideText } from "./ooxml";
 import { platform } from "../../platform";
 import { OfficeEditor } from "./OfficeEditor";
-import { setState } from "../../app/store";
 
 const MAX_ROWS = 5000;
 
@@ -12,9 +11,10 @@ function Notice({ host }: { host: EngineHost }) {
   return (
     <div className="banner">
       <Info />
-      <span className="msg">Read-only preview. Full Word, Excel and PowerPoint editing needs the Office pack, which comes with the installer.</span>
-      {host.path && <button className="btn" onClick={() => void platform.openExternal(host.path!)}><ExternalLink size={14} /> Open in default app</button>}
-      <button className="btn" onClick={() => setState({ dialog: { kind: "export" } })}><Share size={14} /> Export</button>
+      <span className="msg">
+        <strong>Read-only preview.</strong> {platform.folders ? "Editing Word, Excel and PowerPoint files comes with the full installer." : "Editing Office files is not available on this device yet."}
+      </span>
+      {host.path && platform.folders && <button className="btn sm" onClick={() => void platform.openExternal(host.path!)}><ExternalLink /> Open in default app</button>}
     </div>
   );
 }

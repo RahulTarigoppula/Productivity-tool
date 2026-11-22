@@ -65,7 +65,7 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
   console.log("Flows:");
 
   await check("F-02", "home screen shows new-file tiles", async () => {
-    assert(await page.getByText("Markdown note").first().isVisible(), "tile missing");
+    assert(await page.locator(".create-card", { hasText: "Note" }).first().isVisible(), "tile missing");
   });
 
   await check("F-03", "new Markdown note, type, first save asks for a location", async () => {

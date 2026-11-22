@@ -80,7 +80,7 @@ export class ConversionRegistry {
   }
 
   lossNote(route: Route): string | null {
-    const notes = route.steps.map((s) => s.loses).filter(Boolean);
-    return notes.length ? notes.join(" ") : null;
+    // The first lossy step decides what survives; later notes would only repeat or contradict it.
+    return route.steps.map((s) => s.loses).find(Boolean) ?? null;
   }
 }

@@ -77,7 +77,7 @@ const frameBox = async () => page.locator("section.doc-pane:not([hidden]) .offic
   await check("O-5", "export a Word file to PDF through the editor", async () => {
     await page.evaluate(() => window.__fs.queueSave("/work/report.pdf"));
     await page.keyboard.press("Control+e");
-    await page.locator(".export-row", { hasText: "Produced by the Office editor" }).first().click();
+    await page.locator(".export-row", { hasText: "made by the Office editor" }).first().click();
     await waitFor(async () => !!(await fsRead("/work/report.pdf")), 30000, "PDF written");
     assert(Buffer.from((await fsRead("/work/report.pdf")).slice(0, 5)).toString() === "%PDF-", "not a PDF");
   });

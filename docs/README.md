@@ -1,6 +1,6 @@
 # All-in-one productivity tool — plans and research
 
-Last updated: 2026-11-22 · Stage: **v0.1 of the Windows app is built** — see [apps/desktop](../apps/desktop/README.md)
+Last updated: 2026-11-22 · Stage: **v0.1 of the Windows app is built; the Android app has started** — see [apps/desktop](../apps/desktop/README.md)
 
 One local, single-window, multi-tab app for personal use that opens, creates, edits, connects, converts and saves office documents, spreadsheets, presentations, PDFs, Markdown, and any text or code file — on Windows first, then Android, then Mac and iPhone/iPad.
 
@@ -54,7 +54,11 @@ One local, single-window, multi-tab app for personal use that opens, creates, ed
 | W3 Office editing | Done: Word, Excel and PowerPoint edit offline in the embedded Euro-Office editors ([decision 0002](decisions/0002-office-engine.md)) |
 | W4 Connected | Partly: palette, folder search, links between files, export with quality labels, version history |
 | W5 Light workbench | Not started |
-| W6 Hardening | Started: installer, CI, self-test, 33 end-to-end flows |
+| W6 Hardening | Started: installer, CI, self-test, 35 end-to-end and 9 Office flows, two security reviews |
+
+| Release 2 (Android) | Status |
+|---|---|
+| A1 Same app on Android | Started: text, code, Markdown, CSV, PDF; Office as previews; system document picker with persistent access; Open with; APK built in CI ([decision 0003](decisions/0003-android.md)) |
 
 Decisions made while building are in [decisions/](decisions/).
 
@@ -63,4 +67,4 @@ Decisions made while building are in [decisions/](decisions/).
 1. The first questions in `plans/05-risks-and-open-questions.md` are answered; the remaining ones can wait for their phases.
 2. Try ONLYOFFICE Desktop Editors for a few days and note what still feels wrong.
 3. Install v0.1 on your PC and use it for a few days; note what feels wrong.
-4. Phase 2: Android (`plans/12-platforms-and-mobile.md`).
+4. Install the Android APK from the latest "Android build" run and try opening, editing and saving files from Downloads and Google Drive.

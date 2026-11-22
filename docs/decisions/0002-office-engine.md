@@ -20,19 +20,32 @@ Spike S1 from `plans/03-roadmap.md` asked whether the ONLYOFFICE client-side sta
 
 - **The Office pack** is built by `apps/desktop/scripts/build-office-pack.mjs` from pinned, integrity-checked sources and pruned: no website pages, other languages, phone interfaces, Visio or PDF editors, Internet Explorer fallbacks or source maps, and a "core" font set (Latin, Greek, Cyrillic, symbols; 41 MB instead of 185 MB). Fonts for other scripts are replaced by DejaVu Sans when a document asks for them. The pack is 233 MB on disk.
 - **The installer includes it** (59 MB download with everything). The portable exe does not, and shows Office files as read-only previews; a pack folder named `office` next to the portable exe also works.
-- **A custom `office` protocol** in the Rust core serves the pack on its own origin (`http://office.localhost` on Windows). It refuses paths that leave the pack, sets a strict content security policy on every response (only the app may embed the editors; no network), serves the fallback font for dropped fonts, and injects the bridge script into the editor pages.
+- **A custom `office` protocol** in the Rust core serves the pack, giving **every editor tab an origin of its own** (`office://<tab>.localhost`; `http://office.<tab>.localhost` on Windows and Android). It refuses paths that leave the pack, sets a strict content security policy on every response (only the app may embed the editors; no network), serves the fallback font for dropped fonts, and injects the bridge script into the editor pages.
 - **The bridge** (in `src-tauri/src/office.rs`) forwards app shortcuts typed inside the editor (Ctrl+K, Ctrl+W, Ctrl+Tab and others) to the app, reports document changes and load completion, resets the editor's modified state after the app saves, follows the app's light or dark theme, hides the editors' feature-tip pop-ups, and turns off the service worker.
 - **The app side** (`src/engines/office/OfficeEditor.tsx`) sends the file's bytes to the editor, asks for bytes back on save, and keeps the app's save pipeline (atomic writes, version snapshots, recovery) in charge. Ctrl+S inside the editor saves through the same pipeline. Recovery copies are throttled to one conversion every 20 seconds.
 
 ## Security
 
-- The editors run on a different origin from the app. The self-test checks from inside the editor frame that it cannot call any app command; on Linux the app's IPC object does not even exist there.
+A separate security review of the integration (2026-11-22) found that all editor tabs shared one origin, so a script in one document's editor could reach another tab's editor and save over that file. Fixed, with the other findings:
+
+| Finding | Fix |
+|---|---|
+| Editor tabs could reach each other (high) | One random origin per tab; checked by the self-test and end-to-end flow O-9 |
+| Background editor could trigger app shortcuts | Accepted only from the visible tab, only the keys the bridge forwards, at most 8 a second |
+| Editor frame treated as the app's own origin by Tauri; IPC object injected into frames on Windows | Per-tab hosts are not "local" to Tauri; every app command also refuses requests whose Origin is an editor page; the editors' policy blocks the IPC endpoint; the self-test reports a hung IPC call separately |
+| Document macros could run code after one prompt | Macros and plugins disabled in the pack's editor configuration at build time (the build fails if the patch does not apply) |
+| Editor could navigate the window or open pop-ups | Sandboxed iframe without top navigation or pop-ups; the window's navigation filter stays |
+| Hostile file sizes | Files from the editor capped at 512 MB; the document is sent once |
+| Dev origin and pack location from an environment variable in release builds | Debug builds only |
+
 - Messages are accepted only from the app's own origin (the editors' `embedOrigin` setting, and checks on both sides).
 - No document can make the editors load anything from the network: the pack's policy allows only its own files.
+- Path traversal into or out of the pack was tested with encoded, doubled and Windows-style paths: all refused.
+- Remaining: the pack's sources are pinned and integrity-checked at build time, but the pack is not re-verified when it is loaded; the npm packages come from a single maintainer's unofficial build.
 
 ## Verification
 
-- Browser end-to-end tests (`tests/e2e/office.mjs`, 7 flows): open each format in the editor; edit, unsaved state, Ctrl+S inside the editor saving through the app, and a second edit-and-save; Ctrl+K inside the editor opening the app's palette; export to PDF; closing an unsaved Office tab asks first.
+- Browser end-to-end tests (`tests/e2e/office.mjs`, 9 flows): open each format in the editor; edit, unsaved state, Ctrl+S inside the editor saving through the app, and a second edit-and-save; Ctrl+K inside the editor opening the app's palette; export to PDF; closing an unsaved Office tab asks first; a new Word document; isolation between tabs and refusal of forged shortcuts.
 - The real app's self-test opens each Office file in the editor, saves it, and runs the isolation probe. CI runs it on Windows.
 
 ## Known limits

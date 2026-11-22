@@ -1,4 +1,4 @@
-# Productivity — Windows desktop app (v0.1)
+# Productivity — Windows desktop app (v0.1) and Android app (first build)
 
 One calm, local app for every kind of file. This is Release 1 (Windows) from `docs/plans/03-roadmap.md`: phases **W1** (shell, text and code, CSV), **W2** (PDF) and **W3** (Word, Excel and PowerPoint editing), and parts of **W4** (search, links, export, version history).
 
@@ -12,6 +12,10 @@ Download from the repository's **Releases** page (or the **Actions → Windows b
 | `Productivity_0.1.0_x64-portable.exe` (about 8 MB) | No install. A single exe you can run from anywhere; needs the WebView2 runtime, which Windows 11 includes. Word, Excel and PowerPoint open as read-only previews (the Office editors come with the installer). Settings and version history are kept in `%APPDATA%\com.rahul.productivity`. |
 
 The installer is not code-signed, so Windows SmartScreen shows "Windows protected your PC" the first time. Choose **More info → Run anyway**.
+
+### Android (first build)
+
+Download `Productivity_0.1.0_android.apk` from **Actions → Android build → productivity-android** on your phone, open it and allow installs from that source when asked. Text, code, Markdown, CSV and PDF are editable; Word, Excel and PowerPoint open as previews. Files come from Android's own document picker (Downloads, Drive and other storage apps) and stay accessible from Recent after a restart; "Open with" and "Share" from other apps work. Details and gaps: [decision 0003](../../docs/decisions/0003-android.md).
 
 ## What works
 
@@ -84,6 +88,7 @@ Documents are untrusted: you may open a file someone sent you. v0.1 was audited 
 - **No code from documents.** A strict content security policy forbids scripts other than the app's own. Rendered Markdown and Word previews are sanitised: no scripts, forms, styles, frames or event handlers. Embedded HTML inside Word files is not rendered. PDF.js runs without scripting or `eval`.
 - **The window cannot be taken over.** The app window only ever shows the app itself; links and forms in documents cannot navigate it. Web links open in your browser.
 - **"Open in default app" never runs programs.** Executables, scripts, shortcuts and installers (`.exe`, `.bat`, `.ps1`, `.lnk`, `.url`, `.hta`, `.msi` and similar) are refused, as are files on network shares.
+- **Office documents are isolated.** The Word, Excel and PowerPoint editors run on origins separate from the app and from each other (one per tab), cannot call the app's commands, cannot navigate the window or open pop-ups, and run no macros or plugins. Shortcuts typed inside an editor reach the app only from the visible tab.
 - **Hostile files cannot hang or exhaust the app.** Markdown is rendered in a background worker with a time limit; pathologically nested Markdown is shown as plain text; Office previews cap unpacked size, rows, columns and cells.
 - **Build pipeline.** GitHub Actions runs read-only by default, every third-party action is pinned to an exact commit, and each build publishes SHA-256 checksums of the downloads.
 

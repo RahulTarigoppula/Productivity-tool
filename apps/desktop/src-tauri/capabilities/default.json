@@ -12,6 +12,7 @@
     "core:window:allow-set-fullscreen",
     "core:window:allow-is-fullscreen",
     "dialog:default",
-    "core:app:allow-exit"
+    "core:app:allow-exit",
+    "core:window:allow-set-theme"
   ]
 }

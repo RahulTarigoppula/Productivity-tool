@@ -201,6 +201,7 @@ export function createTauriPlatform(): Platform {
     openExternal: (target) => invoke("open_external", { target }),
     setTitle: (title) => win.setTitle(title),
     setFullscreen: (on) => win.setFullscreen(on),
+    setWindowTheme: (theme) => win.setTheme(theme).catch(() => {}),
     onCloseRequested(cb) {
       let un: (() => void) | null = null;
       win

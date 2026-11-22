@@ -4,6 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Productivity</title>
+    <!-- Paint the right background before the app loads (no white flash in dark mode). -->
+    <style>
+      html { background: #f4f4f6; }
+      @media (prefers-color-scheme: dark) { html { background: #18181c; } }
+    </style>
   </head>
   <body>
     <div id="root"></div>

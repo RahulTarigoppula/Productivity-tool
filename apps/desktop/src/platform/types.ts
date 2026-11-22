@@ -93,6 +93,8 @@ export interface Platform {
   openExternal(target: string): Promise<void>;
   setTitle(title: string): Promise<void>;
   setFullscreen(on: boolean): Promise<void>;
+  /** Title bar and window chrome theme; null follows the system. */
+  setWindowTheme(theme: "light" | "dark" | null): Promise<void>;
   /** Called before the window closes; the app finishes saving recovery data, then the window closes. */
   onCloseRequested(cb: () => Promise<void>): () => void;
 }

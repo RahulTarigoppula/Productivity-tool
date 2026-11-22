@@ -29,7 +29,12 @@ function useTheme() {
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
     document.documentElement.dataset.density = density;
+    document.documentElement.style.background = dark ? "#18181c" : "#f4f4f6";
   }, [dark, density]);
+  // The Windows title bar follows the app's theme.
+  useEffect(() => {
+    void platform.setWindowTheme(theme === "system" ? null : theme);
+  }, [theme]);
 }
 
 export function App() {

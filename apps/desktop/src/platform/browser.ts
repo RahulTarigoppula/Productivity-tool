@@ -181,6 +181,7 @@ export function createBrowserPlatform(): Platform {
     async setTitle(title) {
       document.title = title;
     },
+    setWindowTheme: async () => {},
     async setFullscreen(on) {
       if (on) await document.documentElement.requestFullscreen?.().catch(() => {});
       else if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});

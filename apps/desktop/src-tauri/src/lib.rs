@@ -431,7 +431,18 @@ pub fn run() {
             std::thread::spawn(move || responder.respond(office::handle(&app, &request)));
         })
         .setup(|app| {
+            // The saved theme decides the window's first paint and (on Windows) the title bar.
+            let data_dir_early = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir().join("productivity"));
+            let saved_theme = Store::new(data_dir_early)
+                .state_get("settings")
+                .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+                .and_then(|v| v.get("theme").and_then(|t| t.as_str()).map(|t| t.to_string()));
             let window = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()));
+            let window = match saved_theme.as_deref() {
+                Some("dark") => window.theme(Some(tauri::Theme::Dark)).background_color(tauri::webview::Color(0x18, 0x18, 0x1c, 0xff)),
+                Some("light") => window.theme(Some(tauri::Theme::Light)).background_color(tauri::webview::Color(0xf4, 0xf4, 0xf6, 0xff)),
+                _ => window,
+            };
             #[cfg(desktop)]
             let window = window.title("Productivity").inner_size(1280.0, 820.0).min_inner_size(360.0, 480.0).center();
             window

@@ -410,6 +410,8 @@ async function saveTabNow(id: string, opts: { as?: boolean; explicit?: boolean }
     }
     void addRecent(path, newKind);
     updateTitle();
+    // An earlier "Could not save" message for this file is out of date now.
+    setState((s) => ({ toasts: s.toasts.filter((x) => !x.text.startsWith(`Could not save ${tab.name}:`)) }));
     return true;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

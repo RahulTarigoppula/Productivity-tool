@@ -61,7 +61,7 @@ export function Toolbar() {
         </button>
       )}
       <button className="icon-btn" title="Export (Ctrl+E)" onClick={() => setState({ dialog: { kind: "export" } })}>
-        <Share /> <span>Export</span>
+        <Share /> <span className="export-label">Export</span>
       </button>
     </div>
   );

@@ -156,6 +156,8 @@ export function Palette() {
       <Cmdk.Empty>Open a folder to search inside its files.</Cmdk.Empty>
     ) : term.length < 2 ? (
       <Cmdk.Empty>Type at least two letters to search inside the files of {basename(workspace)}.</Cmdk.Empty>
+    ) : byFile.size === 0 ? (
+      <Cmdk.Empty>Nothing found in {basename(workspace)} yet. Keep typing, or check the spelling.</Cmdk.Empty>
     ) : (
       [...byFile.entries()].slice(0, 40).map(([path, hs]) => (
         <Cmdk.Group key={path} heading={basename(path)}>
@@ -266,7 +268,8 @@ export function Palette() {
       <Cmdk className="palette" shouldFilter={false} loop label="Search files and commands" onKeyDown={(e) => e.key === "Escape" && close()}>
         <Cmdk.Input autoFocus value={q} onValueChange={setQ} placeholder="Search files and commands" />
         <Cmdk.List>
-          <Cmdk.Empty>No matches.</Cmdk.Empty>
+          {/* Folder search has its own messages. */}
+          {mode !== "#" && <Cmdk.Empty>No matches.</Cmdk.Empty>}
           {body}
         </Cmdk.List>
         <div className="foot">

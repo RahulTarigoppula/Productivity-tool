@@ -475,3 +475,21 @@ a { color: var(--accent); }
   .menu .sc { display: none; }
   .toolbar[role="toolbar"] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); padding-right: 24px; }
 }
+
+/* Toast close button */
+.toast .toast-close { text-decoration: none; font-size: 16px; line-height: 1; opacity: 0.75; padding: 0 2px; margin-left: -4px; }
+.toast .toast-close:hover { opacity: 1; }
+
+/* Toolbar items never squeeze into each other; on narrow screens Export shows its icon only. */
+.toolbar > * { flex: none; }
+@media (max-width: 599px) { .toolbar .export-label { display: none; } }
+
+/* CSV: the selected row's number stays readable over scrolled cells. */
+.csv-num.sel { background: color-mix(in srgb, var(--accent) 16%, var(--chrome)); }
+
+/* Dialog actions stay in reach on short windows and phones. */
+.dialog .acts, .dialog .dialog-foot { position: sticky; bottom: -18px; background: var(--surface); padding-top: 10px; padding-bottom: 4px; margin-bottom: -4px; }
+
+/* Task boxes in previews, exports and print */
+.task-box { font-size: 1.05em; color: var(--text-3); }
+.task-box.done { color: var(--accent); }

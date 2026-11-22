@@ -43,7 +43,10 @@ function Banner({ tab }: { tab: Tab }) {
             onClick={() =>
               void platform
                 .readFile(tab.path!)
-                .then((b) => openBytes(`${tab.name} (on disk)`, b, { kind: tab.kind, notice: { text: "The version on disk, for comparing. Close it when done.", tone: "info" } }))
+                .then((b) => {
+                  const id = openBytes(`${tab.name} (on disk)`, b, { kind: tab.kind, notice: { text: "The version on disk, for comparing. Close it when done.", tone: "info" } });
+                  updateTab(id, { readonly: true, saveState: "readonly" });
+                })
                 .catch((e) => toast(String(e), "error"))
             }
           >

@@ -21,10 +21,13 @@ export function TabBar() {
     setEdges((e) => (e.left === left && e.right === right ? e : { left, right }));
   };
   useEffect(() => {
-    const el = tabsRef.current?.querySelector<HTMLElement>(".tab.active");
-    el?.scrollIntoView({ block: "nearest", inline: "nearest" });
-    updateEdges();
-  }, [activeId, tabs.length]);
+    // After layout (a reopened tab moves into place first).
+    const raf = requestAnimationFrame(() => {
+      tabsRef.current?.querySelector<HTMLElement>(".tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      updateEdges();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [activeId, tabs]);
   useEffect(() => {
     const el = tabsRef.current;
     if (!el) return;
@@ -91,8 +94,9 @@ export function TabBar() {
               e.preventDefault();
               openMenu(e.clientX, e.clientY, [
                 { label: "Close", run: () => void closeTab(t.id) },
-                { label: "Close others", run: async () => { for (const o of tabs) if (o.id !== t.id) await closeTab(o.id); } },
-                { label: "Close tabs to the right", run: async () => { for (const o of tabs.slice(i + 1)) await closeTab(o.id); } },
+                // Cancel on any "Save changes?" question stops closing the rest.
+                { label: "Close others", run: async () => { for (const o of tabs) if (o.id !== t.id && !(await closeTab(o.id))) break; } },
+                { label: "Close tabs to the right", run: async () => { for (const o of tabs.slice(i + 1)) if (!(await closeTab(o.id))) break; } },
               ]);
             }}
           >

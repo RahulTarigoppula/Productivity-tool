@@ -272,6 +272,7 @@ export function Toasts() {
         <div key={t.id} className={`toast ${t.tone}`}>
           <span>{t.text}</span>
           {t.action && <button onClick={() => { setState((s) => ({ toasts: s.toasts.filter((x) => x.id !== t.id) })); t.action!.run(); }}>{t.action.label}</button>}
+          <button className="toast-close" aria-label="Dismiss" onClick={() => setState((s) => ({ toasts: s.toasts.filter((x) => x.id !== t.id) }))}>×</button>
         </div>
       ))}
     </div>

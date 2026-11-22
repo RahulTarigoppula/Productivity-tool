@@ -81,12 +81,15 @@ export function toggleLinePrefix(view: EditorView, prefix: string): boolean {
 export function insertLink(view: EditorView, url = ""): boolean {
   const { state } = view;
   const tr = state.changeByRange((range) => {
-    const text = state.sliceDoc(range.from, range.to) || (url ? url.split(/[\\/]/).pop() ?? "link" : "link text");
+    const selected = state.sliceDoc(range.from, range.to);
+    const text = selected || (url ? url.split(/[\\/]/).pop() ?? "link" : "link text");
     const insert = `[${text}](${url})`;
     const urlStart = range.from + text.length + 3;
     return {
       changes: { from: range.from, to: range.to, insert },
-      range: url ? EditorSelection.cursor(range.from + insert.length) : EditorSelection.cursor(urlStart),
+      // With a URL: after the link. With selected text: in the URL slot. Otherwise the placeholder
+      // text is selected, so typing replaces it.
+      range: url ? EditorSelection.cursor(range.from + insert.length) : selected ? EditorSelection.cursor(urlStart) : EditorSelection.range(range.from + 1, range.from + 1 + text.length),
     };
   });
   view.dispatch(state.update(tr, { scrollIntoView: true, userEvent: "input" }));

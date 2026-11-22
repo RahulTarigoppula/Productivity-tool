@@ -16,13 +16,14 @@ const norm = (s: Sel) => ({ r1: Math.min(s.r, s.r2), r2: Math.max(s.r, s.r2), c1
 function measure(rows: CsvRow[], cols: number, header: boolean): number[] {
   const ctx = document.createElement("canvas").getContext("2d")!;
   ctx.font = "13px Segoe UI, system-ui, sans-serif";
-  const w = Array.from({ length: cols }, () => 60);
+  const w: number[] = Array.from({ length: cols }, (_, c) => (c < 300 ? 60 : 100));
   // Measure a sample: the first rows, and at most the first 300 columns (very wide tables keep
   // a default width for the rest, so opening them stays quick).
   const sample = rows.slice(0, cols > 300 ? 40 : 300);
   const mc = Math.min(cols, 300);
   for (const r of sample) for (let c = 0; c < mc; c++) w[c] = Math.max(w[c], Math.min(320, ctx.measureText(r.cells[c] ?? "").width + 22));
-  if (header && rows[0]) for (let c = 0; c < mc; c++) w[c] = Math.max(w[c], Math.min(320, ctx.measureText(rows[0].cells[c] ?? "").width + 30));
+  // Every header is measured, so even far columns show their names.
+  if (header && rows[0]) for (let c = 0; c < cols; c++) w[c] = Math.max(w[c], Math.min(320, ctx.measureText(rows[0].cells[c] ?? "").width + 30));
   return w;
 }
 
@@ -398,7 +399,8 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
       goTo: (loc) => {
         const n = Math.max(1, parseInt(loc, 10) || 1) - 1;
         const r = Math.min(viewRef.current.length - 1, n);
-        setSel({ r, c: 0, r2: r, c2: 0 });
+        // Same column, new row.
+        setSel((s0) => ({ r, c: s0.c, r2: r, c2: s0.c }));
         setTimeout(() => {
           if (scrollRef.current) scrollRef.current.scrollTop = Math.max(0, r * ROW_H - 100);
           scrollRef.current?.focus();
@@ -409,6 +411,15 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
     });
   }, [host, header, view.length]);
   const lastSaved = useRef<CsvRow[] | null>(null);
+
+  // A table that opens as the visible tab takes the keyboard straight away (new tables included).
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (el && el.offsetParent !== null && (document.activeElement === document.body || !document.activeElement)) el.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   useEffect(() => {
     const el = scrollRef.current;

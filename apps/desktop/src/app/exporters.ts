@@ -76,7 +76,7 @@ export async function markdownToHtml(md: string, timeoutMs = 4000): Promise<stri
       // (for example to draw a fake dialog over the window).
       const cls = node.getAttribute?.("class");
       if (cls !== null && cls !== undefined) {
-        const keep = cls.split(/\s+/).filter((c) => /^(language|lang|hljs)-[\w-]+$/.test(c)).join(" ");
+        const keep = cls.split(/\s+/).filter((c) => /^(language|lang|hljs)-[\w-]+$/.test(c) || c === "task-box" || c === "done").join(" ");
         if (keep) node.setAttribute("class", keep);
         else node.removeAttribute("class");
       }
@@ -223,7 +223,7 @@ export function buildRegistry(): ConversionRegistry {
     const div = document.createElement("div");
     div.innerHTML = html;
     return one(await textToPdf((div.innerText || div.textContent || "").replace(/\n{3,}/g, "\n\n").trim() + "\n", stem(name)));
-  }, "Plain text only. For a formatted PDF, use Print and save as PDF."));
+  }, "Plain text only: headings, bold and links are not formatted."));
   r.register(c("txt", "html", "exact", async ({ bytes, name }) => one(enc(htmlDocument(stem(name), `<pre>${escHtml(textOf(bytes))}</pre>`)))));
   // Tables
   const table = (b: Uint8Array, ext: string) => toTable(loadCsv(b, ext));

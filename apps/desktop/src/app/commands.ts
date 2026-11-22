@@ -21,6 +21,7 @@ const withTab = (f: (id: string) => void) => () => {
 export function toggleFocusMode() {
   const on = !getState().focusMode;
   setState({ focusMode: on });
+  if (on) toast(window.matchMedia("(hover: none)").matches ? "Focus mode. Use the back gesture to leave." : "Focus mode. Press F11 or Esc to leave.");
   void platform.setFullscreen(on);
 }
 
@@ -31,6 +32,8 @@ export function openPalette(query = "") {
 export function shellCommands(): Command[] {
   const tab = activeTab();
   const s = getState();
+  // The theme on screen (System follows Windows).
+  const shownDark = s.settings.theme === "dark" || (s.settings.theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const cmds: Command[] = [
     { id: "file.newMarkdown", title: "New Markdown note", group: "File", shortcut: "Ctrl+N", run: () => void newFile("markdown") },
     { id: "file.newText", title: "New text file", group: "File", run: () => void newFile("text") },
@@ -51,7 +54,7 @@ export function shellCommands(): Command[] {
     { id: "view.outline", title: "Show outline", group: "View", run: () => setState({ leftOpen: true, leftView: "outline" }) },
     { id: "view.search", title: "Search in folder", group: "View", shortcut: "Ctrl+Shift+F", run: () => setState({ leftOpen: true, leftView: "search" }) },
     { id: "view.focus", title: "Toggle focus mode", group: "View", shortcut: "F11", run: toggleFocusMode },
-    { id: "view.theme", title: `Switch to ${s.settings.theme === "dark" ? "light" : "dark"} theme`, group: "View", run: () => void updateSettings({ theme: s.settings.theme === "dark" ? "light" : "dark" }) },
+    { id: "view.theme", title: `Switch to ${shownDark ? "light" : "dark"} theme`, group: "View", run: () => void updateSettings({ theme: shownDark ? "light" : "dark" }) },
     { id: "view.themeSystem", title: "Use system theme", group: "View", run: () => void updateSettings({ theme: "system" }) },
     { id: "view.density", title: `Use ${s.settings.density === "compact" ? "comfortable" : "compact"} density`, group: "View", run: () => void updateSettings({ density: s.settings.density === "compact" ? "comfortable" : "compact" }) },
     { id: "app.settings", title: "Settings", group: "App", shortcut: "Ctrl+,", run: () => setState({ dialog: { kind: "settings" } }) },

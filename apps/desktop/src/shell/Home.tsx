@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { NotebookText, FileText, Sheet, FolderOpen, FileSearch, Pin, PinOff, X } from "lucide-react";
+import { useEffect } from "react";
+import { NotebookText, FileText, Sheet, FolderOpen, FileSearch, Pin, PinOff, X, FileType, FileSpreadsheet, Presentation } from "lucide-react";
+import { platform } from "../platform";
 import { useStore } from "../app/store";
-import { newFile, pickAndOpen, openFolder, openPath, togglePin, removeRecent } from "../app/actions";
+import { newFile, newOfficeFile, pickAndOpen, openFolder, openPath, togglePin, removeRecent } from "../app/actions";
 import { basename, dirname, samePath } from "../lib/paths";
 import { rank } from "../lib/fuzzy";
 import { KindIcon } from "./icons";
@@ -20,6 +22,10 @@ export function Home() {
   const recent = useStore((s) => s.recent);
   const pinned = useStore((s) => s.pinned);
   const [q, setQ] = useState("");
+  const [office, setOffice] = useState(false);
+  useEffect(() => {
+    void platform.officePack().then((p) => setOffice(p.available)).catch(() => setOffice(false));
+  }, []);
   const isPinned = (p: string) => pinned.some((x) => samePath(x, p));
   const items = q ? rank(recent, q, (r) => basename(r.path), undefined, 30).map((r) => r.item) : recent.filter((r) => !isPinned(r.path)).slice(0, 14);
   const pinnedItems = q ? [] : pinned.map((p) => recent.find((r) => samePath(r.path, p)) ?? { path: p, kind: "text" as const, opened: 0 });
@@ -78,6 +84,25 @@ export function Home() {
             <span className="t">CSV table</span>
             <span className="d">Rows and columns</span>
           </button>
+          {office && (
+            <>
+              <button className="tile" onClick={() => void newOfficeFile("docx")}>
+                <FileType style={{ color: "var(--k-docx)" }} />
+                <span className="t">Word document</span>
+                <span className="d">Pages and styles</span>
+              </button>
+              <button className="tile" onClick={() => void newOfficeFile("xlsx")}>
+                <FileSpreadsheet style={{ color: "var(--k-xlsx)" }} />
+                <span className="t">Spreadsheet</span>
+                <span className="d">Formulas and charts</span>
+              </button>
+              <button className="tile" onClick={() => void newOfficeFile("pptx")}>
+                <Presentation style={{ color: "var(--k-pptx)" }} />
+                <span className="t">Presentation</span>
+                <span className="d">Slides</span>
+              </button>
+            </>
+          )}
           <button className="tile" onClick={() => void pickAndOpen()}>
             <FileSearch style={{ color: "var(--accent)" }} />
             <span className="t">Open file</span>

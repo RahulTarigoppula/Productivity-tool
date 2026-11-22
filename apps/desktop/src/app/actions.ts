@@ -176,6 +176,23 @@ export function newFile(kind: Kind = "markdown", content?: string) {
   return openBytes(name, new TextEncoder().encode(content ?? TEMPLATES[kind] ?? ""), { kind });
 }
 
+const OFFICE_TEMPLATES = {
+  docx: () => import("../assets/templates/blank.docx?url"),
+  xlsx: () => import("../assets/templates/blank.xlsx?url"),
+  pptx: () => import("../assets/templates/blank.pptx?url"),
+};
+
+/** New blank Word, Excel or PowerPoint document (opens in the Office editor). */
+export async function newOfficeFile(kind: "docx" | "xlsx" | "pptx") {
+  const url = (await OFFICE_TEMPLATES[kind]()).default;
+  const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+  const base = { docx: "Document", xlsx: "Workbook", pptx: "Presentation" }[kind];
+  const used = new Set(getState().tabs.map((t) => t.name));
+  let name = `${base}.${kind}`;
+  for (let i = 2; used.has(name); i++) name = `${base} ${i}.${kind}`;
+  return openBytes(name, bytes, { kind });
+}
+
 export async function pickAndOpen() {
   const paths = await platform.pickOpen({ multiple: true });
   for (const p of paths) await openPath(p);

@@ -3,6 +3,7 @@ import { Info, ExternalLink, Share, ZoomIn, ZoomOut } from "lucide-react";
 import type { EngineHost } from "../../app/editor-api";
 import { readXlsx, readPptx, colName, type SheetData, type SlideText } from "./ooxml";
 import { platform } from "../../platform";
+import { OfficeEditor } from "./OfficeEditor";
 import { setState } from "../../app/store";
 
 const MAX_ROWS = 5000;
@@ -11,7 +12,7 @@ function Notice({ host }: { host: EngineHost }) {
   return (
     <div className="banner">
       <Info />
-      <span className="msg">Read-only preview. Full Word, Excel and PowerPoint editing arrives with the Office engine in the next release.</span>
+      <span className="msg">Read-only preview. Full Word, Excel and PowerPoint editing needs the Office pack, which comes with the installer.</span>
       {host.path && <button className="btn" onClick={() => void platform.openExternal(host.path!)}><ExternalLink size={14} /> Open in default app</button>}
       <button className="btn" onClick={() => setState({ dialog: { kind: "export" } })}><Share size={14} /> Export</button>
     </div>
@@ -130,7 +131,7 @@ function PptxView({ slides }: { slides: SlideText[] }) {
   );
 }
 
-export default function OfficeEngine({ host }: { host: EngineHost }) {
+function OfficePreview({ host }: { host: EngineHost }) {
   const [sheets, setSheets] = useState<SheetData[] | null>(null);
   const [slides, setSlides] = useState<SlideText[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -187,4 +188,32 @@ export default function OfficeEngine({ host }: { host: EngineHost }) {
       </div>
     </div>
   );
+}
+
+/** Office files open in the full editor when the Office pack is installed, otherwise as a preview. */
+export default function OfficeEngine({ host }: { host: EngineHost }) {
+  const [mode, setMode] = useState<"checking" | "editor" | "preview">("checking");
+  const [failure, setFailure] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    platform
+      .officePack()
+      .then((p) => live && setMode(p.available ? "editor" : "preview"))
+      .catch(() => live && setMode("preview"));
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (mode === "checking") return <div className="center-note"><div className="spinner" /></div>;
+  if (mode === "editor" && !failure)
+    return (
+      <OfficeEditor
+        host={host}
+        onFailed={(reason) => {
+          setFailure(reason);
+          host.toast(`The Office editor could not open this file, so it is shown as a preview: ${reason}`, "error");
+        }}
+      />
+    );
+  return <OfficePreview host={host} />;
 }

@@ -7,3 +7,5 @@ apps/desktop/src-tauri/gen/
 test-results/
 playwright-report/
 apps/desktop/public/vendor/
+packs/
+.cache/

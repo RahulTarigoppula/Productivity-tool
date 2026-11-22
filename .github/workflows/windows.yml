@@ -48,8 +48,17 @@ jobs:
         working-directory: apps/desktop/src-tauri
         run: cargo test --release
 
-      - name: Build installer and app
-        run: pnpm tauri build
+      - name: Cache Office pack sources
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: apps/desktop/.cache/office
+          key: office-pack-${{ hashFiles('apps/desktop/scripts/build-office-pack.mjs') }}
+
+      - name: Build the Office pack (pinned, integrity-checked)
+        run: node scripts/build-office-pack.mjs
+
+      - name: Build installer and app (with the Office pack)
+        run: pnpm tauri build --config src-tauri/tauri.office.conf.json
 
       - name: Smoke test the built app on Windows (real WebView2)
         shell: pwsh
@@ -113,11 +122,20 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm build
-      - name: End-to-end flows
+      - name: Cache Office pack sources
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: apps/desktop/.cache/office
+          key: office-pack-${{ hashFiles('apps/desktop/scripts/build-office-pack.mjs') }}
+      - name: Build the Office pack
+        run: node scripts/build-office-pack.mjs
+      - name: End-to-end flows (app and Office editing)
         run: |
-          pnpm preview --port 4173 --strictPort &
+          pnpm preview --port 1420 --strictPort &
+          node tests/office-server.mjs &
           sleep 3
-          pnpm e2e
+          APP_URL=http://localhost:1420/ pnpm e2e
+          pnpm e2e:office
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:

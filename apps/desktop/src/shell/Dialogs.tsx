@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { NotebookText, FileText, Sheet, FileSearch } from "lucide-react";
+import { NotebookText, FileText, Sheet, FileSearch, FileType, FileSpreadsheet, Presentation } from "lucide-react";
 import { useStore, setState, activeTab, handles, toast } from "../app/store";
 import { useAsk } from "../app/dialogs";
-import { updateSettings, newFile, pickAndOpen, suggestExportPath, openPath } from "../app/actions";
+import { updateSettings, newFile, newOfficeFile, pickAndOpen, suggestExportPath, openPath } from "../app/actions";
 import { getRegistry, sourceFormat, FORMAT_LABEL } from "../app/exporters";
 import { QUALITY_LABEL, type Route } from "../lib/convert";
 import { platform } from "../platform";
@@ -97,8 +97,17 @@ function Settings() {
   );
 }
 
+function useOfficeAvailable() {
+  const [ok, setOk] = useState(false);
+  useEffect(() => {
+    void platform.officePack().then((p) => setOk(p.available)).catch(() => setOk(false));
+  }, []);
+  return ok;
+}
+
 function NewFile() {
   const pick = (f: () => void) => { closeDialog(); f(); };
+  const office = useOfficeAvailable();
   return (
     <Overlay onClose={closeDialog}>
       <div className="dialog" role="dialog" aria-label="New file">
@@ -107,9 +116,12 @@ function NewFile() {
           <button className="tile" autoFocus onClick={() => pick(() => newFile("markdown"))}><NotebookText style={{ color: "var(--k-markdown)" }} /><span className="t">Markdown note</span></button>
           <button className="tile" onClick={() => pick(() => newFile("text"))}><FileText style={{ color: "var(--k-text)" }} /><span className="t">Text or code</span></button>
           <button className="tile" onClick={() => pick(() => newFile("csv"))}><Sheet style={{ color: "var(--k-csv)" }} /><span className="t">CSV table</span></button>
+          {office && <button className="tile" onClick={() => pick(() => void newOfficeFile("docx"))}><FileType style={{ color: "var(--k-docx)" }} /><span className="t">Word document</span></button>}
+          {office && <button className="tile" onClick={() => pick(() => void newOfficeFile("xlsx"))}><FileSpreadsheet style={{ color: "var(--k-xlsx)" }} /><span className="t">Spreadsheet</span></button>}
+          {office && <button className="tile" onClick={() => pick(() => void newOfficeFile("pptx"))}><Presentation style={{ color: "var(--k-pptx)" }} /><span className="t">Presentation</span></button>}
           <button className="tile" onClick={() => pick(() => void pickAndOpen())}><FileSearch style={{ color: "var(--accent)" }} /><span className="t">Open file…</span></button>
         </div>
-        <p style={{ marginTop: 14, marginBottom: 0, fontSize: 12 }}>Word, Excel and PowerPoint editing arrives with the Office engine in a later release. Those files already open here as read-only previews.</p>
+        {!office && <p style={{ marginTop: 14, marginBottom: 0, fontSize: 12 }}>Word, Excel and PowerPoint editing comes with the installer (the Office pack). Without it, those files open as read-only previews.</p>}
       </div>
     </Overlay>
   );
@@ -122,7 +134,7 @@ function About() {
         <h3>Productivity 0.1</h3>
         <p>One calm app for every kind of file. Local only: no account, no cloud, no tracking.</p>
         <p style={{ fontSize: 12 }}>
-          This release edits text, code, Markdown and CSV, and views, annotates, signs and reorganises PDFs. Word, Excel and PowerPoint files open as read-only previews; full editing is the next milestone. Open-source components: Tauri, React, CodeMirror, PDF.js, pdf-lib, docx-preview, JSZip, marked, DOMPurify, cmdk, Lucide.
+          Edits text, code, Markdown and CSV; views, annotates, signs and reorganises PDFs; and edits Word, Excel and PowerPoint files with the embedded Euro-Office editors (based on ONLYOFFICE, AGPL-3.0) when the Office pack is installed. Open-source components: Tauri, React, CodeMirror, PDF.js, pdf-lib, Euro-Office / ONLYOFFICE, docx-preview, JSZip, marked, DOMPurify, cmdk, Lucide.
         </p>
         <div className="acts"><button className="btn primary" onClick={closeDialog}>Close</button></div>
       </div>
@@ -133,8 +145,31 @@ function About() {
 function Export() {
   const tab = activeTab();
   const [busy, setBusy] = useState<string | null>(null);
-  const routes = useMemo<Route[]>(() => (tab ? getRegistry().routes(sourceFormat(tab.name, tab.kind)) : []), [tab]);
+  const engineFormats = tab ? handles.get(tab.id)?.exportFormats?.() ?? [] : [];
+  const routes = useMemo<Route[]>(() => {
+    if (!tab) return [];
+    // Formats the open engine produces itself take priority over the shared converters.
+    const own = new Set((handles.get(tab.id)?.exportFormats?.() ?? []).map((f) => f.ext));
+    return getRegistry().routes(sourceFormat(tab.name, tab.kind)).filter((r) => !own.has(r.to));
+  }, [tab]);
   if (!tab) return null;
+  const runEngine = async (ext: string, label: string) => {
+    const handle = handles.get(tab.id);
+    if (!handle?.convert) return;
+    const target = await platform.pickSave({ defaultPath: suggestExportPath(tab, ext), filters: [{ name: label, extensions: [ext] }] });
+    if (!target) return;
+    setBusy(ext);
+    try {
+      const bytes = await handle.convert(ext);
+      await platform.writeFile(target, bytes);
+      closeDialog();
+      toast(`Exported ${basename(target)}`, "info", { label: "Open", run: () => void openPath(target) });
+    } catch (e) {
+      toast(`Export failed: ${e instanceof Error ? e.message : e}`, "error");
+    } finally {
+      setBusy(null);
+    }
+  };
   const run = async (route: Route) => {
     const handle = handles.get(tab.id);
     if (!handle) return;
@@ -168,6 +203,13 @@ function Export() {
       <div className="dialog" role="dialog" aria-label="Export">
         <h3>Export {tab.name}</h3>
         <p>The original file is never changed. Labels say how faithful each format is.</p>
+        {engineFormats.map((f) => (
+          <div key={`engine-${f.ext}`} className={`export-row ${busy && busy !== f.ext ? "unavailable" : ""}`} role="button" tabIndex={0} onClick={() => !busy && void runEngine(f.ext, f.label)} onKeyDown={(e) => e.key === "Enter" && !busy && void runEngine(f.ext, f.label)}>
+            <span className="fmt">{f.ext}</span>
+            <span className="desc">{f.label}<div className="help">Produced by the Office editor itself, with its full layout.</div></span>
+            {busy === f.ext ? <span className="spinner" style={{ width: 16, height: 16 }} /> : <span className={`q ${f.ext === "txt" || f.ext === "csv" ? "text" : "exact"}`}>{f.ext === "txt" || f.ext === "csv" ? QUALITY_LABEL.text : QUALITY_LABEL.exact}</span>}
+          </div>
+        ))}
         {routes.map((r) => (
           <div key={r.to} className={`export-row ${busy && busy !== r.to ? "unavailable" : ""}`} role="button" tabIndex={0} onClick={() => !busy && void run(r)} onKeyDown={(e) => e.key === "Enter" && !busy && void run(r)}>
             <span className="fmt">{r.to}</span>

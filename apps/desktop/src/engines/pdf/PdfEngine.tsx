@@ -184,9 +184,10 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
       if (undoStack.current.length > 20) undoStack.current.shift();
       bytesRef.current = after;
       annotDirty.current = false;
-      await openDoc(after, { ...keepView(), ...(keepPage ? { page: keepPage } : {}) });
+      // Mark unsaved before the viewer reloads, so a quick Ctrl+S never sees a "clean" tab.
       host.setDirty(true);
       host.changed();
+      await openDoc(after, { ...keepView(), ...(keepPage ? { page: keepPage } : {}) });
     } catch (e) {
       host.toast(`${label} failed: ${e instanceof Error ? e.message : e}`, "error");
     } finally {

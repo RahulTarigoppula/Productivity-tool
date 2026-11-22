@@ -63,6 +63,10 @@ export interface EngineHandle {
   canSave?: boolean;
   /** Called after the bytes from the last serialize() were written successfully. */
   markSaved?(): void;
+  /** Formats this engine can produce itself (in addition to the shared converters). */
+  exportFormats?(): { ext: string; label: string }[];
+  /** Produce the document in another format (for engine-provided export formats). */
+  convert?(ext: string): Promise<Uint8Array>;
 }
 
 export interface EngineHost {

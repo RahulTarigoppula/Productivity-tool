@@ -1,6 +1,6 @@
 # Productivity — Windows desktop app (v0.1)
 
-One calm, local app for every kind of file. This is the first build of Release 1 (Windows) from `docs/plans/03-roadmap.md`: it covers phases **W1** (shell, text and code, CSV) and **W2** (PDF), parts of **W4** (search, links, export, version history), and read-only previews of Office files ahead of **W3**.
+One calm, local app for every kind of file. This is Release 1 (Windows) from `docs/plans/03-roadmap.md`: phases **W1** (shell, text and code, CSV), **W2** (PDF) and **W3** (Word, Excel and PowerPoint editing), and parts of **W4** (search, links, export, version history).
 
 ## Install
 
@@ -8,8 +8,8 @@ Download from the repository's **Releases** page (or the **Actions → Windows b
 
 | File | What it is |
 |---|---|
-| `Productivity_0.1.0_x64-setup.exe` | **Recommended.** Installs for your user only (no admin prompt), adds a Start menu entry, registers "Open with" for Markdown, text, CSV, PDF, config and Office files, and has an uninstaller. Installs the WebView2 runtime if a machine lacks it (Windows 11 already has it). |
-| `Productivity_0.1.0_x64-portable.exe` | No install. A single exe you can run from anywhere; needs the WebView2 runtime, which Windows 11 includes. Settings and version history are kept in `%APPDATA%\com.rahul.productivity`. |
+| `Productivity_0.1.0_x64-setup.exe` (about 60 MB) | **Recommended.** Everything, including Word, Excel and PowerPoint editing. Installs for your user only (no admin prompt), adds a Start menu entry, registers "Open with" for Markdown, text, CSV, PDF, config and Office files, and has an uninstaller. Installs the WebView2 runtime if a machine lacks it (Windows 11 already has it). |
+| `Productivity_0.1.0_x64-portable.exe` (about 8 MB) | No install. A single exe you can run from anywhere; needs the WebView2 runtime, which Windows 11 includes. Word, Excel and PowerPoint open as read-only previews (the Office editors come with the installer). Settings and version history are kept in `%APPDATA%\com.rahul.productivity`. |
 
 The installer is not code-signed, so Windows SmartScreen shows "Windows protected your PC" the first time. Choose **More info → Run anyway**.
 
@@ -23,7 +23,7 @@ The installer is not code-signed, so Windows SmartScreen shows "Windows protecte
 | **Text and code** | Any text file. Syntax highlighting for 100+ languages (by file name or `#!` line), multi-cursor, find and replace with regex, folding, bracket matching, auto-indent, indentation detection, word wrap toggle, language picker |
 | **CSV / TSV** | Spreadsheet-style grid: edit cells, keyboard navigation, insert and delete rows and columns, sort, filter, copy and paste with Excel, undo and redo, sum/average/count of the selection, header row toggle, open as plain text |
 | **PDF** | Continuous scrolling, zoom, text selection, find, page thumbnails, bookmarks in the outline; highlight, text boxes and drawing; drawn or typed signatures; rotate, delete, reorder (drag thumbnails), extract and insert pages; password-protected files |
-| **Word, Excel, PowerPoint** | Read-only previews: Word with its page layout, Excel sheets as a grid with formulas shown, PowerPoint as slide text and notes. Open in the default app or export from here |
+| **Word, Excel, PowerPoint** | **Full editing** with the embedded Euro-Office editors (based on ONLYOFFICE), entirely offline: styles, tables, images, comments, track changes, formulas, charts, pivot tables, slides, notes and the rest of a full office suite. Saves go through the app's safe-save pipeline with versions and recovery; Ctrl+S inside the editor works. Export to PDF, OpenDocument, RTF, TXT or CSV. Without the Office pack (portable exe) they open as read-only previews |
 | **Images, binary files** | Image viewer with zoom; binary files as a hex view |
 
 **Never lose work**
@@ -97,12 +97,13 @@ These are planned; none is hidden from the user in the app.
 
 | Gap | Planned in |
 |---|---|
-| **Editing** Word, Excel and PowerPoint files (they open as previews) | W3 — embedded Office engine, after spikes S1/S14 |
+| Office documents in Chinese, Japanese, Korean, Indic or other non-Latin scripts use a fallback font (the pack ships a core font set) | Optional full-font pack |
+| The first Office file of a session takes longer to open (the editor engine starts) | W6 |
 | Markdown ↔ Word conversion, PDF → Word | Convert pack (Pandoc) |
 | Language servers, terminal, git panel, minimap | W5 — light workbench |
 | PDF: annotation list panel, highlight colours, sticky-note comments, certificate signatures | W2 follow-up / later |
 | Printing PDFs goes through page images | Later |
-| Tab hibernation (all open tabs stay in memory) | W3 |
+| Tab hibernation (all open tabs stay in memory; Office tabs are the heavy ones) | W6 |
 | Office lock files (`~$name`) are hidden but not created or respected | W6 |
 | Saved signatures are stored as plain images in the app's data folder (planned: encrypted) | W6 |
 | Native Mica title bar and Snap Layouts flyout (uses the standard Windows title bar) | W6 |
@@ -135,6 +136,7 @@ Tests:
 | `pnpm test` | Unit tests: text codec byte round trips, CSV preservation, paths and document-reference safety, fuzzy matching, conversion routing, PDF page tools, Office preview limits (54 tests) |
 | `cd src-tauri && cargo test` | Rust: atomic writes (including symlinks and permissions), folder listing and search, version snapshots and pruning, recovery and state storage, refusal to open programs or network files (12 tests) |
 | `pnpm build && pnpm preview --port 4173 & pnpm e2e` | 35 end-to-end flows in Chromium: user flows named after `docs/flows/`, regression checks from code review, and security checks (hostile Markdown, nesting bombs). Fails on any outbound network request |
+| `pnpm office-pack`, then `node tests/office-server.mjs & pnpm preview --port 1420 & pnpm e2e:office` | Builds the Office pack, then runs 7 Office editing flows: open each format in the editor, edit and save (including Ctrl+S inside the editor and a second save), shortcuts forwarded from the editor, export to PDF, close with unsaved changes |
 | `PRODUCTIVITY_SELF_TEST=<folder> <app exe>` | Self-test of the real app: exercises the file system bridge (binary, Unicode paths, byte-identical saves, versions, recovery, search), opens every sample file in the folder through the interface with timings, writes `selftest-report.json`, then exits. CI runs it on Windows against the built exe |
 
 GitHub Actions (`.github/workflows/windows.yml`) runs the unit and Rust tests, builds the installer and portable exe on Windows, runs the end-to-end flows on Linux, and publishes a release when a `v*` tag is pushed.
@@ -154,4 +156,8 @@ apps/desktop/
 
 Every format plugs into the shell through one contract (`src/app/editor-api.ts`): bytes in, bytes out; engines never touch the disk. The interface never calls Tauri directly, only `src/platform`, which is what will let the same interface run on Android and Apple devices later.
 
-Departures from the plan, recorded in `docs/decisions/0001-v0.1-implementation.md`: one package instead of a pnpm workspace of packages; CodeMirror 6 for all text (the multi-device decision); Office files as previews until the Office engine spikes run.
+Departures from the plan are recorded in `docs/decisions/0001-v0.1-implementation.md`; the Office engine and how it is isolated are in `docs/decisions/0002-office-engine.md`.
+
+### The Office pack
+
+`pnpm office-pack` builds `packs/office` from pinned, integrity-checked sources (Euro-Office editors and x2t from npm, fonts and the spelling dictionary from pinned git commits) and prunes it to about 233 MB. `pnpm tauri build --config src-tauri/tauri.office.conf.json` puts it in the installer. The app serves it on its own origin through the `office` protocol (`src-tauri/src/office.rs`) with a strict security policy; the editors cannot reach the app's file commands.

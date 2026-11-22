@@ -4,8 +4,17 @@ import { getState, setState, activeTab, handles } from "./store";
 import { newFile, pickAndOpen, saveTab, closeTab, reopenClosed, switchTab, switchToRecentTab, activate } from "./actions";
 import { openPalette, toggleFocusMode } from "./commands";
 
-export function installKeys(): () => void {
-  const onKey = (e: KeyboardEvent) => {
+export interface KeyLike {
+  key: string;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
+}
+
+/** Runs the app shortcut for a key press; returns true if it was one. Also used for shortcuts
+ *  typed inside embedded editors, which forward them to the app. */
+export function handleShortcut(e: KeyLike): boolean {
     const mod = e.ctrlKey || e.metaKey;
     const k = e.key.toLowerCase();
     const s = getState();
@@ -39,8 +48,12 @@ export function installKeys(): () => void {
     else if (k === "f" && !e.shiftKey && !e.altKey && tab && tab.kind !== "text" && tab.kind !== "markdown") handles.get(tab.id)?.find?.();
     else if (k === "g" && !e.shiftKey && tab && tab.kind !== "text" && tab.kind !== "markdown") openPalette(":");
     else handled = false;
+    return handled;
+}
 
-    if (handled) {
+export function installKeys(): () => void {
+  const onKey = (e: KeyboardEvent) => {
+    if (handleShortcut(e)) {
       e.preventDefault();
       e.stopPropagation();
     }

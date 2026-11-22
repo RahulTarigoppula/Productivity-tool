@@ -2,6 +2,9 @@
  *  for development and for automated end-to-end tests. Exposed on window.__fs for tests. */
 import type { Platform, FileMeta, DirEntry, SnapshotInfo, RecoveryInfo } from "./types";
 
+/** In the browser build the Office pack is available only when a test serves it and sets this. */
+const officeBase = () => (window as unknown as { __OFFICE_URL?: string }).__OFFICE_URL;
+
 interface MemFile {
   bytes: Uint8Array;
   modified: number;
@@ -55,6 +58,10 @@ export function createBrowserPlatform(): Platform {
 
   const platform: Platform = {
     kind: "browser",
+    async officePack() {
+      return { available: !!officeBase() };
+    },
+    officeUrl: (path) => `${officeBase()}/${path.replace(/^\//, "")}`,
     async readFile(path) {
       const f = files.get(path);
       if (!f) throw new Error(`Could not open ${path}: not found`);

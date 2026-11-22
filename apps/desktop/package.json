@@ -12,7 +12,9 @@
     "predev": "node scripts/copy-assets.mjs",
     "prebuild": "node scripts/copy-assets.mjs",
     "e2e": "node tests/e2e/flows.mjs",
-    "corpus": "python tests/make_corpus.py && node tests/make_pdf.mjs"
+    "corpus": "python tests/make_corpus.py && node tests/make_pdf.mjs",
+    "office-pack": "node scripts/build-office-pack.mjs",
+    "e2e:office": "node tests/e2e/office.mjs"
   },
   "dependencies": {
     "@cantoo/pdf-lib": "2.11.1",

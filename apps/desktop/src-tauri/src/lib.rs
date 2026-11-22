@@ -1,6 +1,7 @@
 //! Productivity desktop core: the commands the interface calls.
 
 mod files;
+mod office;
 mod store;
 
 use files::{FileMeta, SearchOptions};
@@ -206,6 +207,11 @@ fn self_test_dir() -> Option<String> {
 }
 
 #[tauri::command]
+fn office_pack_info(app: tauri::AppHandle) -> office::PackInfo {
+    office::info(&app)
+}
+
+#[tauri::command]
 fn launch_files(state: tauri::State<'_, AppState>) -> Vec<String> {
     std::mem::take(&mut *state.launch_files.lock().unwrap())
 }
@@ -313,6 +319,11 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
+        // The Office editors are served from the installed pack on their own origin.
+        .register_asynchronous_uri_scheme_protocol("office", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            std::thread::spawn(move || responder.respond(office::handle(&app, &request)));
+        })
         .setup(|app| {
             tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
                 .title("Productivity")
@@ -369,6 +380,7 @@ pub fn run() {
             unwatch_file,
             launch_files,
             self_test_dir,
+            office_pack_info,
             reveal_in_folder,
             open_external
         ])

@@ -1,8 +1,8 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import type { Platform, FileMeta, DirEntry, SearchHit, SnapshotInfo, RecoveryInfo } from "./types";
+import type { Platform, FileMeta, DirEntry, SearchHit, SnapshotInfo, RecoveryInfo, OfficePackInfo } from "./types";
 
 const enc = (s: string) => encodeURIComponent(s);
 const toBytes = (b: unknown) => new Uint8Array(b as ArrayBuffer);
@@ -24,6 +24,12 @@ export function createTauriPlatform(): Platform {
   const win = getCurrentWindow();
   return {
     kind: "tauri",
+    officePack: () => invoke<OfficePackInfo>("office_pack_info"),
+    officeUrl: (path) => {
+      // convertFileSrc encodes its whole argument, so keep the query string out of it.
+      const q = path.indexOf("?");
+      return q < 0 ? convertFileSrc(path, "office") : `${convertFileSrc(path.slice(0, q), "office")}${path.slice(q)}`;
+    },
     async readFile(path) {
       return toBytes(await invoke("read_file", { path }));
     },

@@ -50,8 +50,18 @@ export interface FileFilter {
   extensions: string[];
 }
 
+export interface OfficePackInfo {
+  available: boolean;
+  version?: string | null;
+  bytes?: number | null;
+}
+
 export interface Platform {
   kind: "tauri" | "browser";
+  /** Whether the Office editing pack is installed. */
+  officePack(): Promise<OfficePackInfo>;
+  /** URL of a file inside the Office pack (served on its own origin). */
+  officeUrl(path: string): string;
   readFile(path: string): Promise<Uint8Array>;
   /** Safe write. With snapshot=true the previous content is kept as a version first. */
   writeFile(path: string, bytes: Uint8Array, opts?: { snapshot?: boolean }): Promise<FileMeta>;

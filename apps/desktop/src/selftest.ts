@@ -84,8 +84,15 @@ export async function runSelfTest(dir: string) {
   const { getState, handles } = await import("./app/store");
   const selector: Record<string, string> = {
     md: ".cm-content", txt: ".cm-content", py: ".cm-content", csv: ".csv-cell",
-    pdf: ".pdfViewer .page canvas", docx: ".docx-host section", xlsx: ".xlsx-table td", pptx: ".slide-card",
+    pdf: ".pdfViewer .page canvas", docx: ".docx-host section, .office-frame[style*='visible']", xlsx: ".xlsx-table td, .office-frame[style*='visible']", pptx: ".slide-card, .office-frame[style*='visible']",
   };
+  const office = await platform.officePack();
+  const seen: string[] = [];
+  window.addEventListener("message", (e) => {
+    if (seen.length < 40) seen.push(`${e.origin} ${String((e.data as { type?: string })?.type ?? typeof e.data)}`);
+  });
+  (timings as unknown as Record<string, unknown>).messages = seen;
+  timings.officePack = office.available ? 1 : 0;
   const samples = (await platform.listDir(dir)).filter((e) => !e.isDir && selector[e.name.split(".").pop()!.toLowerCase()] && !e.name.startsWith("selftest"));
   for (const f of samples) {
     const ext = f.name.split(".").pop()!.toLowerCase();
@@ -93,19 +100,52 @@ export async function runSelfTest(dir: string) {
       const t0 = performance.now();
       const id = await openPath(f.path);
       assert(id, "no tab");
-      const deadline = t0 + 20000;
+      // The first Office file also starts the editor engine (WebAssembly compile), so allow longer.
+      const deadline = t0 + (["docx", "xlsx", "pptx"].includes(ext) ? 90000 : 20000);
       for (;;) {
         const tab = getState().tabs.find((x) => x.id === id);
         assert(tab && !tab.error, tab?.error ?? "tab missing");
-        const pane = document.querySelector(`section.doc-pane:not([hidden]) ${selector[ext]}`);
+        const pane = document.querySelector(selector[ext].split(",").map((part) => `section.doc-pane:not([hidden]) ${part.trim()}`).join(", "));
         if (pane && handles.has(id!)) break;
-        assert(performance.now() < deadline, "engine did not render within 20 s");
+        assert(performance.now() < deadline, "engine did not render in time");
         await new Promise((r) => setTimeout(r, 50));
       }
       timings[`open:${f.name}`] = Math.round(performance.now() - t0);
+      // With the Office pack installed, Office files must open in the real editor and save.
+      if (office.available && ["docx", "xlsx", "pptx"].includes(ext)) {
+        assert(document.querySelector("section.doc-pane:not([hidden]) .office-frame"), "opened as a preview, not in the editor");
+        const t1 = performance.now();
+        const bytes = await handles.get(id!)!.serialize({ forSave: true });
+        assert(bytes[0] === 0x50 && bytes[1] === 0x4b && bytes.length > 1000, "editor did not return a valid file");
+        timings[`save:${f.name}`] = Math.round(performance.now() - t1);
+      }
     });
   }
 
+  if (office.available) {
+    await t("Office editor frame cannot use the app's file commands", async () => {
+      const frame = document.querySelector("section.doc-pane:not([hidden]) .office-frame, .office-frame") as HTMLIFrameElement | null;
+      assert(frame?.contentWindow, "no editor frame");
+      const { officeOriginOf } = await import("./engines/office/OfficeEditor");
+      const origin = officeOriginOf(platform.officeUrl("editor"));
+      const result = await new Promise<{ hasIpc: boolean; ipcWorks: boolean } | null>((resolve) => {
+        const on = (e: MessageEvent) => {
+          if (e.origin === origin && e.data?.type === "office:probe-result") {
+            window.removeEventListener("message", on);
+            resolve(e.data);
+          }
+        };
+        window.addEventListener("message", on);
+        frame!.contentWindow!.postMessage({ type: "office:probe" }, origin);
+        setTimeout(() => resolve(null), 5000);
+      });
+      assert(result, "no answer from the editor bridge");
+      timings.officeFrameHasIpcObject = result!.hasIpc ? 1 : 0;
+      assert(!result!.ipcWorks, "the editor frame could call an app command");
+    });
+  }
+
+  (timings as unknown as Record<string, unknown>).frames = Array.from(document.querySelectorAll("iframe")).map((f) => f.src);
   const report = JSON.stringify({ passed: results.filter((r) => r.ok).length, total: results.length, results, timings, userAgent: navigator.userAgent }, null, 2);
   await platform.writeFile(p("selftest-report.json"), new TextEncoder().encode(report));
   const { getCurrentWindow } = await import("@tauri-apps/api/window");

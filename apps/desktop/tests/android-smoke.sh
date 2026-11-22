@@ -36,7 +36,26 @@ fi
 
 adb shell pidof "$PKG" >/dev/null || fail "the app stopped"
 adb logcat -d > "$OUT/logcat.txt"
-if grep -E "FATAL EXCEPTION|panicked at|Process: $PKG" "$OUT/logcat.txt" | grep -v "^--" | head -20; then
-  fail "crash in the log"
-fi
-echo "PASS: the app started, stayed running and opened a shared file without crashing"
+if grep -E "FATAL EXCEPTION|panicked at" "$OUT/logcat.txt" | head -20; then fail "crash in the log"; fi
+
+# The app's own self-test: file reads and writes through Android's IPC (including a 3 MB
+# binary save), versions, recovery, folder listing and search, then every sample file opened
+# in its editor. The app reports to the system log.
+adb shell am force-stop "$PKG"
+adb logcat -c
+adb shell am start -n "$PKG/.MainActivity" --ez productivity.selftest true >/dev/null || fail "self-test start"
+RESULT=""
+for i in $(seq 1 60); do
+  RESULT=$(adb logcat -d -s ProductivitySelfTest:I | grep -o "SELFTEST passed=[0-9]* total=[0-9]*" | tail -1)
+  [ -n "$RESULT" ] && break
+  sleep 3
+done
+adb logcat -d -s ProductivitySelfTest:I | grep SELFTEST | tee "$OUT/selftest.txt"
+adb exec-out screencap -p > "$OUT/3-selftest.png"
+adb logcat -d > "$OUT/logcat-selftest.txt"
+[ -n "$RESULT" ] || fail "the self-test did not report within 3 minutes"
+PASSED=$(echo "$RESULT" | sed 's/.*passed=\([0-9]*\).*/\1/')
+TOTAL=$(echo "$RESULT" | sed 's/.*total=\([0-9]*\).*/\1/')
+[ "$PASSED" = "$TOTAL" ] || fail "self-test: $PASSED of $TOTAL checks passed"
+echo "self-test: $PASSED of $TOTAL checks passed"
+echo "PASS: the app started, opened a shared file and passed its self-test"

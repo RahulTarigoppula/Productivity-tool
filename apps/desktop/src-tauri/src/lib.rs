@@ -243,7 +243,16 @@ fn unwatch_file(path: String, state: tauri::State<'_, AppState>) {
 
 /// Folder for the built-in self-test, set by the PRODUCTIVITY_SELF_TEST environment variable.
 #[tauri::command]
-fn self_test_dir() -> Option<String> {
+fn self_test_dir(app: tauri::AppHandle) -> Option<String> {
+    // Android: started with the self-test flag (the activity leaves a marker in the app's folder).
+    #[cfg(target_os = "android")]
+    if let Ok(d) = app.path().app_data_dir() {
+        let dir = d.join("selftest");
+        if std::fs::remove_file(dir.join("RUN")).is_ok() {
+            return Some(dir.to_string_lossy().to_string());
+        }
+    }
+    let _ = &app;
     std::env::var("PRODUCTIVITY_SELF_TEST").ok().filter(|s| !s.is_empty())
 }
 
@@ -458,7 +467,8 @@ pub fn run() {
             android::android_pick,
             android::android_create,
             android::android_info,
-            android::android_take_opened
+            android::android_take_opened,
+            android::android_log
         ]))
         .run(tauri::generate_context!())
         .expect("error while running application");

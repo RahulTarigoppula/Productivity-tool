@@ -5,7 +5,18 @@ import { join } from "./lib/paths";
 import { decodeText, encodeText, bytesEqual } from "./lib/textcodec";
 import { loadCsv, saveCsv } from "./lib/csv";
 
+/** Android: the sample files travel with the app and are written into the test folder first. */
+async function seedCorpus(dir: string) {
+  const files = import.meta.glob("../tests/corpus/*", { query: "?url", import: "default" });
+  for (const [key, load] of Object.entries(files)) {
+    const url = (await load()) as string;
+    const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+    await platform.writeFile(join(dir, key.split("/").pop()!), bytes);
+  }
+}
+
 export async function runSelfTest(dir: string) {
+  if (!platform.folders) await seedCorpus(dir);
   const results: { name: string; ok: boolean; detail?: string }[] = [];
   const t = async (name: string, fn: () => Promise<void>) => {
     try {
@@ -150,6 +161,13 @@ export async function runSelfTest(dir: string) {
   (timings as unknown as Record<string, unknown>).frames = Array.from(document.querySelectorAll("iframe")).map((f) => f.src);
   const report = JSON.stringify({ passed: results.filter((r) => r.ok).length, total: results.length, results, timings, userAgent: navigator.userAgent }, null, 2);
   await platform.writeFile(p("selftest-report.json"), new TextEncoder().encode(report));
+  if (!platform.folders) {
+    // Android: the CI smoke test reads the result from the system log.
+    const { invoke } = await import("@tauri-apps/api/core");
+    for (const r of results.filter((x) => !x.ok)) await invoke("android_log", { message: `SELFTEST FAIL ${r.name}: ${r.detail ?? ""}` });
+    await invoke("android_log", { message: `SELFTEST passed=${results.filter((r) => r.ok).length} total=${results.length}` });
+    return;
+  }
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   await getCurrentWindow().destroy();
 }

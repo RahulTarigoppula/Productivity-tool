@@ -35,6 +35,11 @@ class CreateArgs {
 }
 
 @InvokeArg
+class LogArgs {
+  var message: String = ""
+}
+
+@InvokeArg
 class UriArgs {
   lateinit var uri: String
 }
@@ -58,7 +63,20 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   override fun load(webView: WebView) {
+    // Test builds in CI start the app with this flag to run its self-test (see tests/android-smoke.sh).
+    if (activity.intent?.getBooleanExtra("productivity.selftest", false) == true) {
+      val dir = File(File(activity.dataDir, activity.packageName), "selftest").apply { mkdirs() }
+      File(dir, "RUN").writeText("1")
+    }
     collect(activity.intent)
+  }
+
+  /** Self-test report lines, to the system log (read by the CI smoke test). */
+  @Command
+  fun log(invoke: Invoke) {
+    val msg = invoke.parseArgs(LogArgs::class.java).message
+    msg.chunked(3000).forEach { android.util.Log.i("ProductivitySelfTest", it) }
+    invoke.resolve()
   }
 
   override fun onNewIntent(intent: Intent) {

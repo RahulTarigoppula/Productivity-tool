@@ -46,3 +46,15 @@ Flow P-1 in the end-to-end tests fails the build if a 20 MB file takes more than
 
 - Native Mica title bar and Snap Layouts flyout.
 - Lazy-loading the palette and dialogs to trim the start-up bundle (start-up is already ~0.4 s on Windows).
+
+## Three rounds of review (2026-11-22, later)
+
+| Round | Reviews | Found and fixed |
+|---|---|---|
+| 1 | Correctness, security, user journeys (independent, each with reproductions) | 6 data-loss bugs (overlapping saves, recovery moving the saved baseline, PDF annotation edits after save, lossy CSV encoding, stale Office saves, recovery ordering); links climbing out of network shares; unbounded and device reads; freezes from crafted tables and wide CSVs; Android self-test reachable by other apps; 12 groups of journey issues (list cursor, PDF highlight, dialog focus, dead-end commands, hidden active tab, error tabs, CSV gaps, wording) |
+| 2 | Review of the fixes, and a re-walk of every journey | A saved state wrong after undo; stacked dialogs sharing Tab and Escape; new CSV not taking typing; overlapping phone toolbar; task boxes missing from previews; Close others ignoring Cancel; wide-CSV polish |
+| 3 | Simplicity, familiarity, visual quality, originality | Developer terms in the status bar and commands; text contrast below WCAG AA; icon-only toolbars; conflict banner on phones; badges and product names in Export; inconsistent Office previews; Settings trimmed; Create dialog matching the home screen |
+
+Every confirmed finding has an end-to-end flow (D-1..D-4, U-1..U-4, R-11, R-12, P-1) so it cannot come back unnoticed.
+
+Originality: the design, name and mark are original; Word, Excel and PowerPoint are named only as file types. The Office editors are Euro-Office, based on ONLYOFFICE (AGPL-3.0): their notices ship with the app and the About box credits them; their names and logos are not used to brand this app.

@@ -78,7 +78,35 @@ export async function runSelfTest(dir: string) {
     assert(failed, "expected an error");
   });
 
-  const report = JSON.stringify({ passed: results.filter((r) => r.ok).length, total: results.length, results }, null, 2);
+  // Open every sample file in the folder through the real interface and time it.
+  const timings: Record<string, number> = { startupToSelfTestMs: Math.round(performance.now()) };
+  const { openPath } = await import("./app/actions");
+  const { getState, handles } = await import("./app/store");
+  const selector: Record<string, string> = {
+    md: ".cm-content", txt: ".cm-content", py: ".cm-content", csv: ".csv-cell",
+    pdf: ".pdfViewer .page canvas", docx: ".docx-host section", xlsx: ".xlsx-table td", pptx: ".slide-card",
+  };
+  const samples = (await platform.listDir(dir)).filter((e) => !e.isDir && selector[e.name.split(".").pop()!.toLowerCase()] && !e.name.startsWith("selftest"));
+  for (const f of samples) {
+    const ext = f.name.split(".").pop()!.toLowerCase();
+    await t(`open ${f.name} in its engine`, async () => {
+      const t0 = performance.now();
+      const id = await openPath(f.path);
+      assert(id, "no tab");
+      const deadline = t0 + 20000;
+      for (;;) {
+        const tab = getState().tabs.find((x) => x.id === id);
+        assert(tab && !tab.error, tab?.error ?? "tab missing");
+        const pane = document.querySelector(`section.doc-pane:not([hidden]) ${selector[ext]}`);
+        if (pane && handles.has(id!)) break;
+        assert(performance.now() < deadline, "engine did not render within 20 s");
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      timings[`open:${f.name}`] = Math.round(performance.now() - t0);
+    });
+  }
+
+  const report = JSON.stringify({ passed: results.filter((r) => r.ok).length, total: results.length, results, timings, userAgent: navigator.userAgent }, null, 2);
   await platform.writeFile(p("selftest-report.json"), new TextEncoder().encode(report));
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   await getCurrentWindow().destroy();

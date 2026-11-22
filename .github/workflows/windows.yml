@@ -48,6 +48,22 @@ jobs:
       - name: Build installer and app
         run: pnpm tauri build
 
+      - name: Smoke test the built app on Windows (real WebView2)
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "selftest"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item tests/corpus/* $dir
+          $env:PRODUCTIVITY_SELF_TEST = $dir
+          $p = Start-Process -FilePath "src-tauri/target/release/productivity.exe" -PassThru
+          if (-not $p.WaitForExit(180000)) { Stop-Process $p -Force; throw "The app did not finish its self-test within 3 minutes" }
+          $report = Join-Path $dir "selftest-report.json"
+          if (-not (Test-Path $report)) { throw "No self-test report was written" }
+          Get-Content $report
+          Copy-Item $report selftest-report.json
+          $r = Get-Content $report | ConvertFrom-Json
+          if ($r.passed -ne $r.total) { throw "Self-test: $($r.passed) of $($r.total) checks passed" }
+
       - name: Collect outputs
         shell: pwsh
         run: |
@@ -61,7 +77,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: productivity-windows
-          path: apps/desktop/release-files/*.exe
+          path: |
+            apps/desktop/release-files/*.exe
+            apps/desktop/selftest-report.json
 
       - name: Publish release (tags only)
         if: startsWith(github.ref, 'refs/tags/v')

@@ -47,6 +47,19 @@ function FilesView() {
   useEffect(() => {
     if (workspace) void platform.listDir(workspace).then(setEntries).catch(() => setEntries([]));
   }, [workspace, refreshKey]);
+  // Refresh when the window regains focus (files may have changed elsewhere) and after saves.
+  const savedCount = useStore((s) => s.tabs.filter((t) => t.saveState === "saved").length + s.recent.length);
+  useEffect(() => {
+    const onFocus = () => {
+      invalidateWorkspaceFiles();
+      setRefreshKey((k) => k + 1);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
+  useEffect(() => {
+    setRefreshKey((k) => k + 1);
+  }, [savedCount]);
   if (!workspace) {
     return (
       <div className="empty-note">

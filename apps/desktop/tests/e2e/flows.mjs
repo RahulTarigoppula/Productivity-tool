@@ -679,6 +679,357 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     await page.setViewportSize({ width: 1280, height: 800 });
   });
 
+  // ---------- PDF: usability, keyboard, phone and memory checks (P-2 … P-11) ----------
+  const { PDFDocument, StandardFonts } = require("@cantoo/pdf-lib");
+  const C = "section.doc-pane:not([hidden]) .pdf-container";
+  const L = "section.doc-pane:not([hidden]) .thumbs";
+  const samplePdf = readFileSync(join(corpus, "sample.pdf"));
+  /** A toolbar button by its exact name (a tab called "sign.pdf" also matches "Sign"). */
+  const tool = (name) => page.locator(".toolbar").getByRole("button", { name, exact: true });
+  /** A PDF whose pages are 600, 601, 602… points wide (to tell them apart after moving), optionally locked. */
+  const makePdf = async (n, password) => {
+    const d = await PDFDocument.create();
+    const font = await d.embedFont(StandardFonts.Helvetica);
+    for (let i = 0; i < n; i++) d.addPage([600 + i, 800]).drawText(`Page ${i + 1}: the quick brown fox jumps over the lazy dog.`, { x: 60, y: 720, size: 18, font });
+    if (password) d.encrypt({ userPassword: password, ownerPassword: `${password}-owner` });
+    return d.save();
+  };
+  const putFile = (p, bytes) => page.evaluate(([p, b]) => window.__fs.write(p, new Uint8Array(b)), [p, Array.from(bytes)]);
+  const openPdf = async (p, bytes) => {
+    await putFile(p, bytes);
+    await open(p);
+    await waitFor(async () => (await page.locator(`${C} .pdfViewer .page canvas`).count()) > 0, 8000, "PDF pages");
+    await page.waitForTimeout(300);
+  };
+  /** The open PDF as it would be saved. */
+  const pdfBytes = async () => Buffer.from(await page.evaluate(async () => { const s = window.__app.getState(); return Array.from(await window.__app.handles.get(s.activeId).serialize()); }));
+  /** Placed signatures: each is a transparent PNG, an image whose soft mask is a second image. */
+  const signatureCount = async () => ((await pdfBytes()).toString("latin1").match(/\/SMask\s+\d+\s+\d+\s+R/g) ?? []).length;
+  const hasHighlight = async () => /\/Highlight/.test((await pdfBytes()).toString("latin1"));
+  const pageWidths = async () => (await PDFDocument.load(await pdfBytes())).getPages().map((p) => Math.round(p.getWidth())).join(",");
+  const scrollTop = () => page.evaluate((C) => document.querySelector(C).scrollTop, C);
+  const settled = () => waitFor(async () => !(await page.locator(".pdf-busy").count()), 8000, "page change finished");
+  const closeTabUnsaved = async () => {
+    const dirty = (await activeTab())?.dirty;
+    await page.evaluate(() => { const s = window.__app.getState(); void window.__app.closeTab(s.activeId); });
+    if (dirty) {
+      const dlg = page.getByRole("alertdialog");
+      await dlg.waitFor({ timeout: 3000 });
+      await dlg.getByRole("button", { name: "Don't save" }).click();
+    }
+    await page.waitForTimeout(200);
+  };
+  const highlightFirstLine = async () => {
+    await tool("Highlight").click();
+    const first = page.locator(`${C} .textLayer span`).first();
+    await first.scrollIntoViewIfNeeded();
+    const span = await first.boundingBox();
+    await page.mouse.move(span.x + 2, span.y + span.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(span.x + span.width - 2, span.y + span.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+  };
+  /** How many pixels of a screenshot differ clearly from its corner (the background), and their box. */
+  const inkIn = (png) => page.evaluate(async (b64) => {
+    const bmp = await createImageBitmap(new Blob([Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0))], { type: "image/png" }));
+    const ctx = new OffscreenCanvas(bmp.width, bmp.height).getContext("2d");
+    ctx.drawImage(bmp, 0, 0);
+    const { data, width, height } = ctx.getImageData(0, 0, bmp.width, bmp.height);
+    const luma = (i) => 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    const bg = luma(0);
+    let n = 0, x0 = width, y0 = height, x1 = -1, y1 = -1;
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      if (Math.abs(luma((y * width + x) * 4) - bg) < 60) continue;
+      n++; x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+    }
+    return { n, box: { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }, width, height };
+  }, png.toString("base64"));
+
+  await check("P-2", "the highlight pop-up's Remove button draws its icon inside the button, in light and dark", async () => {
+    await openPdf("/work/pdf/icon.pdf", samplePdf);
+    await highlightFirstLine();
+    const btn = page.locator(`${C} .editToolbar .deleteButton`).first();
+    await btn.waitFor({ timeout: 3000 });
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((t) => window.__app.updateSettings({ theme: t }), theme);
+      await page.waitForTimeout(300);
+      // The icon is a CSS mask on the button's ::before: compare what is drawn with the button's box.
+      const box = await btn.boundingBox();
+      const ink = await inkIn(await page.screenshot({ clip: box }));
+      assert(ink.n > 15, `${theme}: nothing drawn inside the ${box.width}x${box.height} button (the icon is elsewhere)`);
+      const [cx, cy] = [ink.box.x + ink.box.w / 2, ink.box.y + ink.box.h / 2];
+      assert(Math.abs(cx - box.width / 2) <= 4 && Math.abs(cy - box.height / 2) <= 4, `${theme}: icon off-centre in its button: ${JSON.stringify(ink.box)}`);
+    }
+    await page.evaluate(() => window.__app.updateSettings({ theme: "light" }));
+    await tool("Select text").click();
+    await closeTabUnsaved();
+  });
+
+  await check("P-3", "signing keeps the view where it was, shows the signature under the pointer first, and says how to undo", async () => {
+    await openPdf("/work/pdf/sign.pdf", samplePdf);
+    await page.evaluate((C) => (document.querySelector(C).scrollTop = 414), C);
+    await page.waitForTimeout(300);
+    const before = await scrollTop();
+    assert(Math.abs(before - 414) <= 1, `could not scroll to 414 (${before})`);
+    await tool("Sign").click();
+    const pad = page.locator(".sig-canvas");
+    await pad.waitFor({ timeout: 3000 });
+    const c = await pad.boundingBox();
+    await page.mouse.move(c.x + 40, c.y + 80);
+    await page.mouse.down();
+    for (let i = 0; i < 20; i++) await page.mouse.move(c.x + 40 + i * 20, c.y + 80 + Math.sin(i) * 30);
+    await page.mouse.up();
+    await page.getByRole("button", { name: "Use once", exact: true }).click();
+    const preview = page.locator(`${C} .pdf-sig-preview`);
+    await preview.waitFor({ timeout: 3000 });
+    const pg = await page.locator(`${C} .pdfViewer .page`).first().boundingBox();
+    const at = { x: Math.round(pg.x + pg.width / 2), y: 420 };
+    await page.mouse.move(at.x - 40, at.y - 40);
+    await page.mouse.move(at.x, at.y, { steps: 3 });
+    const pb = await preview.boundingBox();
+    assert(Math.abs(pb.x + pb.width / 2 - at.x) < 3 && Math.abs(pb.y + pb.height / 2 - at.y) < 3, `the preview is not under the pointer: ${JSON.stringify(pb)}`);
+    await page.mouse.click(at.x, at.y);
+    await waitFor(async () => (await signatureCount()) === 1, 6000, "signature in the file");
+    await settled();
+    await page.waitForTimeout(300);
+    const after = await scrollTop();
+    assert(Math.abs(after - before) <= 2, `the view jumped from ${before} to ${after}`);
+    const toasts = await page.locator(".toast").allInnerTexts();
+    assert(toasts.some((t) => t.includes("Signature added. Ctrl+Z to undo.")), `toast: ${toasts.join(" | ")}`);
+  });
+
+  await check("P-4", "Ctrl+Z removes a signature and Ctrl+Y puts it back; a later highlight is undone first", async () => {
+    // Continues from P-3, where the signature was the last change.
+    const before = await scrollTop();
+    await page.locator(C).focus();
+    await page.keyboard.press("Control+z");
+    await waitFor(async () => (await signatureCount()) === 0, 6000, "signature removed");
+    await settled();
+    assert(!(await activeTab()).dirty, "back to the file on disk, the tab should read as saved");
+    assert(Math.abs((await scrollTop()) - before) <= 2, "undo moved the view");
+    await page.keyboard.press("Control+y");
+    await waitFor(async () => (await signatureCount()) === 1, 6000, "signature back");
+    await settled();
+    await highlightFirstLine();
+    await tool("Select text").click();
+    assert(await hasHighlight(), "no highlight was made");
+    await page.locator(C).focus();
+    await page.keyboard.press("Control+z");
+    await waitFor(async () => !(await hasHighlight()), 3000, "highlight undone");
+    assert((await signatureCount()) === 1, "Ctrl+Z took the signature before the newer highlight");
+    await page.keyboard.press("Control+z");
+    await waitFor(async () => (await signatureCount()) === 0, 6000, "then the signature");
+    await settled();
+    await closeTabUnsaved();
+  });
+
+  await check("P-5", "a signature and a text box can be added with the keyboard alone; Escape cancels placing", async () => {
+    await openPdf("/work/pdf/keys.pdf", samplePdf);
+    const startSigning = async () => {
+      await page.locator(C).focus();
+      await page.keyboard.press("Control+k");
+      await page.locator("[cmdk-input]").fill(">Sign document");
+      await page.waitForTimeout(150);
+      await page.keyboard.press("Enter");
+      const type = page.getByRole("button", { name: "Type", exact: true });
+      await type.waitFor({ timeout: 3000 });
+      await type.focus();
+      await page.keyboard.press("Enter");
+      await page.keyboard.type("Ada Lovelace");
+      await page.getByRole("button", { name: "Use once", exact: true }).focus();
+      await page.keyboard.press("Enter");
+      await page.locator(`${C} .pdf-sig-preview`).waitFor({ timeout: 3000 });
+    };
+    await startSigning();
+    const hint = await page.locator(".pdf-hint").innerText();
+    assert(/Arrow keys/.test(hint) && /Enter/.test(hint), `no keyboard hint: ${hint}`);
+    const preview = page.locator(`${C} .pdf-sig-preview`);
+    const b0 = await preview.boundingBox();
+    await page.keyboard.press("Shift+ArrowDown");
+    await page.keyboard.press("ArrowRight");
+    const b1 = await preview.boundingBox();
+    assert(b1.y > b0.y + 20 && b1.x > b0.x, `the arrow keys did not move the signature: ${JSON.stringify([b0, b1])}`);
+    await page.keyboard.press("Enter");
+    await waitFor(async () => (await signatureCount()) === 1, 6000, "signature placed with Enter");
+    await settled();
+    await startSigning();
+    await page.keyboard.press("Escape");
+    await waitFor(async () => !(await page.locator(".pdf-hint, .pdf-sig-preview").count()), 2000, "placing cancelled");
+    assert((await signatureCount()) === 1, "Escape still placed a signature");
+    // "Add text" from the keyboard: a text box in the middle of the page in view, ready to type into.
+    await tool("Add text").focus();
+    await page.keyboard.press("Enter");
+    await waitFor(() => page.evaluate(() => !!document.activeElement?.closest(".freeTextEditor")), 3000, "a text box ready for typing");
+    await page.keyboard.type("Typed without a mouse");
+    await page.keyboard.press("Escape");
+    await waitFor(async () => /\/FreeText/.test((await pdfBytes()).toString("latin1")), 3000, "text box in the file");
+    await tool("Select text").click();
+    await closeTabUnsaved();
+  });
+
+  await check("P-6", "page thumbnails work from the keyboard and outline the current page; pages move without dragging", async () => {
+    await openPdf("/work/pdf/pages.pdf", await makePdf(4));
+    const outline = await page.locator(`${L} .thumb.cur canvas`).evaluate((el) => `${getComputedStyle(el).outlineWidth} ${getComputedStyle(el).outlineStyle}`);
+    assert(outline === "2px solid", `current page outline: ${outline}`);
+    // One Tab stop for the list (before the pages); arrows move, Space and Shift+arrow select, Enter goes there.
+    await page.locator(C).focus();
+    await page.keyboard.press("Shift+Tab");
+    assert(await page.evaluate((L) => document.activeElement === document.querySelector(L), L), "Shift+Tab from the pages did not reach the page list");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Space");
+    await page.keyboard.press("Shift+ArrowDown");
+    const sel = await page.locator(`${L} [aria-selected="true"]`).evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")).join(","));
+    assert(sel === "Page 2,Page 3", `selected: ${sel}`);
+    await page.keyboard.press("Enter");
+    await waitFor(async () => (await page.locator(".statusbar").innerText()).includes("Page 3 of 4"), 3000, "Enter went to page 3");
+    // Alt+Up moves the selected pages one place up.
+    await page.keyboard.press("Alt+ArrowUp");
+    await waitFor(async () => (await pageWidths()) === "601,602,600,603", 6000, "pages 2 and 3 moved up");
+    await settled();
+    // The page list's menu (right-click, or a long press) moves a page too.
+    await page.locator(`${L} .thumb`).nth(3).click({ button: "right" });
+    await page.locator(".menu .menu-item", { hasText: "Move page up" }).click();
+    await waitFor(async () => (await pageWidths()) === "601,602,603,600", 6000, "the last page moved up");
+    await settled();
+    await closeTabUnsaved();
+  });
+
+  await check("P-7", "the PDF password prompt is a labelled dialog that keeps Tab inside, explains a wrong password, and Escape cancels", async () => {
+    await putFile("/work/pdf/locked.pdf", await makePdf(2, "open sesame"));
+    await open("/work/pdf/locked.pdf");
+    const dlg = page.getByRole("dialog", { name: "This PDF is protected" });
+    await dlg.waitFor({ timeout: 6000 });
+    assert((await dlg.getAttribute("aria-modal")) === "true", "the dialog is not modal");
+    for (let i = 0; i < 5; i++) {
+      await page.keyboard.press("Tab");
+      assert(await page.evaluate(() => !!document.activeElement?.closest("[role=dialog]")), "Tab left the password dialog");
+    }
+    const field = dlg.getByLabel("Password");
+    await field.fill("wrong");
+    await field.press("Enter");
+    await waitFor(async () => /not right/.test(await dlg.getByRole("alert").innerText().catch(() => "")), 4000, "wrong password message");
+    assert((await field.inputValue()) === "wrong", "the field lost what was typed");
+    await page.keyboard.press("Escape");
+    await waitFor(async () => !(await dlg.count()), 2000, "Escape closed the dialog");
+    assert(await page.locator(".pdf-locked").isVisible(), "no way back after cancelling");
+    await page.getByRole("button", { name: "Enter password…" }).click();
+    await dlg.waitFor({ timeout: 3000 });
+    await dlg.getByLabel("Password").fill("open sesame");
+    await page.keyboard.press("Enter");
+    await waitFor(async () => (await page.locator(`${C} .pdfViewer .page canvas`).count()) > 0, 8000, "opened with the right password");
+    await closeTabUnsaved();
+  });
+
+  await check("P-8", "on a phone, two fingers pinch-zoom around the point between them, and the Pages panel button tells whether the list shows", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    const ph = await ctx.newPage();
+    ph.on("pageerror", (e) => errors.push(e.message));
+    ph.on("console", (m) => m.type() === "error" && !m.text().includes("404") && errors.push(m.text()));
+    try {
+      await ph.goto(URL_);
+      await ph.waitForFunction(() => window.__app && window.__fs);
+      await ph.evaluate((b) => window.__fs.write("/work/phone.pdf", new Uint8Array(b)), Array.from(samplePdf));
+      await ph.evaluate(() => window.__app.openPath("/work/phone.pdf"));
+      await ph.waitForFunction(() => document.querySelectorAll("section.doc-pane:not([hidden]) .pdfViewer .page canvas").length > 0, null, { timeout: 8000 });
+      const btn = ph.getByRole("button", { name: "Pages panel" });
+      const shown = () => ph.locator(L).isVisible().catch(() => false);
+      assert((await btn.getAttribute("aria-pressed")) === "false" && !(await shown()), "the button says on while the list is hidden");
+      await btn.tap();
+      await ph.waitForTimeout(300);
+      assert((await btn.getAttribute("aria-pressed")) === "true" && (await shown()), "tapping did not show the page list");
+      await ph.locator(`${L} .thumb`).nth(1).tap();
+      await ph.waitForTimeout(500);
+      assert((await btn.getAttribute("aria-pressed")) === "false" && !(await shown()), "the list did not make way for the chosen page");
+      // Pinch: two fingers spread around the middle of the pages.
+      const box = await ph.locator(C).boundingBox();
+      const [cx, cy] = [Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2)];
+      const spot = () => ph.evaluate(([x, y]) => {
+        for (const p of document.querySelectorAll("section.doc-pane:not([hidden]) .pdfViewer .page")) {
+          const r = p.getBoundingClientRect();
+          if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return { page: p.dataset.pageNumber, fx: (x - r.left) / r.width, fy: (y - r.top) / r.height };
+        }
+        return null;
+      }, [cx, cy]);
+      const zoom = async () => parseInt(await ph.locator(".statusbar .item").last().innerText(), 10);
+      const [s0, z0] = [await spot(), await zoom()];
+      const cdp = await ctx.newCDPSession(ph);
+      const touch = (type, d) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: cx - d, y: cy, id: 1 }, { x: cx + d, y: cy, id: 2 }] });
+      await touch("touchStart", 40);
+      for (let d = 45; d <= 100; d += 5) { await touch("touchMove", d); await ph.waitForTimeout(16); }
+      await touch("touchEnd", 0);
+      await ph.waitForTimeout(800);
+      const [s1, z1] = [await spot(), await zoom()];
+      assert(z1 > z0 * 2, `zoom went from ${z0}% to ${z1}%`);
+      assert(s0 && s1 && s0.page === s1.page && Math.abs(s0.fx - s1.fx) < 0.02 && Math.abs(s0.fy - s1.fy) < 0.02, `the point between the fingers moved: ${JSON.stringify([s0, s1])}`);
+      assert((await ph.evaluate(() => visualViewport.scale)) === 1, "the browser zoomed the whole window instead");
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  await check("P-9", "the pages show a focus ring for keyboard focus, not after a click", async () => {
+    await openPdf("/work/pdf/ring.pdf", samplePdf);
+    const ring = () => page.evaluate((C) => { const c = document.querySelector(C); return document.activeElement === c && getComputedStyle(c).outlineStyle !== "none"; }, C);
+    const box = await page.locator(C).boundingBox();
+    await page.mouse.click(box.x + 6, box.y + box.height / 2); // the grey margin beside the page
+    assert(await page.evaluate((C) => document.activeElement === document.querySelector(C), C), "a click did not focus the pages");
+    assert(!(await ring()), "a focus ring after a mouse click");
+    await page.locator(`${L} .thumb`).first().click();
+    await page.keyboard.press("Tab");
+    assert(await ring(), "no focus ring when Tab reaches the pages");
+    await closeTabUnsaved();
+  });
+
+  await check("P-10", "closing a PDF tab frees its pages, and only thumbnails near view keep a drawing", async () => {
+    const cdp = await page.context().newCDPSession(page);
+    const nodes = async () => {
+      for (let i = 0; i < 3; i++) { await cdp.send("HeapProfiler.collectGarbage"); await page.waitForTimeout(150); }
+      return (await cdp.send("Memory.getDOMCounters")).nodes;
+    };
+    await putFile("/work/pdf/long.pdf", await makePdf(60));
+    const kept = [];
+    for (let i = 0; i < 3; i++) {
+      await open("/work/pdf/long.pdf");
+      await waitFor(async () => (await page.locator(`${C} .pdfViewer .page canvas`).count()) > 0, 8000, "PDF pages");
+      await page.waitForTimeout(400);
+      if (i === 0) {
+        await page.evaluate(async (L) => {
+          const t = document.querySelector(L);
+          for (let y = 0; y <= t.scrollHeight; y += t.clientHeight / 2) { t.scrollTop = y; await new Promise((r) => setTimeout(r, 60)); }
+        }, L);
+        await page.waitForTimeout(600);
+        const drawn = await page.locator(`${L} .thumb canvas`).evaluateAll((cs) => cs.filter((c) => c.width > 0).length);
+        assert(drawn > 0 && drawn <= 16, `${drawn} of 60 thumbnails hold a drawing after scrolling the list`);
+      }
+      await closeTabUnsaved();
+      kept.push(await nodes());
+    }
+    await cdp.detach();
+    assert(kept[2] - kept[0] < 150, `DOM nodes after each close: ${kept.join(", ")}`);
+  });
+
+  await check("P-11", "a page asked for while a PDF is still loading is shown once it has loaded, without an error", async () => {
+    await putFile("/work/pdf/early.pdf", await makePdf(120));
+    const before = errors.length;
+    // The way the shell asks for a file opened at a page: as soon as the engine is there.
+    await page.evaluate(() => new Promise((done) => {
+      const ask = () => {
+        const s = window.__app.getState();
+        const tab = s.tabs.find((t) => t.id === s.activeId);
+        const h = tab?.name === "early.pdf" && window.__app.handles.get(s.activeId);
+        if (h?.goTo) return done(h.goTo("3"));
+        setTimeout(ask, 1);
+      };
+      void window.__app.openPath("/work/pdf/early.pdf");
+      ask();
+    }));
+    await waitFor(async () => (await page.locator(".statusbar").innerText()).includes("Page 3 of 120"), 10000, "page 3 shown");
+    const bad = errors.slice(before).filter((e) => /not a valid page/.test(e));
+    assert(!bad.length, bad.join("; "));
+    await closeTabUnsaved();
+  });
+
   // Screenshots of each engine for review.
   for (const f of ["notes.md", "data.csv", "sample.pdf", "report.docx", "budget.xlsx"]) {
     await open(`/work/${f}`);

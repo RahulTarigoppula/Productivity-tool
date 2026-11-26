@@ -23,8 +23,8 @@ interface RunStyle {
 class DocBuilder {
   body: string[] = [];
   rels: string[] = [];
-  /** Numbered lists restart at 1: each gets its own numbering instance. */
-  nums: { id: number; abstract: 0 | 1 }[] = [{ id: 1, abstract: 0 }];
+  /** Each numbered list gets its own numbering instance, starting where the Markdown list does. */
+  nums: { id: number; abstract: 0 | 1; level?: number; start?: number }[] = [{ id: 1, abstract: 0 }];
   private relId = 10;
 
   link(href: string): string | null {
@@ -35,20 +35,22 @@ class DocBuilder {
     return id;
   }
 
-  newNumbered(): number {
+  newNumbered(level: number, start: number): number {
     const id = this.nums.length + 1;
-    this.nums.push({ id, abstract: 1 });
+    this.nums.push({ id, abstract: 1, level, start });
     return id;
   }
 
   run(text: string, st: RunStyle): string {
     if (!text) return "";
+    // Word requires this order: style, bold, italic, strike, colour, underline. One style only, so
+    // a link's colour and underline are set directly (a link can also be code).
     const pr = [
+      st.code ? '<w:rStyle w:val="InlineCode"/>' : st.link ? '<w:rStyle w:val="Hyperlink"/>' : "",
       st.b ? "<w:b/>" : "",
       st.i ? "<w:i/>" : "",
       st.strike ? "<w:strike/>" : "",
-      st.code ? '<w:rStyle w:val="InlineCode"/>' : "",
-      st.link ? '<w:rStyle w:val="Hyperlink"/>' : "",
+      st.code && st.link ? '<w:color w:val="2F5BD8"/><w:u w:val="single"/>' : "",
     ].join("");
     // Line breaks inside a paragraph become Word line breaks.
     return text
@@ -97,7 +99,7 @@ class DocBuilder {
           out += this.run((t as Tokens.Escape).text, st);
           break;
         case "html":
-          out += this.run((t as Tokens.HTML).text.replace(/<[^>]*>/g, ""), st);
+          out += this.run(stripHtml((t as Tokens.HTML).text), st);
           break;
         default:
           if ("text" in t && typeof (t as { text: unknown }).text === "string") out += this.run(decodeEntities((t as { text: string }).text), st);
@@ -148,7 +150,7 @@ class DocBuilder {
         this.table(t as Tokens.Table);
         break;
       case "html": {
-        const text = (t as Tokens.HTML).text.replace(/<[^>]*>/g, "").trim();
+        const text = stripHtml((t as Tokens.HTML).text).trim();
         if (text) this.para(this.run(text, {}));
         break;
       }
@@ -160,12 +162,18 @@ class DocBuilder {
   }
 
   list(l: Tokens.List, level: number, ctx: { quote?: boolean }): void {
-    const numId = l.ordered ? this.newNumbered() : 1;
     const lvl = Math.min(level, 8);
+    const numId = l.ordered ? this.newNumbered(lvl, typeof l.start === "number" && l.start >= 0 ? l.start : 1) : 1;
+    const numPr = `<w:numPr><w:ilvl w:val="${lvl}"/><w:numId w:val="${numId}"/></w:numPr>`;
+    const box = (item: Tokens.ListItem, sep: string) => (item.task ? this.run((item.checked ? "☑" : "☐") + sep, {}) : "");
     for (const item of l.items) {
       let first = true;
       for (const child of item.tokens) {
+        if (child.type === "space" || (child.type as string) === "checkbox") continue;
         if (child.type === "list") {
+          // An item that starts with a sub-list still shows its own number or bullet first.
+          if (first) this.para(box(item, ""), "ListParagraph", numPr);
+          first = false;
           this.list(child as Tokens.List, level + 1, ctx);
           continue;
         }
@@ -176,15 +184,16 @@ class DocBuilder {
               : this.run(decodeEntities((child as Tokens.Text).text), {})
             : "";
         if (!content && child.type !== "text" && child.type !== "paragraph") {
+          // A code block, table or quote as an item's first part follows its number, not before it.
+          if (first) this.para(box(item, ""), "ListParagraph", numPr);
+          first = false;
           this.block(child, ctx);
           continue;
         }
-        const box = first && item.task ? this.run(item.checked ? "☑ " : "☐ ", {}) : "";
-        const numPr = first ? `<w:numPr><w:ilvl w:val="${lvl}"/><w:numId w:val="${numId}"/></w:numPr>` : `<w:ind w:left="${720 * (lvl + 1)}"/>`;
-        this.para(box + content, "ListParagraph", numPr);
+        this.para((first ? box(item, " ") : "") + content, "ListParagraph", first ? numPr : `<w:ind w:left="${720 * (lvl + 1)}"/>`);
         first = false;
       }
-      if (first) this.para(item.task ? this.run(item.checked ? "☑" : "☐", {}) : "", "ListParagraph", `<w:numPr><w:ilvl w:val="${lvl}"/><w:numId w:val="${numId}"/></w:numPr>`);
+      if (first) this.para(box(item, ""), "ListParagraph", numPr);
     }
   }
 
@@ -204,8 +213,25 @@ class DocBuilder {
   }
 }
 
+const ENTITIES: Record<string, string> = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: "\u00a0", copy: "©", reg: "®", trade: "™",
+  hellip: "…", mdash: "—", ndash: "–", lsquo: "‘", rsquo: "’", ldquo: "“", rdquo: "”", laquo: "«",
+  raquo: "»", bull: "•", middot: "·", deg: "°", plusmn: "±", times: "×", divide: "÷", euro: "€",
+  pound: "£", yen: "¥", cent: "¢", sect: "§", para: "¶", larr: "←", rarr: "→", uarr: "↑", darr: "↓",
+};
+
+/** Named and numeric character references, as Markdown allows them in text. */
 function decodeEntities(s: string): string {
-  return s.replace(/&(amp|lt|gt|quot|#39);/g, (_, e) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" })[e as "amp"]);
+  return s.replace(/&(#x[0-9a-f]{1,6}|#\d{1,7}|[a-z]+\d*);/gi, (all, e: string) => {
+    if (e[0] !== "#") return ENTITIES[e] ?? all;
+    const code = e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+    return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : "\ufffd";
+  });
+}
+
+/** The text of inline HTML: comments dropped whole, tags removed. */
+function stripHtml(s: string): string {
+  return decodeEntities(s.replace(/<!--[\s\S]*?(?:-->|$)/g, "").replace(/<[^>]*>/g, ""));
 }
 
 const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -226,7 +252,7 @@ ${[1, 2, 3, 4, 5, 6]
 <w:style w:type="table" w:styleId="TableGrid"><w:name w:val="Table Grid"/><w:tblPr><w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="C8C8D0"/><w:left w:val="single" w:sz="4" w:space="0" w:color="C8C8D0"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="C8C8D0"/><w:right w:val="single" w:sz="4" w:space="0" w:color="C8C8D0"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="C8C8D0"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="C8C8D0"/></w:tblBorders><w:tblCellMar><w:left w:w="100" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style>
 </w:styles>`;
 
-function numberingXml(nums: { id: number; abstract: 0 | 1 }[]): string {
+function numberingXml(nums: DocBuilder["nums"]): string {
   const bullets = ["•", "◦", "▪"];
   const lvls = (ordered: boolean) =>
     Array.from({ length: 9 }, (_, i) =>
@@ -238,7 +264,7 @@ function numberingXml(nums: { id: number; abstract: 0 | 1 }[]): string {
 <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
 <w:abstractNum w:abstractNumId="0"><w:multiLevelType w:val="hybridMultilevel"/>${lvls(false)}</w:abstractNum>
 <w:abstractNum w:abstractNumId="1"><w:multiLevelType w:val="hybridMultilevel"/>${lvls(true)}</w:abstractNum>
-${nums.map((n) => `<w:num w:numId="${n.id}"><w:abstractNumId w:val="${n.abstract}"/>${n.abstract === 1 ? '<w:lvlOverride w:ilvl="0"><w:startOverride w:val="1"/></w:lvlOverride>' : ""}</w:num>`).join("\n")}
+${nums.map((n) => `<w:num w:numId="${n.id}"><w:abstractNumId w:val="${n.abstract}"/>${n.abstract === 1 ? `<w:lvlOverride w:ilvl="${n.level ?? 0}"><w:startOverride w:val="${n.start ?? 1}"/></w:lvlOverride>` : ""}</w:num>`).join("\n")}
 </w:numbering>`;
 }
 

@@ -77,6 +77,7 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
       eventBus.on("annotationeditormodechanged", (e: { mode: number }) => {
         const m = (Object.keys(MODE) as Mode[]).find((k) => MODE[k] === e.mode) ?? "none";
         setModeState(m);
+        modeRef.current = m;
       });
       viewer.current = v;
       bus.current = eventBus;
@@ -151,16 +152,28 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
     };
   }, [openDoc, host]);
 
+  // A pending "highlight what is selected" step; any later tool choice or closing the tab cancels it.
+  const highlightTimer = useRef<number | undefined>(undefined);
+  const modeRef = useRef<Mode>("none");
+  useEffect(() => () => window.clearTimeout(highlightTimer.current), []);
   const setMode = (m: Mode) => {
     const v = viewer.current;
     if (!v) return;
-    // Text already selected when Highlight is chosen gets highlighted straight away.
+    window.clearTimeout(highlightTimer.current);
+    // Text already selected in this PDF when Highlight is chosen gets highlighted straight away.
     const sel = window.getSelection();
-    const hadSelection = m === "highlight" && !!sel && !sel.isCollapsed && !!(sel.anchorNode as HTMLElement | null)?.parentElement?.closest(".textLayer");
+    const anchor = sel?.anchorNode ?? null;
+    const hadSelection =
+      m === "highlight" && !!sel && !sel.isCollapsed && !!anchor && !!containerRef.current?.contains(anchor) && !!(anchor instanceof Element ? anchor : anchor.parentElement)?.closest(".textLayer");
     try {
       v.annotationEditorMode = { mode: MODE[m] };
       setModeState(m);
-      if (hadSelection) setTimeout(() => bus.current?.dispatch("editingaction", { source: null, name: "highlightSelection" }), 60);
+      modeRef.current = m;
+      if (hadSelection) {
+        highlightTimer.current = window.setTimeout(() => {
+          if (viewer.current === v && modeRef.current === "highlight") bus.current?.dispatch("editingaction", { source: null, name: "highlightSelection" });
+        }, 60);
+      }
     } catch (e) {
       host.toast(`That tool is not available for this PDF: ${e instanceof Error ? e.message : e}`, "error");
     }

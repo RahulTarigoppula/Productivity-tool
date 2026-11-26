@@ -1,7 +1,7 @@
 /** Converters registered with the conversion registry (docs/plans/10-universal-export.md).
  *  Heavy libraries are imported only when a conversion runs. */
 import { ConversionRegistry, type Converter } from "../lib/convert";
-import { loadCsv, toTable } from "../lib/csv";
+import { loadCsv, toTable, looksLikeHeader } from "../lib/csv";
 import { decodeText } from "../lib/textcodec";
 import { stem } from "../lib/paths";
 
@@ -255,10 +255,9 @@ export function buildRegistry(): ConversionRegistry {
   for (const src of ["csv", "tsv"]) {
     // Excel workbooks: numbers stay numbers, IDs with leading zeros stay text.
     r.register(c(src, "xlsx", "good", async ({ bytes, name }) => {
-      const { tablesToXlsx, asNumber } = await import("../lib/xlsxWriter");
+      const { tablesToXlsx } = await import("../lib/xlsxWriter");
       const rows = table(bytes, src);
-      const header = rows.length > 1 && rows[0].length > 0 && rows[0].every((v) => v.trim() !== "" && asNumber(v) === null);
-      return one(await tablesToXlsx([{ name: stem(name), rows, header }]));
+      return one(await tablesToXlsx([{ name: stem(name), rows, header: looksLikeHeader(rows) }]));
     }, "Values only: one sheet, no formulas or formatting."));
   }
   r.register(c("csv", "tsv", "exact", async ({ bytes }) => one(enc(tableToDelimited(table(bytes, "csv"), "\t")))));

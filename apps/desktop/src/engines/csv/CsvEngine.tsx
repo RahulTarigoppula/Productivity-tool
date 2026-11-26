@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUpNarrowWide, ArrowDownWideNarrow, Rows3, Columns3, Trash2, Filter, Heading, FileText, X, BetweenHorizontalStart, BetweenVerticalStart } from "lucide-react";
 import type { EngineHost, Command } from "../../app/editor-api";
-import { loadCsv, saveCsv, serializeCsv, columnCount, setCell, emptyRow, insertColumn, deleteColumn, compareCells, type CsvDoc, type CsvRow } from "../../lib/csv";
+import { loadCsv, saveCsv, serializeCsv, columnCount, setCell, emptyRow, insertColumn, deleteColumn, compareCells, looksLikeHeader, type CsvDoc, type CsvRow } from "../../lib/csv";
 import { describeFormat, canEncode } from "../../lib/textcodec";
 import { extname } from "../../lib/paths";
 import { colName } from "../office/ooxml";
@@ -12,6 +12,16 @@ const NUM_W = 52;
 
 interface Sel { r: number; c: number; r2: number; c2: number }
 const norm = (s: Sel) => ({ r1: Math.min(s.r, s.r2), r2: Math.max(s.r, s.r2), c1: Math.min(s.c, s.c2), c2: Math.max(s.c, s.c2) });
+
+/** The width that fits one column's text (header and the first 2,000 rows). */
+function fitColumn(rows: CsvRow[], c: number, header: boolean): number {
+  const ctx = document.createElement("canvas").getContext("2d")!;
+  ctx.font = "13px Segoe UI, system-ui, sans-serif";
+  let w = 60;
+  for (const r of rows.slice(0, 2000)) w = Math.max(w, ctx.measureText(r.cells[c] ?? "").width + 22);
+  if (header && rows[0]) w = Math.max(w, ctx.measureText(rows[0].cells[c] ?? "").width + 30);
+  return Math.min(480, Math.ceil(w));
+}
 
 function measure(rows: CsvRow[], cols: number, header: boolean): number[] {
   const ctx = document.createElement("canvas").getContext("2d")!;
@@ -59,10 +69,7 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
     docRef.current = d;
   }
   const [rows, setRowsState] = useState<CsvRow[]>(docRef.current.rows);
-  const [header, setHeader] = useState(() => {
-    const r = docRef.current.rows;
-    return r.length > 1 && r[0].cells.some((c) => c.trim()) && r[0].cells.every((c) => c.trim() === "" || isNaN(Number(c)));
-  });
+  const [header, setHeader] = useState(() => looksLikeHeader(docRef.current.rows.slice(0, 2).map((r) => r.cells)));
   const cols = Math.max(1, useMemo(() => columnCount({ ...docRef.current, rows }), [rows]));
   const [widths, setWidths] = useState<number[]>(() => measure(docRef.current.rows, Math.max(1, columnCount(docRef.current)), header));
   const [sel, setSel] = useState<Sel>({ r: 0, c: 0, r2: 0, c2: 0 });
@@ -485,6 +492,8 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
   const colStart = Math.max(0, colAt(scroll.left) - 2);
   const colEnd = Math.min(cols, colAt(scroll.left + scroll.width) + 3);
   const visibleCols = Array.from({ length: Math.max(0, colEnd - colStart) }, (_, i) => colStart + i);
+  // A column being renamed stays drawn while the grid scrolls sideways, so its editor keeps focus.
+  const headCols = headEdit && (headEdit.c < colStart || headEdit.c >= colEnd) && headEdit.c < cols ? [...visibleCols, headEdit.c] : visibleCols;
 
   const resize = (c: number, e: React.MouseEvent) => {
     e.preventDefault();
@@ -521,7 +530,7 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
         <div style={{ height: (view.length + 1) * ROW_H, width: totalW, position: "relative" }}>
           <div className="csv-head" style={{ width: totalW }}>
             <div className="csv-corner" style={{ width: NUM_W }} onClick={() => setSel({ r: 0, c: 0, r2: view.length - 1, c2: cols - 1 })} />
-            {visibleCols.map((c) => (
+            {headCols.map((c) => (
               <div
                 key={c}
                 className={`csv-hcell ${c >= c1 && c <= c2 ? "sel" : ""}`}
@@ -545,7 +554,7 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
                     onClick={(e) => e.stopPropagation()}
                     onKeyDown={(e) => {
                       e.stopPropagation();
-                      if (e.key === "Enter") renameColumn(c, headEdit.value);
+                      if (e.key === "Enter" && !e.nativeEvent.isComposing) renameColumn(c, headEdit.value);
                       if (e.key === "Escape") { headDone.current = true; setHeadEdit(null); scrollRef.current?.focus(); }
                     }}
                     onBlur={() => renameColumn(c, headEdit.value)}
@@ -553,7 +562,17 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
                 ) : (
                   <span className="t">{header ? rows[0]?.cells[c] || colName(c) : colName(c)}</span>
                 )}
-                <span className="grip" onMouseDown={(e) => resize(c, e)} />
+                <span
+                  className="grip"
+                  title="Drag to resize; double-click to fit"
+                  onMouseDown={(e) => resize(c, e)}
+                  onClick={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    const w = fitColumn(rows, c, header);
+                    setWidths((ws) => ws.map((x, i) => (i === c ? w : x)));
+                  }}
+                />
               </div>
             ))}
           </div>
@@ -620,6 +639,7 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
               onBlur={() => finishEdit(true)}
               onFocus={(e) => e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)}
               onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing) return;
                 if (e.key === "Enter" && !e.altKey && !e.shiftKey) { e.preventDefault(); finishEdit(true, [1, 0]); }
                 else if (e.key === "Tab") { e.preventDefault(); finishEdit(true, [0, e.shiftKey ? -1 : 1]); }
                 else if (e.key === "Escape") { e.preventDefault(); finishEdit(false); }

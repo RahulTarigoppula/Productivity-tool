@@ -44,18 +44,22 @@ function selectedLines(view: EditorView) {
   return [...lines.values()];
 }
 
+/** Markers a heading replaces: an existing heading, task, bullet, number or quote ("> - [ ] x"). */
+const BLOCK_MARKER = /^\s*(?:#{1,6}(?:\s+|$)|[-*+] \[[ xX]\](?:\s+|$)|[-*+](?:\s+|$)|\d+[.)](?:\s+|$)|>\s?)/;
+const DIVIDER = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/;
+
 export function setHeading(view: EditorView, level: number): boolean {
-  const changes: ChangeSpec[] = [];
-  for (const line of selectedLines(view)) {
-    const m = /^(#{1,6})\s+/.exec(line.text);
-    const current = m ? m[1].length : 0;
-    const target = current === level ? 0 : level;
-    // A heading replaces a list, task or quote marker on the line (never "# > text").
-    const other = m ? null : /^\s*(?:[-*+] \[[ xX]\] |[-*+] |\d+[.)] |> ?)/.exec(line.text);
-    const prefixLen = m ? m[0].length : other ? other[0].length : 0;
-    changes.push({ from: line.from, to: line.from + prefixLen, insert: target ? "#".repeat(target) + " " : "" });
-  }
-  // The cursor moves past the inserted marker, so typing continues after "- [ ] ", "# " etc.
+  const lines = selectedLines(view).filter((l) => !DIVIDER.test(l.text));
+  if (!lines.length) return false;
+  const levelOf = (t: string) => /^(#{1,6})(?:\s|$)/.exec(t)?.[1].length ?? 0;
+  // One decision for the whole selection: if every line is already this heading, remove it.
+  const off = lines.every((l) => levelOf(l.text) === level);
+  const changes: ChangeSpec[] = lines.map((l) => {
+    let len = 0;
+    for (let m; (m = BLOCK_MARKER.exec(l.text.slice(len))) && m[0].length; ) len += m[0].length;
+    return { from: l.from, to: l.from + len, insert: off ? "" : "#".repeat(level) + " " };
+  });
+  // The cursor moves past the inserted marker, so typing continues after "# ".
   const cs = view.state.changes(changes);
   view.dispatch({ changes: cs, selection: view.state.selection.map(cs, 1), userEvent: "input" });
   view.focus();

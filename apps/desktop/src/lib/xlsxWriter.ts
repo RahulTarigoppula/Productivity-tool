@@ -1,11 +1,13 @@
 /** Writes Excel (.xlsx) workbooks from tables, offline, with no extra dependencies.
  *  Plain numbers become numbers (so sums and sorting work in Excel); anything that would change
- *  if treated as a number stays text: leading zeros (IDs, ZIP codes), long digit strings, "+1",
- *  "1e5" and the like. The header row is bold and stays in view; columns are sized to fit. */
+ *  if treated as a number stays text: leading zeros (IDs, ZIP codes), digit strings of 12 or more
+ *  (barcodes, card and order numbers, which Excel would show as 4.00638E+12), trailing zeros
+ *  ("1.10"), "-0", "+1", "1e5" and the like. The header row is bold and stays in view; columns are sized to fit. */
 import JSZip from "jszip";
 
 export const XLSX_MAX_ROWS = 1_048_576;
 export const XLSX_MAX_COLS = 16_384;
+export const XLSX_MAX_CELL = 32_767;
 
 const esc = (s: string) =>
   s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f￾￿]/g, "");
@@ -17,12 +19,17 @@ export function colLetters(i: number): string {
   return s;
 }
 
-/** A value Excel can store as a number without changing what the person sees. */
+/** A value Excel can store as a number without changing what the person sees: the number must
+ *  print back exactly as written (so "1.10", "2.50", "-0" stay text), have at most 15 significant
+ *  digits (Excel's precision) and at most 11 before the point (Excel shows longer ones as 1.2E+12). */
 export function asNumber(v: string): number | null {
-  const t = v.trim();
-  if (t !== v || !/^-?(0|[1-9]\d{0,14})(\.\d+)?$/.test(t)) return null;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : null;
+  const m = /^-?(0|[1-9]\d*)(?:\.(\d+))?$/.exec(v);
+  if (!m) return null;
+  const [, int, frac = ""] = m;
+  if (int.length > 11) return null;
+  if ((int === "0" ? frac.replace(/^0+/, "") : int + frac).length > 15) return null;
+  const n = Number(v);
+  return Number.isFinite(n) && String(n) === v ? n : null;
 }
 
 export interface SheetInput {
@@ -31,13 +38,25 @@ export interface SheetInput {
   header?: boolean;
 }
 
+/** Excel's sheet-name rules: 1-31 characters, none of \\ / ? * [ ] :, no apostrophe at either
+ *  end, not "History", unique ignoring case. Cut by characters, never inside an emoji. */
 function sheetName(name: string, taken: Set<string>): string {
-  let base = name.replace(/[\\/?*[\]:]/g, " ").replace(/^'+|'+$/g, "").trim().slice(0, 31) || "Sheet";
+  // Excel counts UTF-16 units (an emoji is two), so stop before a character that would not fit.
+  const clip = (t: string, max: number) => {
+    let out = "";
+    for (const ch of t) {
+      if (out.length + ch.length > max) break;
+      out += ch;
+    }
+    return out.replace(/^['\s]+|['\s]+$/g, "");
+  };
+  let base = clip(name.replace(/[\\/?*[\]:\u0000-\u001f]/g, " ").trim(), 31) || "Sheet";
+  if (base.toLowerCase() === "history") base = "History (sheet)";
   let n = 2;
   let out = base;
   while (taken.has(out.toLowerCase())) {
     const suffix = ` (${n++})`;
-    out = base.slice(0, 31 - suffix.length) + suffix;
+    out = clip(base, 31 - suffix.length) + suffix;
   }
   taken.add(out.toLowerCase());
   return out;
@@ -54,6 +73,7 @@ function sheetXml(s: SheetInput): string {
       const cells = r
         .map((v, ci) => {
           if (v === "") return "";
+          if (v.length > XLSX_MAX_CELL) throw new Error(`Row ${ri + 1}, column ${colLetters(ci)} holds more than ${XLSX_MAX_CELL.toLocaleString()} characters, more than one Excel cell can store.`);
           const ref = `${colLetters(ci)}${ri + 1}`;
           const n = header ? null : asNumber(v);
           const style = header ? ' s="1"' : "";

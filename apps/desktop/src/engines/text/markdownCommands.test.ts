@@ -19,11 +19,26 @@ describe("Markdown commands", () => {
       ["- [ ] task", "# task"],
       ["## Title", "# Title"],
       ["# Title", "Title"],
+      ["> > nested", "# nested"],
+      ["> # Title", "# Title"],
+      ["> - item", "# item"],
+      ["  3) third", "# third"],
+      ["-", "# "],
+      ["#hashtag", "# #hashtag"],
+      ["1.5 million", "# 1.5 million"],
     ]) {
       const v = view(src, 0);
       setHeading(v, 1);
       expect(v.state.doc.toString()).toBe(want);
     }
+  });
+
+  it("decides once for a whole selection and leaves dividers alone", () => {
+    const v = view("# a\n- b\n---\n> c", 0, 15);
+    setHeading(v, 1);
+    expect(v.state.doc.toString()).toBe("# a\n# b\n---\n# c");
+    setHeading(v, 1);
+    expect(v.state.doc.toString()).toBe("a\nb\n---\nc");
   });
 
   it("list markers leave the cursor after the marker", () => {

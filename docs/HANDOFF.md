@@ -67,7 +67,7 @@ The app is one window with tabs. Four things are always there: **tabs** at the t
 - **New** Document/Spreadsheet/Presentation from the home screen or Ctrl+K (installed app only).
 
 ### Export and print
-- **Ctrl+E** lists every format the file can become, with a **Text only** label where formatting is lost (for example Markdown → plain text). Notes become **Word documents** and tables become **Excel workbooks** (numbers stay numbers, IDs keep their leading zeros), all offline. The original file is never changed.
+- **Ctrl+E** lists every format the file can become, with a **Text only** label where formatting is lost (for example Markdown → plain text). Notes become **Word documents** and tables become **Excel workbooks** (numbers stay numbers; IDs with leading zeros, barcodes and values like 1.10 stay exactly as typed), all offline. The original file is never changed.
 - **Print or save as a formatted PDF** opens the print window (choose *Save as PDF*).
 
 ### Safety nets
@@ -123,14 +123,14 @@ Note: a plain `cargo build --release` does not embed the interface (it points at
 
 | What | Command (in `apps/desktop`) | Count today |
 |---|---|---|
-| Unit tests | `pnpm test` | 71 |
+| Unit tests | `pnpm test` | 81 |
 | Rust tests | `cd src-tauri && cargo test --release` | 22 |
-| End-to-end flows (browser build) | `pnpm build && pnpm preview --port 1420 &` then `APP_URL=http://localhost:1420/ pnpm e2e` | 46 |
-| Office editing flows | `pnpm office-pack`, `node tests/office-server.mjs &`, then `pnpm e2e:office` | 13 |
+| End-to-end flows (browser build) | `pnpm build && pnpm preview --port 1420 &` then `APP_URL=http://localhost:1420/ pnpm e2e` | 47 |
+| Office editing flows | `pnpm office-pack`, `node tests/office-server.mjs &`, then `OFFICE_URL=http://localhost:4180 pnpm e2e:office` (no trailing slash) | 13 |
 | Real-app self-test (Windows/Linux) | `PRODUCTIVITY_SELF_TEST=<folder with tests/corpus files> productivity.exe` → writes `selftest-report.json` there | 23 checks |
 | Real-app self-test (Android emulator) | `tests/android-smoke.sh <apk> <out-dir>` (needs USB debugging on) | 23 checks |
 
-CI (`.github/workflows/`): **windows.yml** runs unit and Rust tests, builds the Office pack, the installer and portable exe, runs the self-test in real WebView2, and runs all end-to-end and Office flows on Linux. **android.yml** builds and signs the APK and runs the emulator smoke test and self-test on Android 15. Both passed on the latest code (commit `cd3ab8d`).
+CI (`.github/workflows/`): **windows.yml** runs unit and Rust tests, builds the Office pack, the installer and portable exe, runs the self-test in real WebView2, and runs all end-to-end and Office flows on Linux. **android.yml** builds and signs the APK and runs the emulator smoke test and self-test on Android 15. Both passed on commit `6e0aea1`; see the Actions tab for the latest run.
 
 Flows named `D-*`, `U-*`, `R-*`, `P-1` are regression guards for bugs found in review (data loss, journeys, performance); keep them green.
 

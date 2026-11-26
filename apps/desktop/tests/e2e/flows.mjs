@@ -634,7 +634,7 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     await page.keyboard.press("Escape");
   });
 
-  await check("U-5", "double-clicking a column name renames it; Escape discards a name or cell edit", async () => {
+  await check("U-5", "double-clicking a column name renames it, its border fits it; Escape discards a name or cell edit", async () => {
     await page.evaluate(() => window.__fs.write("/work/rename.csv", new TextEncoder().encode("name,age\nLee,5\n")));
     await open("/work/rename.csv");
     const head = page.locator("section.doc-pane:not([hidden]) .csv-hcell").first();
@@ -645,6 +645,12 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     await head.dblclick();
     await page.locator("section.doc-pane:not([hidden]) .csv-head-input").fill("oops");
     await page.keyboard.press("Escape");
+    const grip = page.locator("section.doc-pane:not([hidden]) .csv-hcell .grip").first();
+    await head.evaluate((el) => (el.style.width = "300px"));
+    await grip.dblclick();
+    assert(!(await page.locator("section.doc-pane:not([hidden]) .csv-head-input").count()), "double-clicking the column border opened the rename box");
+    const fitted = await head.evaluate((el) => el.getBoundingClientRect().width);
+    assert(fitted < 200, `the column was not fitted to its text (${fitted}px)`);
     await page.locator("section.doc-pane:not([hidden]) .csv-cell", { hasText: "Lee" }).dblclick();
     await page.keyboard.press("Control+a");
     await page.keyboard.type("WRONG");

@@ -71,10 +71,36 @@ describe("Word export", () => {
     expect(text).toContain("[diagram] Final words.");
   });
 
-  it("numbers each ordered list from 1", async () => {
-    const zip = await JSZip.loadAsync(await markdownToDocx("1. a\n2. b\n\ntext\n\n1. c\n2. d\n", "t"));
+  it("numbers each ordered list from where it starts", async () => {
+    const zip = await JSZip.loadAsync(await markdownToDocx("1. a\n2. b\n\ntext\n\n5. c\n6. d\n   1. inner\n", "t"));
     const numbering = await zip.file("word/numbering.xml")!.async("string");
-    expect((numbering.match(/<w:startOverride w:val="1"\/>/g) ?? []).length).toBe(2);
+    const doc = await zip.file("word/document.xml")!.async("string");
+    const numIds = [...doc.matchAll(/<w:ilvl w:val="(\d)"\/><w:numId w:val="(\d+)"\/>/g)].map((m) => `${m[1]}:${m[2]}`);
+    expect(numIds).toEqual(["0:2", "0:2", "0:3", "0:3", "1:4"]);
+    expect(numbering).toContain('<w:num w:numId="2"><w:abstractNumId w:val="1"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="1"/>');
+    expect(numbering).toContain('<w:num w:numId="3"><w:abstractNumId w:val="1"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="5"/>');
+    expect(numbering).toContain('<w:num w:numId="4"><w:abstractNumId w:val="1"/><w:lvlOverride w:ilvl="1"><w:startOverride w:val="1"/>');
+  });
+
+  it("writes run properties in the order Word requires, with one style per run", async () => {
+    const zip = await JSZip.loadAsync(await markdownToDocx("**`bold code`** [`code link`](https://a.b) ~~*x*~~", "t"));
+    const doc = await zip.file("word/document.xml")!.async("string");
+    const order = ["rStyle", "b", "i", "strike", "color", "u"];
+    for (const [, pr] of doc.matchAll(/<w:rPr>(.*?)<\/w:rPr>/g)) {
+      const tags = [...pr.matchAll(/<w:(\w+)/g)].map((m) => m[1]);
+      expect(tags.filter((t) => t === "rStyle").length).toBeLessThanOrEqual(1);
+      expect(tags.map((t) => order.indexOf(t))).toEqual([...tags.map((t) => order.indexOf(t))].sort((a, b) => a - b));
+    }
+    expect(doc).toContain('<w:rStyle w:val="InlineCode"/><w:b/>');
+    expect(doc).toContain('<w:rStyle w:val="InlineCode"/><w:color w:val="2F5BD8"/><w:u w:val="single"/>');
+  });
+
+  it("puts an item's number before a code block that opens it, and decodes entities", async () => {
+    const bytes = await markdownToDocx("1. ```\n   code\n   ```\n\nA&nbsp;B &copy; &#x263A; &bogus; <!-- c > d --> end\n", "t");
+    const paras = await readDocxText(bytes);
+    expect(paras[0].text).toBe("");
+    expect(paras[1].text).toBe("code");
+    expect(paras.map((p) => p.text)).toContain("A\u00a0B © ☺ &bogus;  end");
   });
 
   it("only web and mail links become clickable", async () => {
@@ -126,7 +152,31 @@ describe("Excel export", () => {
     expect(asNumber("42")).toBe(42);
     expect(asNumber("-3.25")).toBe(-3.25);
     expect(asNumber("0.5")).toBe(0.5);
-    for (const v of ["007", "+1", "1e5", " 4", "1,000", "12345678901234567", "", "0x10", "NaN"]) expect(asNumber(v)).toBeNull();
+    expect(asNumber("99999999999")).toBe(99999999999);
+    expect(asNumber("123456.789")).toBe(123456.789);
+    for (const v of ["007", "+1", "1e5", " 4", "1,000", "12345678901234567", "", "0x10", "NaN", "4006381333931", "123456789012", "1.10", "2.50", "1.0", "-0", "-0.0", "0.1234567890123456789", "1."])
+      expect(asNumber(v), v).toBeNull();
+  });
+
+  it("keeps sheet names within Excel's rules", async () => {
+    const names = async (...n: string[]) => {
+      const zip = await JSZip.loadAsync(await tablesToXlsx(n.map((name) => ({ name, rows: [["a"]] }))));
+      const wb = await zip.file("xl/workbook.xml")!.async("string");
+      return [...wb.matchAll(/name="([^"]*)"/g)].map((m) => m[1].replace(/&amp;/g, "&"));
+    };
+    const got = await names(" 'quoted", "a".repeat(30) + "'b", "History", "Q1" + "😀".repeat(16), "Data", "data", "  ");
+    for (const n of got) {
+      expect(n.length).toBeLessThanOrEqual(31);
+      expect(n).not.toMatch(/^'|'$|[\\/?*[\]:]/);
+      expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(n), "lone surrogate").toBe(false);
+    }
+    expect(got[0]).toBe("quoted");
+    expect(got[2]).not.toBe("History");
+    expect(new Set(got.map((n) => n.toLowerCase())).size).toBe(got.length);
+  });
+
+  it("refuses a cell longer than Excel can hold", async () => {
+    await expect(tablesToXlsx([{ name: "s", rows: [["x".repeat(32_768)]] }])).rejects.toThrow(/32,767/);
   });
 
   it("names columns like Excel", () => {

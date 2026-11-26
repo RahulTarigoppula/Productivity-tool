@@ -191,3 +191,10 @@ export function compareCells(a: string, b: string): number {
 export function toTable(doc: CsvDoc): string[][] {
   return doc.rows.map((r) => r.cells);
 }
+
+/** Whether the first row looks like column names: it has some text and no cell is a number.
+ *  The grid and the Excel export use the same guess, so a table shows and exports alike. */
+export function looksLikeHeader(rows: string[][]): boolean {
+  const first = rows[0];
+  return rows.length > 1 && !!first && first.some((c) => c.trim() !== "") && first.every((c) => c.trim() === "" || isNaN(Number(c)));
+}

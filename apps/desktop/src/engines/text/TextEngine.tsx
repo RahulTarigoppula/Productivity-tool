@@ -31,7 +31,13 @@ const WORD = /[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu;
 /** The find bar with the cursor in "Replace with". */
 function openReplace(view: EditorView): boolean {
   openSearchPanel(view);
-  requestAnimationFrame(() => view.dom.querySelector<HTMLInputElement>(".cm-search input[name=replace]")?.focus());
+  // The panel is usually drawn at once; if not, on the next frame.
+  const focus = () => {
+    const input = view.dom.querySelector<HTMLInputElement>(".cm-search input[name=replace]");
+    input?.focus();
+    return !!input;
+  };
+  if (!focus()) requestAnimationFrame(focus);
   return true;
 }
 

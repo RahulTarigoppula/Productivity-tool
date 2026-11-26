@@ -3,8 +3,9 @@ import { useModalFocus } from "./modalFocus";
 import { NotebookText, FileText, Sheet, FileSearch, FileType, FileSpreadsheet, Presentation } from "lucide-react";
 import { useStore, setState, activeTab, handles, toast } from "../app/store";
 import { useAsk } from "../app/dialogs";
-import { updateSettings, newFile, newOfficeFile, pickAndOpen, suggestExportPath, openPath, handleExternalChange } from "../app/actions";
-import { getRegistry, sourceFormat, FORMAT_LABEL } from "../app/exporters";
+import { updateSettings, newFile, newOfficeFile, pickAndOpen, suggestExportPath, openPath, handleExternalChange, addRecent } from "../app/actions";
+import { getRegistry, sourceFormat, FORMAT_LABEL, PREFERRED_EXPORTS } from "../app/exporters";
+import { kindFromName } from "../lib/formats";
 import { QUALITY_LABEL, type Route } from "../lib/convert";
 import { platform } from "../platform";
 import { basename, dirname, join, stem } from "../lib/paths";
@@ -204,7 +205,20 @@ function Export() {
     const own = new Set((handles.get(tab.id)?.exportFormats?.() ?? []).map((f) => f.ext));
     return getRegistry().routes(sourceFormat(tab.name, tab.kind)).filter((r) => !own.has(r.to));
   }, [tab]);
+  // The document's text, read once and only if a note depends on it.
+  const textCache = useRef<string | null>(null);
   if (!tab || tab.error) return null;
+  const sourceText = () => (textCache.current ??= handles.get(tab.id)?.getText?.() ?? "");
+  /** "Exported plan.docx to Documents", and the file joins Recent so it is easy to find again. */
+  const exported = (paths: string[], loss: string | null) => {
+    for (const p of paths) void addRecent(p, kindFromName(p));
+    const folder = basename(dirname(paths[0]));
+    const where = folder ? ` to ${folder}` : "";
+    toast(paths.length > 1 ? `Exported ${paths.length} files${where}${loss ? " — " + loss : ""}` : `Exported ${basename(paths[0])}${where}`, "info", {
+      label: paths.length > 1 && platform.folders ? "Show in folder" : "Open",
+      run: () => (paths.length > 1 && platform.folders ? void platform.reveal(paths[0]) : void openPath(paths[0])),
+    });
+  };
   const runEngine = async (ext: string, label: string) => {
     const handle = handles.get(tab.id);
     if (!handle?.convert) return;
@@ -217,7 +231,7 @@ function Export() {
       await platform.writeFile(target, bytes, { snapshot: true });
       handleExternalChange(target);
       closeDialog();
-      toast(`Exported ${basename(target)}`, "info", { label: "Open", run: () => void openPath(target) });
+      exported([target], null);
     } catch (e) {
       toast(`Export failed: ${e instanceof Error ? e.message : e}`, "error");
     } finally {
@@ -227,7 +241,7 @@ function Export() {
   const run = async (route: Route) => {
     const handle = handles.get(tab.id);
     if (!handle) return;
-    const loss = getRegistry().lossNote(route);
+    const loss = getRegistry().lossNote(route, sourceText);
     const target = await platform.pickSave({ defaultPath: suggestExportPath(tab, route.to), filters: [{ name: FORMAT_LABEL[route.to] ?? route.to.toUpperCase(), extensions: [route.to] }] });
     if (!target) return;
     setBusy(route.to);
@@ -242,10 +256,7 @@ function Export() {
         written.push(p);
       }
       closeDialog();
-      toast(written.length > 1 ? `Exported ${written.length} files${loss ? " — " + loss : ""}` : `Exported ${basename(written[0])}`, "info", {
-        label: written.length > 1 && platform.folders ? "Show in folder" : "Open",
-        run: () => (written.length > 1 && platform.folders ? void platform.reveal(written[0]) : void openPath(written[0])),
-      });
+      exported(written, loss);
     } catch (e) {
       toast(`Export failed: ${e instanceof Error ? e.message : e}`, "error");
     } finally {
@@ -264,6 +275,24 @@ function Export() {
       {busy === key ? <span className="spinner" style={{ width: 16, height: 16 }} /> : quality === "text" ? <span className={`q ${quality}`}>{QUALITY_LABEL[quality]}</span> : null}
     </button>
   );
+  // What people usually want from this kind of file comes first; the rest wait under "More formats".
+  const items = [
+    ...routes.map((r) => ({ key: r.to, quality: r.quality, node: row(r.to, r.to, FORMAT_LABEL[r.to] ?? r.to.toUpperCase(), getRegistry().lossNote(r, sourceText), r.quality, () => void run(r)) })),
+    ...(printable
+      ? [{
+          key: "print",
+          quality: "good" as const,
+          node: row("print", "print", "Print or save as a formatted PDF…", "Choose \u201cSave as PDF\u201d (or a PDF printer) in the print window", "good", () => {
+            closeDialog();
+            void import("./print").then((m) => m.printActive());
+          }),
+        }]
+      : []),
+  ];
+  const preferred = PREFERRED_EXPORTS[sourceFormat(tab.name, tab.kind)];
+  const top = preferred ? preferred.flatMap((k) => items.filter((x) => x.key === k)) : items;
+  const more = preferred ? items.filter((x) => !preferred.includes(x.key)) : [];
+  const anyTextOnly = top.some((x) => x.quality === "text") || (more.length > 0 && more.some((x) => x.quality === "text"));
   return (
     <Overlay onClose={closeDialog}>
       <div className="dialog export-dialog" role="dialog" aria-label="Export">
@@ -275,16 +304,17 @@ function Export() {
           {engineFormats.map((f) =>
             row(f.ext, f.ext, f.label, "Full layout, made by the Office editor", f.ext === "txt" || f.ext === "csv" ? "text" : "exact", () => void runEngine(f.ext, f.label)),
           )}
-          {routes.map((r) => row(r.to, r.to, FORMAT_LABEL[r.to] ?? r.to.toUpperCase(), getRegistry().lossNote(r), r.quality, () => void run(r)))}
-          {printable &&
-            row("print", "print", "Print or save as a formatted PDF…", "Choose \u201cSave as PDF\u201d (or a PDF printer) in the print window", "good", () => {
-              closeDialog();
-              void import("./print").then((m) => m.printActive());
-            })}
+          {top.map((x) => x.node)}
+          {more.length > 0 && (
+            <details className="export-more">
+              <summary>More formats</summary>
+              <div className="export-list">{more.map((x) => x.node)}</div>
+            </details>
+          )}
         </div>
         {!routes.length && !printable && !engineFormats.length && <p>No export formats are available for this kind of file yet.</p>}
         <div className="dialog-foot">
-          <span className="help">“Text only” means formatting is not kept.</span>
+          {anyTextOnly && <span className="help">“Text only” means formatting is not kept.</span>}
           <button className="btn" onClick={closeDialog}>Cancel</button>
         </div>
       </div>

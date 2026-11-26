@@ -405,6 +405,15 @@ a { color: var(--accent); }
 .export-list { display: flex; flex-direction: column; gap: 6px; }
 .export-row { width: 100%; text-align: left; background: var(--surface); color: var(--text); margin: 0; padding: 10px 12px; border-radius: 10px; transition: border-color var(--motion), background var(--motion); }
 .export-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.export-dialog .dialog-foot { justify-content: flex-end; }
+.export-dialog .dialog-foot .help { margin-right: auto; }
+.export-more > summary { cursor: default; color: var(--text-2); padding: 8px 4px; list-style: none; display: flex; align-items: center; gap: 6px; border-radius: 6px; }
+.export-more > summary::-webkit-details-marker { display: none; }
+.export-more > summary::before { content: "›"; display: inline-block; width: 1em; text-align: center; transition: transform var(--motion); }
+.export-more[open] > summary::before { transform: rotate(90deg); }
+.export-more > summary:hover { color: var(--text); }
+.export-more > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.export-more > .export-list { margin-top: 6px; }
 .export-row .desc { display: flex; flex-direction: column; min-width: 0; }
 .export-row .desc .t { font-weight: 600; color: var(--text); }
 .export-row .desc .help { color: var(--text-3); font-size: 12px; }

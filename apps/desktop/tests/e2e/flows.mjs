@@ -293,6 +293,11 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     await open("/work/data.csv");
     await page.evaluate(() => window.__fs.queueSave("/work/data.json"));
     await page.keyboard.press("Control+e");
+    // A table offers Excel first; less common formats wait under "More formats".
+    const firstRow = await page.locator(".export-row").first().textContent();
+    assert(/Excel workbook/.test(firstRow ?? ""), `first export choice is ${JSON.stringify(firstRow)}`);
+    assert(!(await page.locator(".export-row", { hasText: "JSON" }).isVisible()), "JSON shown before More formats was opened");
+    await page.locator(".export-more > summary").click();
     await page.locator(".export-row", { hasText: "JSON" }).click();
     await waitFor(async () => (await fsText("/work/data.json")) !== null, 4000, "json written");
     const json = JSON.parse(await fsText("/work/data.json"));
@@ -717,9 +722,40 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     assert(text.startsWith("- Mitochondria\n\nParagraph after.\n\n"), `document reads ${JSON.stringify(text)}`);
     assert(text.includes("| Item | Qty |\n| --- | --- |\n| Pens | 3 |"), `table reads ${JSON.stringify(text)}`);
     await page.keyboard.press("Control+h");
-    const inReplace = await page.evaluate(() => document.activeElement?.getAttribute("name") === "replace");
-    assert(inReplace, "Ctrl+H did not put the cursor in the replace box");
+    await waitFor(() => page.evaluate(() => document.activeElement?.getAttribute("name") === "replace"), 2000, "the cursor in the replace box");
     await page.keyboard.press("Escape");
+  });
+
+  await check("U-8", "a first save is named after the note's heading; auto-save never asks over the conflict banner", async () => {
+    await page.evaluate(() => window.__app.newFile("markdown"));
+    const pane = "section.doc-pane:not([hidden])";
+    await page.waitForSelector(`${pane} .cm-content`);
+    await page.locator(`${pane} .cm-content`).click();
+    await page.keyboard.type("# Biology: Cell structure\n\nNotes.");
+    await page.keyboard.press("Control+s");
+    await waitFor(async () => (await activeTab())?.name === "Biology Cell structure.md", 4000, "named after the heading");
+    // Auto-save on, an edit, then the file changes outside: the banner asks, not a dialog.
+    await page.evaluate(() => window.__app.updateSettings({ autoSave: true }));
+    await page.keyboard.type(" More.");
+    const path = (await activeTab()).path;
+    await page.evaluate((p) => window.__fs.externalChange(p, "# Changed elsewhere\n"), path);
+    await page.waitForTimeout(2500);
+    assert(!(await page.getByRole("alertdialog").isVisible().catch(() => false)), "a dialog opened over the conflict banner");
+    await waitFor(() => page.getByRole("button", { name: "Keep my version" }).isVisible(), 3000, "conflict banner");
+    await page.getByRole("button", { name: "Keep my version" }).click();
+    await page.evaluate(() => window.__app.updateSettings({ autoSave: false }));
+  });
+
+  await check("U-9", "a damaged or misnamed PDF explains itself instead of showing bytes", async () => {
+    await page.evaluate(() => { const b = new Uint8Array(4096); for (let i = 0; i < b.length; i++) b[i] = (i * 2654435761) >>> 24; window.__fs.write("/work/broken.pdf", b); });
+    await open("/work/broken.pdf");
+    const pane = "section.doc-pane:not([hidden])";
+    await waitFor(() => page.locator(pane, { hasText: "broken.pdf can't be opened" }).isVisible(), 4000, "explanation");
+    assert(!(await page.locator(`${pane} .hex`).count()), "raw bytes shown before asking");
+    assert(!(await page.locator(`${pane} .banner`).count()), "a banner repeats the explanation");
+    await page.getByRole("button", { name: "Show raw data" }).click();
+    await waitFor(() => page.locator(`${pane} .hex`).isVisible(), 3000, "raw data");
+    assert((await activeTab()).saveState === "readonly", "raw data reads as saved");
   });
 
   await check("F-34", "dark theme applies", async () => {

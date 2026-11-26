@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import JSZip from "jszip";
 import { markdownToDocx, textToDocx } from "./docxWriter";
-import { tablesToXlsx, asNumber, colLetters } from "./xlsxWriter";
+import { tablesToXlsx, colLetters } from "./xlsxWriter";
 import { readDocxText, readXlsx } from "../engines/office/ooxml";
 
 async function wellFormed(bytes: Uint8Array) {
@@ -148,14 +148,19 @@ describe("Excel export", () => {
     expect(read.rows[2][1]).toBe("Lee & <Co>");
   });
 
-  it("decides what is safely a number", () => {
-    expect(asNumber("42")).toBe(42);
-    expect(asNumber("-3.25")).toBe(-3.25);
-    expect(asNumber("0.5")).toBe(0.5);
-    expect(asNumber("99999999999")).toBe(99999999999);
-    expect(asNumber("123456.789")).toBe(123456.789);
-    for (const v of ["007", "+1", "1e5", " 4", "1,000", "12345678901234567", "", "0x10", "NaN", "4006381333931", "123456789012", "1.10", "2.50", "1.0", "-0", "-0.0", "0.1234567890123456789", "1."])
-      expect(asNumber(v), v).toBeNull();
+  it("stores prices, percentages and dates as numbers that show exactly as typed", async () => {
+    const rows = [["item", "price", "discount", "sold"], ["Bread", "1.10", "12.5%", "2026-01-15"], ["Milk", "2.20", "5%", "2026-02-01"]];
+    const bytes = await tablesToXlsx([{ name: "Stock", rows, header: true }]);
+    const zip = await wellFormed(bytes);
+    const sheet = await zip.file("xl/worksheets/sheet1.xml")!.async("string");
+    expect(sheet).toMatch(/<c r="B2" s="\d+"><v>1\.1<\/v><\/c>/);
+    expect(sheet).toMatch(/<c r="C2" s="\d+"><v>0\.125<\/v><\/c>/);
+    expect(sheet).toMatch(/<c r="D2" s="\d+"><v>46037<\/v><\/c>/);
+    const styles = await zip.file("xl/styles.xml")!.async("string");
+    expect(styles).toContain('formatCode="0.00"');
+    expect(styles).toContain('formatCode="yyyy-mm-dd"');
+    const [read] = await readXlsx(bytes);
+    expect(read.rows).toEqual(rows);
   });
 
   it("keeps sheet names within Excel's rules", async () => {

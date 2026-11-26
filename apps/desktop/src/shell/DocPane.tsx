@@ -202,6 +202,17 @@ export function DocPane({ tab, active }: { tab: Tab; active: boolean }) {
               <button className="btn subtle" onClick={() => void closeTab(tab.id)}>Close</button>
             </div>
           </div>
+        ) : tab.damaged ? (
+          <div className="center-note">
+            <FileWarning size={28} />
+            <h3>{tab.name} can't be opened</h3>
+            <div>It may be damaged, or it isn't really a {tab.damaged} file.</div>
+            <div className="acts">
+              {tab.path && platform.folders && <button className="btn" onClick={() => void platform.openExternal(tab.path!)}>Open with another app</button>}
+              <button className="btn" onClick={() => updateTab(tab.id, { damaged: undefined })}>Show raw data</button>
+              <button className="btn subtle" onClick={() => void closeTab(tab.id)}>Close</button>
+            </div>
+          </div>
         ) : asleep ? (
           <div className="center-note"><div className="spinner" /></div>
         ) : (

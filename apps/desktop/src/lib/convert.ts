@@ -34,8 +34,10 @@ export interface Converter {
   from: string;
   to: string;
   quality: Quality;
-  /** What is lost, in plain words, shown before converting when quality is not exact. */
-  loses?: string;
+  /** What is lost, in plain words, shown before converting when quality is not exact. A function
+   *  decides from the source document's text, so a note appears only when it applies (for example
+   *  "images are left out" only for a document that has images). */
+  loses?: string | ((sourceText: string) => string | null);
   run(input: ConvertInput): Promise<ConvertOutput>;
 }
 
@@ -86,8 +88,13 @@ export class ConversionRegistry {
     return current;
   }
 
-  lossNote(route: Route): string | null {
+  lossNote(route: Route, sourceText: () => string = () => ""): string | null {
     // The first lossy step decides what survives; later notes would only repeat or contradict it.
-    return route.steps.map((s) => s.loses).find(Boolean) ?? null;
+    for (const s of route.steps) {
+      const note = typeof s.loses === "function" ? s.loses(sourceText()) : s.loses;
+      if (note) return note;
+    }
+    return null;
   }
+
 }

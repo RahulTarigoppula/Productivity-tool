@@ -1,9 +1,10 @@
 /** Writes Excel (.xlsx) workbooks from tables, offline, with no extra dependencies.
- *  Plain numbers become numbers (so sums and sorting work in Excel); anything that would change
- *  if treated as a number stays text: leading zeros (IDs, ZIP codes), digit strings of 12 or more
- *  (barcodes, card and order numbers, which Excel would show as 4.00638E+12), trailing zeros
- *  ("1.10"), "-0", "+1", "1e5" and the like. The header row is bold and stays in view; columns are sized to fit. */
+ *  Numbers become numbers, so sums and sorting work in Excel: also "1.10", "12%" and ISO dates,
+ *  stored with a number format that shows them exactly as typed (see lib/numfmt.ts). Anything that
+ *  would change if treated as a number stays text: leading zeros (IDs, ZIP codes), digit strings of
+ *  12 or more (barcodes, which Excel would show as 4.00638E+12), "-0", "+1", "1e5" and the like. The header row is bold and stays in view; columns are sized to fit. */
 import JSZip from "jszip";
+import { asNumberCell } from "./numfmt";
 
 export const XLSX_MAX_ROWS = 1_048_576;
 export const XLSX_MAX_COLS = 16_384;
@@ -17,19 +18,6 @@ export function colLetters(i: number): string {
   let s = "";
   for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
   return s;
-}
-
-/** A value Excel can store as a number without changing what the person sees: the number must
- *  print back exactly as written (so "1.10", "2.50", "-0" stay text), have at most 15 significant
- *  digits (Excel's precision) and at most 11 before the point (Excel shows longer ones as 1.2E+12). */
-export function asNumber(v: string): number | null {
-  const m = /^-?(0|[1-9]\d*)(?:\.(\d+))?$/.exec(v);
-  if (!m) return null;
-  const [, int, frac = ""] = m;
-  if (int.length > 11) return null;
-  if ((int === "0" ? frac.replace(/^0+/, "") : int + frac).length > 15) return null;
-  const n = Number(v);
-  return Number.isFinite(n) && String(n) === v ? n : null;
 }
 
 export interface SheetInput {
@@ -62,7 +50,29 @@ function sheetName(name: string, taken: Set<string>): string {
   return out;
 }
 
-function sheetXml(s: SheetInput): string {
+/** Cell styles: 0 plain, 1 bold header, then one per number format a sheet needs. */
+class Styles {
+  formats: string[] = [];
+  style(format: string | null): string {
+    if (!format) return "";
+    let i = this.formats.indexOf(format);
+    if (i < 0) i = this.formats.push(format) - 1;
+    return ` s="${i + 2}"`;
+  }
+  xml(): string {
+    const escAttr = (v: string) => v.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+    const numFmts = this.formats.length ? `<numFmts count="${this.formats.length}">${this.formats.map((f, i) => `<numFmt numFmtId="${164 + i}" formatCode="${escAttr(f)}"/>`).join("")}</numFmts>` : "";
+    const xfs = [
+      '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>',
+      '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>',
+      ...this.formats.map((_, i) => `<xf numFmtId="${164 + i}" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>`),
+    ];
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${numFmts}<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join("")}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+  }
+}
+
+function sheetXml(s: SheetInput, styles: Styles): string {
   const cols = s.rows.reduce((m, r) => Math.max(m, r.length), 0);
   if (s.rows.length > XLSX_MAX_ROWS || cols > XLSX_MAX_COLS) throw new Error(`Excel holds at most ${XLSX_MAX_ROWS.toLocaleString()} rows and ${XLSX_MAX_COLS.toLocaleString()} columns.`);
   const widths = Array.from({ length: cols }, () => 8);
@@ -75,9 +85,10 @@ function sheetXml(s: SheetInput): string {
           if (v === "") return "";
           if (v.length > XLSX_MAX_CELL) throw new Error(`Row ${ri + 1}, column ${colLetters(ci)} holds more than ${XLSX_MAX_CELL.toLocaleString()} characters, more than one Excel cell can store.`);
           const ref = `${colLetters(ci)}${ri + 1}`;
-          const n = header ? null : asNumber(v);
-          const style = header ? ' s="1"' : "";
-          return n !== null ? `<c r="${ref}"${style}><v>${n}</v></c>` : `<c r="${ref}" t="inlineStr"${style}><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
+          if (header) return `<c r="${ref}" t="inlineStr" s="1"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
+          // Numbers (also "1.10", "12%" and ISO dates, shown exactly as typed) stay numbers in Excel.
+          const n = asNumberCell(v);
+          return n ? `<c r="${ref}"${styles.style(n.format)}><v>${n.value}</v></c>` : `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
         })
         .join("");
       return `<row r="${ri + 1}">${cells}</row>`;
@@ -93,6 +104,8 @@ export async function tablesToXlsx(sheets: SheetInput[]): Promise<Uint8Array> {
   const zip = new JSZip();
   const taken = new Set<string>();
   const names = sheets.map((s) => sheetName(s.name, taken));
+  const styles = new Styles();
+  const sheetXmls = sheets.map((s) => sheetXml(s, styles));
   zip.file(
     "[Content_Types].xml",
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -113,11 +126,8 @@ export async function tablesToXlsx(sheets: SheetInput[]): Promise<Uint8Array> {
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("")}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
   );
-  zip.file(
-    "xl/styles.xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`,
-  );
-  sheets.forEach((s, i) => zip.file(`xl/worksheets/sheet${i + 1}.xml`, sheetXml(s)));
+  zip.file("xl/styles.xml", styles.xml());
+
+  sheetXmls.forEach((xml, i) => zip.file(`xl/worksheets/sheet${i + 1}.xml`, xml));
   return zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
 }

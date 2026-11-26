@@ -205,7 +205,7 @@ async function imageToPdf(bytes: Uint8Array, isPng: boolean): Promise<Uint8Array
   return doc.save();
 }
 
-const c = (from: string, to: string, quality: Converter["quality"], run: Converter["run"], loses?: string): Converter => ({ id: `${from}->${to}`, from, to, quality, run, loses });
+const c = (from: string, to: string, quality: Converter["quality"], run: Converter["run"], loses?: Converter["loses"]): Converter => ({ id: `${from}->${to}`, from, to, quality, run, loses });
 
 export function buildRegistry(): ConversionRegistry {
   const r = new ConversionRegistry();
@@ -222,7 +222,7 @@ export function buildRegistry(): ConversionRegistry {
   r.register(c("md", "docx", "good", async ({ bytes, name }) => {
     const { markdownToDocx } = await import("../lib/docxWriter");
     return one(await markdownToDocx(textOf(bytes), stem(name)));
-  }, "Images are left out (their descriptions are kept)."));
+  }, (text) => (/!\[[^\]]*\]\(/.test(text) ? "Images are left out (their descriptions are kept)." : null)));
   r.register(c("txt", "docx", "exact", async ({ bytes, name }) => {
     const { textToDocx } = await import("../lib/docxWriter");
     return one(await textToDocx(textOf(bytes), stem(name), !/\.(txt|text|log)$/i.test(name)));
@@ -303,6 +303,21 @@ export function sourceFormat(name: string, kind: string): string {
   if (kind === "image") return ext === "jpeg" ? "jpg" : ext;
   return ext;
 }
+
+/** The formats most people want from each kind of file, in order ("print" is the formatted PDF).
+ *  Export lists these first and puts the others under "More formats". */
+export const PREFERRED_EXPORTS: Record<string, string[]> = {
+  md: ["docx", "print", "html"],
+  txt: ["pdf", "docx", "print"],
+  csv: ["xlsx", "print", "pdf"],
+  tsv: ["xlsx", "print", "pdf"],
+  json: ["csv", "print"],
+  html: ["pdf", "print"],
+  docx: ["md", "html", "print"],
+  xlsx: ["csv", "print"],
+  pptx: ["md", "print"],
+  pdf: ["png", "txt"],
+};
 
 export const FORMAT_LABEL: Record<string, string> = {
   html: "Web page", txt: "Plain text", pdf: "PDF", md: "Markdown", json: "JSON", csv: "CSV", tsv: "Tab-separated", png: "PNG images", docx: "Word document", xlsx: "Excel workbook",

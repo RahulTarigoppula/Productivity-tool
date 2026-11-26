@@ -101,6 +101,24 @@ export function updateTitle() {
   void platform.setTitle(t ? `${t.dirty ? "● " : ""}${t.name} — Productivity` : "Productivity");
 }
 
+/** A new note's first save is named after its first heading or line ("Biology – Cell structure.md")
+ *  rather than "Untitled-1.md". Tables and other files keep their name. */
+function firstSaveName(tab: Tab, handle: { getText?(): string }): string {
+  if (tab.path || !/^Untitled-\d+\./.test(tab.name) || (tab.kind !== "markdown" && tab.kind !== "text")) return tab.name;
+  const text = (handle.getText?.() ?? "").slice(0, 4000);
+  const line = /^#{1,6}[ \t]+(.+)$/m.exec(text)?.[1] ?? text.split("\n").find((l) => l.trim()) ?? "";
+  const name = line
+    .replace(/[*_`~[\]()#>|]/g, "")
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 60)
+    .replace(/[. ]+$/, "");
+  // Names Windows reserves for devices cannot be used for files.
+  if (!name || /^(con|prn|aux|nul|com\d|lpt\d)$/i.test(name)) return tab.name;
+  return `${name}${tab.name.slice(tab.name.lastIndexOf("."))}`;
+}
+
 function untitledName(kind: Kind): string {
   const ext = kind === "markdown" ? "md" : kind === "csv" ? "csv" : "txt";
   const used = new Set(getState().tabs.map((t) => t.name));
@@ -182,6 +200,8 @@ export async function openPath(path: string, opts: OpenOptions = {}): Promise<st
     const kind = opts.kind ?? detectKind(path, bytes);
     const named = kindFromName(path);
     const mismatch = !opts.kind && named !== kind && ["pdf", "docx", "xlsx", "pptx"].includes(named) && bytes.length > 0;
+    // Not really the document its name says, and not readable as text either: explain, don't show bytes.
+    const damaged = mismatch && kind === "binary" ? KIND_LABEL[named] : undefined;
     tabBytes.set(id, bytes);
     updateTab(id, {
       kind,
@@ -189,11 +209,13 @@ export async function openPath(path: string, opts: OpenOptions = {}): Promise<st
       dirty: !!opts.dirty,
       readonly: meta.readonly,
       baselineUnsaved: !!opts.dirty,
-      saveState: opts.dirty ? "recovered" : meta.readonly ? "readonly" : "saved",
+      damaged,
+      // Raw data is only shown, never saved back, so it reads as read-only rather than "Saved".
+      saveState: opts.dirty ? "recovered" : meta.readonly || kind === "binary" ? "readonly" : "saved",
       notice:
         opts.notice ??
-        (mismatch
-          ? { text: `${basename(path)} does not contain a valid ${KIND_LABEL[named]} file (it may be damaged or misnamed), so it is shown as ${kind === "binary" ? "raw data" : "text"}.`, tone: "warn" }
+        (mismatch && !damaged
+          ? { text: `${basename(path)} does not contain a valid ${KIND_LABEL[named]} file (it may be damaged or misnamed), so it is shown as text.`, tone: "warn" }
           : meta.readonly
             ? { text: "This file is read-only. Use Save As to keep your changes elsewhere.", tone: "info" }
             : undefined),
@@ -362,6 +384,8 @@ async function saveTabNow(id: string, opts: { as?: boolean; explicit?: boolean }
     return false;
   }
   if (tab.conflict === "changed" && !opts.as) {
+    // Auto-save never asks: the banner above the document already offers the choice.
+    if (!opts.explicit) return cancelSave(handle);
     const choice = await ask("This file changed outside the app", "Saving now replaces the other changes. They are kept in version history either way.", ["Save mine", "Cancel"]);
     if (choice !== "Save mine") return cancelSave(handle);
   }
@@ -372,7 +396,7 @@ async function saveTabNow(id: string, opts: { as?: boolean; explicit?: boolean }
   }
   let path = tab.path;
   if (!path || opts.as || tab.readonly) {
-    const def = tab.path ?? join(getState().workspace ?? "", tab.name);
+    const def = tab.path ?? join(getState().workspace ?? "", firstSaveName(tab, handle));
     path = await platform.pickSave({ defaultPath: def, filters: filtersFor(tab.kind, tab.name) });
     if (!path) return cancelSave(handle);
     const other = getState().tabs.find((t) => t.id !== id && t.path && samePath(t.path, path!));

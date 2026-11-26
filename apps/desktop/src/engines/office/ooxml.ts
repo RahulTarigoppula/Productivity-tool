@@ -1,6 +1,7 @@
 /** Minimal read-only readers for Office files: enough to preview content and export text.
  *  Full-fidelity Office editing is planned through the embedded office engine (W3). */
 import JSZip from "jszip";
+import { BUILTIN_FORMATS, formatNumber } from "../../lib/numfmt";
 
 /** Limits that keep a small crafted file from exhausting memory. */
 export const LIMITS = { unzippedBytes: 300 * 1024 * 1024, rows: 200_000, cols: 2_000, cells: 5_000_000 };
@@ -81,6 +82,15 @@ export function colName(i: number): string {
   return s;
 }
 
+/** A stored number as Excel shows it. In General format the stored digits are kept as they are
+ *  (only floating-point noise such as 0.30000000000000004 is cleaned), so no digits are lost. */
+function showNumber(v: string, format: string | undefined): string {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return v;
+  if (format && !/^general$/i.test(format.trim())) return formatNumber(n, format);
+  return /\d{16,}/.test(v.replace(/[.-]/g, "")) && !/e/i.test(v) ? String(Number(n.toPrecision(15))) : v;
+}
+
 export async function readXlsx(bytes: Uint8Array): Promise<SheetData[]> {
   const zip = await openZip(bytes);
   const wbXml = await zip.file("xl/workbook.xml")?.async("string");
@@ -89,6 +99,19 @@ export async function readXlsx(bytes: Uint8Array): Promise<SheetData[]> {
   const shared: string[] = [];
   const ssXml = await zip.file("xl/sharedStrings.xml")?.async("string");
   if (ssXml) for (const si of byTag(parse(ssXml), NS.main, "si")) shared.push(byTag(si, NS.main, "t").map((t) => t.textContent ?? "").join(""));
+  // Number formats by cell style, so dates, prices and percentages read as they are shown.
+  const formats: (string | undefined)[] = [];
+  const stylesXml = await zip.file("xl/styles.xml")?.async("string");
+  if (stylesXml) {
+    const st = parse(stylesXml);
+    const custom = new Map<number, string>();
+    for (const nf of byTag(st, NS.main, "numFmt")) custom.set(Number(nf.getAttribute("numFmtId")), nf.getAttribute("formatCode") ?? "");
+    const cellXfs = byTag(st, NS.main, "cellXfs")[0];
+    if (cellXfs) for (const xf of byTag(cellXfs, NS.main, "xf")) {
+      const id = Number(xf.getAttribute("numFmtId") ?? 0);
+      formats.push(custom.get(id) ?? BUILTIN_FORMATS[id]);
+    }
+  }
   const sheets: SheetData[] = [];
   for (const s of byTag(parse(wbXml), NS.main, "sheet")) {
     const rid = s.getAttributeNS(NS.rel, "id") ?? s.getAttribute("r:id") ?? "";
@@ -123,6 +146,7 @@ export async function readXlsx(bytes: Uint8Array): Promise<SheetData[]> {
           if (t === "s") val = shared[Number(v)] ?? "";
           else if (t === "inlineStr") val = byTag(c, NS.main, "t").map((x) => x.textContent ?? "").join("");
           else if (t === "b") val = v === "1" ? "TRUE" : "FALSE";
+          else if ((!t || t === "n") && v !== "") val = showNumber(v, formats[Number(c.getAttribute("s") ?? 0)]);
           vals[ci] = val;
           if (f) formulas.set(`${colName(ci)}${r + 1}`, f);
           if (ci + 1 > maxCol) maxCol = ci + 1;

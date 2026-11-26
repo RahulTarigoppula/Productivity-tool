@@ -26,6 +26,9 @@ export interface Tab {
   /** The content the engine started from is not on disk (recovered or restored),
    *  so the tab stays dirty even if edits are undone back to it. */
   baselineUnsaved?: boolean;
+  /** The file is named as this kind of document (for example "PDF") but its content is not one:
+   *  the tab shows a short explanation until the person asks to see the raw data. */
+  damaged?: string;
 }
 
 export interface RecentItem {

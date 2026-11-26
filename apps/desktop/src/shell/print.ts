@@ -29,7 +29,7 @@ export async function printActive() {
   try {
     const bytes = await handle.serialize();
     let body = "";
-    if (tab.kind === "markdown") body = await markdownToHtml(decodeText(bytes).text);
+    if (tab.kind === "markdown") body = await markdownToHtml(decodeText(bytes).text, { forExport: true });
     else if (tab.kind === "text") body = `<pre>${decodeText(bytes).text.replace(/[<&>]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" })[c]!)}</pre>`;
     else if (tab.kind === "csv") body = tableToHtml(toTable(loadCsv(bytes, tab.name.split(".").pop())));
     else if (tab.kind === "image") body = `<img class="page" src="${URL.createObjectURL(new Blob([bytes.slice()]))}">`;

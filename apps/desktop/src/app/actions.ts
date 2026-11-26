@@ -500,18 +500,26 @@ export function contentChanged(id: string) {
   if (!tab.dirty || tab.saveState === "saved" || tab.saveState === "saving") updateTab(id, { dirty: true, saveState: "edited" });
   updateTitle();
   const { autoSave } = getState().settings;
+  // Saving a very large file takes a moment of work each time, so it waits for a longer pause in typing.
+  const big = (tabBytes.get(id)?.length ?? 0) > 20 * 1024 * 1024;
   if (autoSave && tab.path && isTextual(tab.kind) && !tab.conflict && !tab.readonly) {
     clearTimeout(autoSaveTimers.get(id));
-    autoSaveTimers.set(id, window.setTimeout(() => void saveTab(id), 900));
+    autoSaveTimers.set(id, window.setTimeout(() => void saveTab(id), big ? 4000 : 900));
   }
+  scheduleRecovery(id, big ? 8000 : 1500);
+}
+
+function scheduleRecovery(id: string, delay: number) {
   clearTimeout(recoveryTimers.get(id));
-  recoveryTimers.set(id, window.setTimeout(() => void writeRecovery(id), 1500));
+  recoveryTimers.set(id, window.setTimeout(() => void writeRecovery(id), delay));
 }
 
 async function writeRecovery(id: string, fresh = false) {
   const tab = getState().tabs.find((t) => t.id === id);
   const handle = handles.get(id);
   if (!tab || !handle || !tab.dirty || handle.canSave === false) return;
+  // A save is writing this document right now; take the copy afterwards only if it is still unsaved.
+  if (tab.saveState === "saving" && !fresh) return scheduleRecovery(id, 1500);
   try {
     const bytes = await handle.serialize({ fresh });
     // The tab may have been saved, cleaned or closed while serializing.

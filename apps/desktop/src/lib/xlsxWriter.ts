@@ -72,32 +72,53 @@ class Styles {
   }
 }
 
-function sheetXml(s: SheetInput, styles: Styles): string {
+/** A worksheet as UTF-8 bytes. Rows are written in blocks, so a table of a million rows never
+ *  becomes one string longer than the browser can hold. */
+function sheetXml(s: SheetInput, styles: Styles): Uint8Array {
   const cols = s.rows.reduce((m, r) => Math.max(m, r.length), 0);
   if (s.rows.length > XLSX_MAX_ROWS || cols > XLSX_MAX_COLS) throw new Error(`Excel holds at most ${XLSX_MAX_ROWS.toLocaleString()} rows and ${XLSX_MAX_COLS.toLocaleString()} columns.`);
   const widths = Array.from({ length: cols }, () => 8);
   for (const r of s.rows.slice(0, 500)) r.forEach((v, i) => (widths[i] = Math.min(60, Math.max(widths[i], v.length + 2))));
-  const rowsXml = s.rows
-    .map((r, ri) => {
-      const header = s.header && ri === 0;
-      const cells = r
-        .map((v, ci) => {
-          if (v === "") return "";
-          if (v.length > XLSX_MAX_CELL) throw new Error(`Row ${ri + 1}, column ${colLetters(ci)} holds more than ${XLSX_MAX_CELL.toLocaleString()} characters, more than one Excel cell can store.`);
-          const ref = `${colLetters(ci)}${ri + 1}`;
-          if (header) return `<c r="${ref}" t="inlineStr" s="1"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
-          // Numbers (also "1.10", "12%" and ISO dates, shown exactly as typed) stay numbers in Excel.
-          const n = asNumberCell(v);
-          return n ? `<c r="${ref}"${styles.style(n.format)}><v>${n.value}</v></c>` : `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
-        })
-        .join("");
-      return `<row r="${ri + 1}">${cells}</row>`;
-    })
-    .join("");
+  const letters = Array.from({ length: cols }, (_, c) => colLetters(c));
+  const rowXml = (r: string[], ri: number) => {
+    const header = s.header && ri === 0;
+    let cells = "";
+    for (let ci = 0; ci < r.length; ci++) {
+      const v = r[ci];
+      if (v === "") continue;
+      if (v.length > XLSX_MAX_CELL) throw new Error(`Row ${ri + 1}, column ${letters[ci]} holds more than ${XLSX_MAX_CELL.toLocaleString()} characters, more than one Excel cell can store.`);
+      const ref = `${letters[ci]}${ri + 1}`;
+      if (header) {
+        cells += `<c r="${ref}" t="inlineStr" s="1"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
+        continue;
+      }
+      // Numbers (also "1.10", "12%" and ISO dates, shown exactly as typed) stay numbers in Excel.
+      const n = asNumberCell(v);
+      cells += n ? `<c r="${ref}"${styles.style(n.format)}><v>${n.value}</v></c>` : `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
+    }
+    return `<row r="${ri + 1}">${cells}</row>`;
+  };
   const freeze = s.header && s.rows.length > 1 ? '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' : '<sheetViews><sheetView workbookViewId="0"/></sheetViews>';
   const colsXml = cols ? `<cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join("")}</cols>` : "";
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${freeze}<sheetFormatPr defaultRowHeight="15"/>${colsXml}<sheetData>${rowsXml}</sheetData></worksheet>`;
+  const enc = new TextEncoder();
+  const chunks: Uint8Array[] = [
+    enc.encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${freeze}<sheetFormatPr defaultRowHeight="15"/>${colsXml}<sheetData>`),
+  ];
+  const BLOCK = 2000;
+  for (let start = 0; start < s.rows.length; start += BLOCK) {
+    let block = "";
+    for (let ri = start; ri < Math.min(s.rows.length, start + BLOCK); ri++) block += rowXml(s.rows[ri], ri);
+    chunks.push(enc.encode(block));
+  }
+  chunks.push(enc.encode("</sheetData></worksheet>"));
+  const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.length;
+  }
+  return out;
 }
 
 export async function tablesToXlsx(sheets: SheetInput[]): Promise<Uint8Array> {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ArrowUpNarrowWide, ArrowDownWideNarrow, Trash2, Filter, Heading, FileText, X, BetweenHorizontalStart, BetweenHorizontalEnd, BetweenVerticalStart, BetweenVerticalEnd } from "lucide-react";
 import type { EngineHost, Command } from "../../app/editor-api";
 import { loadCsv, saveCsv, serializeCsv, columnCount, setCell, emptyRow, insertColumn, deleteColumn, compareCells, looksLikeHeader, type CsvDoc, type CsvRow } from "../../lib/csv";
@@ -95,7 +95,9 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
   const commit = useCallback(
     (next: CsvRow[]) => {
       undo.current.push(docRef.current.rows);
-      if (undo.current.length > 300) undo.current.shift();
+      // Each step keeps a list of every row, so huge tables keep fewer steps (20 at a million rows).
+      const keep = Math.max(20, Math.min(300, Math.floor(20_000_000 / Math.max(1, next.length))));
+      while (undo.current.length > keep) undo.current.shift();
       redo.current = [];
       docRef.current.rows = next;
       setRowsState(next);
@@ -107,13 +109,32 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
   );
 
   const first = header ? 1 : 0;
+  // The filter box stays responsive on big tables: the rows are narrowed just after each keystroke.
+  const deferredFilter = useDeferredValue(filter);
+  /** Each row's text in lower case, worked out once per row (rows are replaced, never changed, on edits). */
+  const lowerText = useRef(new WeakMap<CsvRow, string>());
+  const lastFilter = useRef<{ rows: CsvRow[]; first: number; f: string; idx: number[] } | null>(null);
   // View rows: data row indices shown in the grid (after the header row, filtered).
   const view = useMemo(() => {
+    const f = deferredFilter?.trim().toLowerCase() ?? "";
+    if (!f) {
+      lastFilter.current = null;
+      return Array.from({ length: Math.max(0, rows.length - first) }, (_, k) => k + first);
+    }
+    const lower = (r: CsvRow) => {
+      let t = lowerText.current.get(r);
+      if (t === undefined) lowerText.current.set(r, (t = r.cells.join("\u0001").toLowerCase()));
+      return t;
+    };
+    // Typing more letters only narrows the previous result.
+    const prev = lastFilter.current;
+    const from = prev && prev.rows === rows && prev.first === first && f.startsWith(prev.f) ? prev.idx : null;
     const idx: number[] = [];
-    const f = filter?.trim().toLowerCase();
-    for (let i = first; i < rows.length; i++) if (!f || rows[i].cells.some((c) => c.toLowerCase().includes(f))) idx.push(i);
+    if (from) for (const i of from) lower(rows[i]).includes(f) && idx.push(i);
+    else for (let i = first; i < rows.length; i++) if (lower(rows[i]).includes(f)) idx.push(i);
+    lastFilter.current = { rows, first, f, idx };
     return idx;
-  }, [rows, first, filter]);
+  }, [rows, first, deferredFilter]);
 
   const setRows = (next: CsvRow[]) => commit(next);
   const viewRef = useRef(view);
@@ -460,7 +481,8 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
         let doc = docRef.current;
         // An older encoding (for example Windows-1252 from Excel) cannot hold every character:
         // ask, as the text editor does, instead of silently writing "?".
-        if (!canEncode(serializeCsv(doc), doc.format.encoding)) {
+        // Only the older single-byte encoding can lack characters; check it without serialising twice otherwise.
+        if (doc.format.encoding === "windows-1252" && !canEncode(serializeCsv(doc), doc.format.encoding)) {
           if (!opts?.forSave) return saveCsv({ ...doc, format: { ...doc.format, encoding: "utf-8", bom: false } });
           const { ask } = await import("../../app/dialogs");
           const choice = await ask(

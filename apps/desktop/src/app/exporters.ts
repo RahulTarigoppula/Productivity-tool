@@ -57,17 +57,19 @@ function renderInWorker(md: string, timeoutMs: number): Promise<string> {
       worker = null;
       for (const [, p] of pending) p.reject(new Error("Preview stopped"));
       pending.clear();
-      reject(new Error("This document is too complex to preview."));
+      reject(new Error("This document is too complex to show or convert."));
     }, timeoutMs);
   });
 }
 
 let hooked = false;
 
-export async function markdownToHtml(md: string, timeoutMs = 4000): Promise<string> {
-  const html = await renderInWorker(md, timeoutMs);
+/** Markdown → safe HTML. A preview stops at a size the window can show; an export always converts
+ *  the whole document (with more time allowed for a long one). */
+export async function markdownToHtml(md: string, opts: { forExport?: boolean } = {}): Promise<string> {
+  const html = await renderInWorker(md, opts.forExport ? Math.max(20_000, md.length / 200) : 4000);
   // A tiny file can expand into an enormous page (for example a table with thousands of columns).
-  if (html.length > 4_000_000) return "<p><em>This document is too large to preview. The editor still shows all of it.</em></p>";
+  if (!opts.forExport && html.length > 4_000_000) return "<p><em>This document is too large to preview. The editor still shows all of it.</em></p>";
   const DOMPurify = (await import("dompurify")).default;
   if (!hooked) {
     hooked = true;
@@ -210,9 +212,9 @@ const c = (from: string, to: string, quality: Converter["quality"], run: Convert
 export function buildRegistry(): ConversionRegistry {
   const r = new ConversionRegistry();
   // Markdown and text
-  r.register(c("md", "html", "good", async ({ bytes, name }) => one(enc(htmlDocument(stem(name), await markdownToHtml(textOf(bytes)))))));
+  r.register(c("md", "html", "good", async ({ bytes, name }) => one(enc(htmlDocument(stem(name), await markdownToHtml(textOf(bytes), { forExport: true }))))));
   r.register(c("md", "txt", "text", async ({ bytes }) => {
-    const html = await markdownToHtml(textOf(bytes));
+    const html = await markdownToHtml(textOf(bytes), { forExport: true });
     const div = document.createElement("div");
     div.innerHTML = html;
     return one(enc((div.innerText || div.textContent || "").replace(/\n{3,}/g, "\n\n").trim() + "\n"));
@@ -229,7 +231,7 @@ export function buildRegistry(): ConversionRegistry {
   }));
   // Markdown straight to PDF is a plain-text PDF; the formatted route is Print.
   r.register(c("md", "pdf", "text", async ({ bytes, name }) => {
-    const html = await markdownToHtml(textOf(bytes));
+    const html = await markdownToHtml(textOf(bytes), { forExport: true });
     const div = document.createElement("div");
     div.innerHTML = html;
     return one(await textToPdf((div.innerText || div.textContent || "").replace(/\n{3,}/g, "\n\n").trim() + "\n", stem(name)));

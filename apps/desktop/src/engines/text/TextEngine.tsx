@@ -41,6 +41,12 @@ function openReplace(view: EditorView): boolean {
   return true;
 }
 
+/** Whether a character occurs at least `count` times (stops counting as soon as it does). */
+function manyOf(text: string, ch: string, count: number): boolean {
+  for (let i = text.indexOf(ch), n = 0; i >= 0; i = text.indexOf(ch, i + 1)) if (++n >= count) return true;
+  return false;
+}
+
 function countWords(text: string): number {
   const m = text.match(WORD);
   return m ? m.length : 0;
@@ -52,6 +58,16 @@ function countDocWords(doc: EditorState["doc"]): number {
   let n = 0;
   for (const it = doc.iterLines(); !it.next().done; ) {
     const m = it.value.match(WORD);
+    if (m) n += m.length;
+  }
+  return n;
+}
+
+/** Words on the lines from..to (line by line, as countDocWords counts them). */
+function countRangeWords(doc: EditorState["doc"], from: number, to: number): number {
+  let n = 0;
+  for (let ln = doc.lineAt(from).number, last = doc.lineAt(to).number; ln <= last; ln++) {
+    const m = doc.line(ln).text.match(WORD);
     if (m) n += m.length;
   }
   return n;
@@ -116,7 +132,7 @@ export default function TextEngine({ host }: { host: EngineHost }) {
     const text = decoded.text;
     // Extremely deep nesting (hostile or broken files) is shown as plain text: the Markdown
     // parser would exhaust the stack on it.
-    const tooDeep = isMd && (/^(?:[ \t]*>){200}/m.test(text) || /^[ \t]{400,}(?:[-*+]|\d+[.)]) /m.test(text));
+    const tooDeep = isMd && ((manyOf(text, ">", 200) && /^(?:[ \t]*>){200}/m.test(text)) || /^[ \t]{400,}(?:[-*+]|\d+[.)]) /m.test(text));
     if (tooDeep) host.toast(`${host.name} is nested too deeply to format, so it is shown as plain text.`);
     const large = text.length > LARGE || tooDeep;
     const indent = detectIndent(text, getState().settings.tabSize);
@@ -157,6 +173,17 @@ export default function TextEngine({ host }: { host: EngineHost }) {
         updateStatus(v.state);
       }, 600);
       return words ? words.n : null;
+    };
+    /** After an ordinary edit (one changed place), the count moves by the words on the changed lines,
+     *  so long notes are not recounted from the start after every pause in typing. */
+    const trackWords = (u: { startState: EditorState; state: EditorState; changes: { iterChangedRanges(f: (fromA: number, toA: number, fromB: number, toB: number) => void): void } }) => {
+      if (words?.doc !== u.startState.doc) return;
+      let ranges = 0, delta = 0;
+      u.changes.iterChangedRanges((fromA, toA, fromB, toB) => {
+        ranges++;
+        delta += countRangeWords(u.state.doc, fromB, toB) - countRangeWords(u.startState.doc, fromA, toA);
+      });
+      words = ranges === 1 ? { doc: u.state.doc, n: words.n + delta } : null;
     };
 
     const updateStatus = (state: EditorState) => {
@@ -296,6 +323,7 @@ export default function TextEngine({ host }: { host: EngineHost }) {
                 if (previewOpen.current) setPreviewText(u.state.doc.toString());
               }, 250);
             }
+            if (u.docChanged) trackWords(u);
             if (u.docChanged || u.selectionSet) updateStatus(u.state);
           }),
         ],

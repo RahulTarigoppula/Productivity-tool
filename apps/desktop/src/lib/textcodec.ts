@@ -58,6 +58,8 @@ export function canEncode(text: string, encoding: Encoding): boolean {
 }
 
 function detectEol(text: string): { eol: Eol; mixed: boolean } {
+  // Most files have no carriage returns at all: then the answer needs no character-by-character count.
+  if (text.indexOf("\r") < 0) return { eol: "\n", mixed: false };
   let crlf = 0, lf = 0, cr = 0;
   for (let i = 0; i < text.length; i++) {
     const c = text.charCodeAt(i);
@@ -113,10 +115,17 @@ function decodeBody(bytes: Uint8Array): { raw: string; encoding: Encoding; bom: 
 export function decodeText(bytes: Uint8Array): Decoded {
   const { raw, encoding, bom } = decodeBody(bytes);
   const { eol, mixed } = detectEol(raw);
-  const text = raw.replace(/\r\n?/g, "\n");
+  const text = eol === "\n" && !mixed ? raw : raw.replace(/\r\n?/g, "\n");
   const format: TextFormat = { encoding, bom, eol, mixedEol: mixed };
-  const lossless = !mixed && bytesEqual(encodeText(text, format), bytes);
-  return { text, format, lossless };
+  // Re-encoding to compare costs as much as decoding, so it is worked out only if asked for.
+  let lossless: boolean | undefined;
+  return {
+    text,
+    format,
+    get lossless() {
+      return (lossless ??= !mixed && bytesEqual(encodeText(text, format), bytes));
+    },
+  };
 }
 
 export function encodeText(text: string, f: TextFormat): Uint8Array {

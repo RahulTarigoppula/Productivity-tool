@@ -70,6 +70,8 @@ export interface EngineHandle {
   exportFormats?(): { ext: string; label: string }[];
   /** Produce the document in another format (for engine-provided export formats). */
   convert?(ext: string): Promise<Uint8Array>;
+  /** Choices made in the editor that exports should follow (for example a table's header row). */
+  exportHints?(): import("../lib/convert").ExportHints;
 }
 
 export interface EngineHost {

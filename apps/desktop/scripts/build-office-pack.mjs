@@ -16,6 +16,7 @@ import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { fixFontTable } from "./office-fonts.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -139,6 +140,24 @@ walk(join(out, "sdkjs"), (p) => /\.map$/.test(p) && rmSync(p));
 walk(join(out, "sdkjs"), (p) => /_ie\.js$/.test(p) && rmSync(p));
 rm("sdkjs/pdf");
 
+// ---------- look ----------
+// A plain white header in the app's style: no coloured title bar per editor (which reads as another
+// company's product) and no second copy of the file name, which the app's tab already shows.
+{
+  const shells = readdirSync(join(out, "assets")).filter((f) => /^document-.*\.js$/.test(f));
+  let themed = 0;
+  for (const f of shells) {
+    const p = join(out, "assets", f);
+    const src = readFileSync(p, "utf8");
+    const next = src.replace("var Pr=`theme-classic-light`", "var Pr=`theme-white`").replace("hideRightMenu:!0,", "hideRightMenu:!0,compactHeader:!0,toolbarHideFileName:!0,");
+    if (next !== src) {
+      writeFileSync(p, next);
+      themed++;
+    }
+  }
+  if (themed !== 1) throw new Error(`Expected to restyle one editor shell, restyled ${themed}`);
+}
+
 // ---------- hardening ----------
 // Documents must never run code: turn off macros and plugins in the editors' configuration.
 // (Macro "sandboxing" in the editors can be escaped, so they are disabled outright.)
@@ -172,6 +191,12 @@ for (const m of infos) {
 mkdirSync(join(out, "fonts"), { recursive: true });
 for (const f of readdirSync(fontsSrc)) if (keepFiles.has(f)) cpSync(join(fontsSrc, f), join(out, "fonts", f));
 if (!fallback || !existsSync(join(out, "fonts", fallback))) throw new Error("Fallback font missing");
+// Every font name the editors can pick must reach a shipped file (see scripts/office-fonts.mjs).
+{
+  const table = fixFontTable(allFonts, (f) => keepFiles.has(f));
+  writeFileSync(join(out, "sdkjs/common/AllFonts.js"), "\uFEFF" + table.text);
+  log(`font table: ${table.changed.length} names now use shipped fonts`);
+}
 
 // ---------- spell-check dictionary ----------
 const dictSrc = fetchSparse(DICT_REPO, "dictionaries");

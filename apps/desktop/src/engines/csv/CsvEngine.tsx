@@ -70,6 +70,8 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
   }
   const [rows, setRowsState] = useState<CsvRow[]>(docRef.current.rows);
   const [header, setHeader] = useState(() => looksLikeHeader(docRef.current.rows.slice(0, 2).map((r) => r.cells)));
+  const headerRef = useRef(header);
+  headerRef.current = header;
   const cols = Math.max(1, useMemo(() => columnCount({ ...docRef.current, rows }), [rows]));
   const [widths, setWidths] = useState<number[]>(() => measure(docRef.current.rows, Math.max(1, columnCount(docRef.current)), header));
   const [sel, setSel] = useState<Sel>({ r: 0, c: 0, r2: 0, c2: 0 });
@@ -446,6 +448,7 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
         });
       },
       getText: () => docRef.current.rows.map((r) => r.cells.join("\t")).join("\n"),
+      exportHints: () => ({ header: headerRef.current }),
       commands: () => commands,
     });
   }, [host, header, view.length]);

@@ -184,16 +184,3 @@ export async function readDocxText(bytes: Uint8Array): Promise<{ style: string; 
   });
 }
 
-export function docxToMarkdown(paras: { style: string; text: string }[]): string {
-  return paras
-    .map(({ style, text }) => {
-      const m = /^Heading(\d)$/i.exec(style) ?? /^(?:berschrift|Titre)(\d)$/i.exec(style);
-      if (m) return `${"#".repeat(Math.min(6, Number(m[1])))} ${text}`;
-      if (/^Title$/i.test(style)) return `# ${text}`;
-      if (/List/i.test(style)) return `- ${text}`;
-      return text;
-    })
-    .join("\n\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim() + "\n";
-}

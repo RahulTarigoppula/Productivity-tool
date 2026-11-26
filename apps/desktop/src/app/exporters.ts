@@ -254,10 +254,10 @@ export function buildRegistry(): ConversionRegistry {
   }
   for (const src of ["csv", "tsv"]) {
     // Excel workbooks: numbers stay numbers, IDs with leading zeros stay text.
-    r.register(c(src, "xlsx", "good", async ({ bytes, name }) => {
+    r.register(c(src, "xlsx", "good", async ({ bytes, name, hints }) => {
       const { tablesToXlsx } = await import("../lib/xlsxWriter");
       const rows = table(bytes, src);
-      return one(await tablesToXlsx([{ name: stem(name), rows, header: looksLikeHeader(rows) }]));
+      return one(await tablesToXlsx([{ name: stem(name), rows, header: hints?.header ?? looksLikeHeader(rows) }]));
     }, "Values only: one sheet, no formulas or formatting."));
   }
   r.register(c("csv", "tsv", "exact", async ({ bytes }) => one(enc(tableToDelimited(table(bytes, "csv"), "\t")))));
@@ -276,10 +276,10 @@ export function buildRegistry(): ConversionRegistry {
     const sheets = await readXlsx(bytes);
     return { files: sheets.map((s, i) => ({ suffix: sheets.length > 1 ? `-${s.name.replace(/[\\/:*?"<>|]/g, "_")}` : i ? `-${i}` : "", bytes: enc(tableToDelimited(s.rows, ",")) })) };
   }, "Values only: formulas, formatting and charts are not kept. One file per sheet."));
-  r.register(c("docx", "md", "text", async ({ bytes }) => {
-    const { readDocxText, docxToMarkdown } = await import("../engines/office/ooxml");
-    return one(enc(docxToMarkdown(await readDocxText(bytes))));
-  }, "Headings and paragraphs are kept; tables, images and formatting are not."));
+  r.register(c("docx", "md", "good", async ({ bytes }) => {
+    const { docxToMarkdown } = await import("../lib/docxToMarkdown");
+    return one(enc(await docxToMarkdown(bytes)));
+  }, "Images become placeholders with their description; page layout, fonts, colours and comments are not kept."));
   r.register(c("pptx", "md", "text", async ({ bytes }) => {
     const { readPptx } = await import("../engines/office/ooxml");
     const slides = await readPptx(bytes);

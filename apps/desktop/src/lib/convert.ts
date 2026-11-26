@@ -12,9 +12,16 @@ export const QUALITY_LABEL: Record<Quality, string> = {
 
 const QUALITY_RANK: Record<Quality, number> = { exact: 3, good: 2, text: 1 };
 
+/** What the open document knows that its bytes do not, such as a table's header-row choice. */
+export interface ExportHints {
+  header?: boolean;
+}
+
 export interface ConvertInput {
   bytes: Uint8Array;
   name: string;
+  /** Hints describe the source document, so only the first step of a route receives them. */
+  hints?: ExportHints;
 }
 
 export interface ConvertOutput {
@@ -72,9 +79,9 @@ export class ConversionRegistry {
 
   async run(route: Route, input: ConvertInput): Promise<ConvertOutput> {
     let current: ConvertOutput = { files: [{ suffix: "", bytes: input.bytes }] };
-    for (const step of route.steps) {
+    for (const [i, step] of route.steps.entries()) {
       if (current.files.length !== 1) throw new Error("This route produces several files part-way and cannot continue.");
-      current = await step.run({ bytes: current.files[0].bytes, name: input.name });
+      current = await step.run({ bytes: current.files[0].bytes, name: input.name, hints: i === 0 ? input.hints : undefined });
     }
     return current;
   }

@@ -233,7 +233,7 @@ function Export() {
     setBusy(route.to);
     try {
       const bytes = await handle.serialize();
-      const out = await getRegistry().run(route, { bytes, name: tab.name });
+      const out = await getRegistry().run(route, { bytes, name: tab.name, hints: handle.exportHints?.() });
       const written: string[] = [];
       for (const f of out.files) {
         const p = f.suffix ? join(dirname(target), `${stem(target)}${f.suffix}.${route.to}`) : target;

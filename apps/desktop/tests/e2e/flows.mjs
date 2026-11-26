@@ -806,6 +806,25 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     await waitFor(() => page.locator(pane, { hasText: "broken.zip can't be opened" }).isVisible(), 5000, "explanation");
   });
 
+  await check("U-14", "export never replaces the file it comes from; a note full of unmatched marks opens quickly as plain text", async () => {
+    const pane = "section.doc-pane:not([hidden])";
+    await page.evaluate(() => window.__fs.write("/work/misnamed.pdf", new TextEncoder().encode("just some text, not a PDF\n")));
+    await open("/work/misnamed.pdf");
+    await page.waitForSelector(`${pane} .cm-content`);
+    await page.evaluate(() => window.__fs.queueSave("/work/misnamed.pdf"));
+    await page.keyboard.press("Control+e");
+    await page.locator(".export-row", { hasText: "PDF" }).first().click();
+    await waitFor(() => page.locator(".toast", { hasText: "the file you are exporting from" }).isVisible(), 4000, "refusal");
+    assert(new TextDecoder().decode(new Uint8Array(await fsRead("/work/misnamed.pdf"))) === "just some text, not a PDF\n", "the original changed");
+    await page.keyboard.press("Escape");
+    await page.evaluate(() => window.__fs.write("/work/marks.md", new TextEncoder().encode("*_".repeat(50000))));
+    const t0 = Date.now();
+    await open("/work/marks.md");
+    await page.waitForSelector(`${pane} .cm-content`);
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0))));
+    assert(Date.now() - t0 < 5000, `took ${Date.now() - t0} ms to open`);
+  });
+
   await check("F-34", "dark theme applies", async () => {
     await page.evaluate(() => window.__app.updateSettings({ theme: "dark" }));
     await waitFor(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", 2000, "dark");

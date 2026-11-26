@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { loadCsv, saveCsv, setCell, emptyRow, insertColumn, deleteColumn, detectDelimiter, compareCells } from "./csv";
+import { loadCsv, saveCsv, serializeCsv, setCell, emptyRow, insertColumn, deleteColumn, detectDelimiter, compareCells } from "./csv";
 import { bytesEqual } from "./textcodec";
 
 const utf8 = (s: string) => new TextEncoder().encode(s);
@@ -76,5 +76,14 @@ describe("CSV editing keeps untouched rows identical", () => {
   });
   it("compares numbers numerically", () => {
     expect(["10", "9", "b", "a"].sort(compareCells)).toEqual(["9", "10", "a", "b"]);
+  });
+
+  it("a row with an unclosed quote moved by sorting does not swallow the next row", () => {
+    const doc = loadCsv(new TextEncoder().encode('id,name\n3,c\n1,a\n2,"b\n'));
+    const [head, ...body] = doc.rows;
+    doc.rows = [head, ...body.sort((a, b) => a.cells[0].localeCompare(b.cells[0]))];
+    const again = loadCsv(new TextEncoder().encode(serializeCsv(doc)));
+    expect(again.rows.map((r) => r.cells[0])).toEqual(["id", "1", "2", "3"]);
+    expect(again.rows[2].cells[1]).toBe("b\n");
   });
 });

@@ -100,6 +100,10 @@ const GridRow = memo(function GridRow(p: GridRowProps) {
   );
 });
 
+/** Rows the grid can lay out: a browser cannot make a scroll area taller than about 33 million
+ *  pixels. Larger tables show their first rows; Filter finds the rest. */
+const MAX_VIEW_ROWS = 1_150_000;
+
 const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
 
 function parseClipboard(text: string): string[][] {
@@ -182,7 +186,7 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
     const f = deferredFilter?.trim().toLowerCase() ?? "";
     if (!f) {
       lastFilter.current = null;
-      return Array.from({ length: Math.max(0, rows.length - first) }, (_, k) => k + first);
+      return Array.from({ length: Math.min(MAX_VIEW_ROWS, Math.max(0, rows.length - first)) }, (_, k) => k + first);
     }
     const lower = (r: CsvRow) => {
       let t = lowerText.current.get(r);
@@ -194,7 +198,7 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
     const from = prev && prev.rows === rows && prev.first === first && f.startsWith(prev.f) ? prev.idx : null;
     const idx: number[] = [];
     if (from) for (const i of from) lower(rows[i]).includes(f) && idx.push(i);
-    else for (let i = first; i < rows.length; i++) if (lower(rows[i]).includes(f)) idx.push(i);
+    else for (let i = first; i < rows.length && idx.length < MAX_VIEW_ROWS; i++) if (lower(rows[i]).includes(f)) idx.push(i);
     lastFilter.current = { rows, first, f, idx };
     return idx;
   }, [rows, first, deferredFilter]);
@@ -489,6 +493,7 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
     if (stats.cells > 1 && stats.nums > 0) items.push({ id: "sum", text: `Sum ${num(stats.sum, 10)} · Average ${num(stats.sum / stats.nums, 4)} · Count ${stats.count}` });
     else if (stats.cells > 1) items.push({ id: "sum", text: `Count ${stats.count}` });
     if (filter) items.push({ id: "filter", text: `Showing ${plural(view.length, "matching row")}` });
+    else if (rows.length - first > MAX_VIEW_ROWS) items.push({ id: "limit", text: `Showing the first ${MAX_VIEW_ROWS.toLocaleString()} rows; use Filter to find later ones` });
     // Separator, text format and line endings only when unusual; all of them under Details.
     const fmt = docRef.current.format;
     const extra: never[] = [];

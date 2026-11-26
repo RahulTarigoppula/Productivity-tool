@@ -18,6 +18,37 @@ export async function openZip(bytes: Uint8Array): Promise<JSZip> {
 }
 
 const parse = (xml: string) => new DOMParser().parseFromString(xml, "application/xml");
+
+/** A part's text, unpacked with a hard limit on what it really inflates to: a crafted file can
+ *  declare small sizes and still unpack to gigabytes. */
+export async function readPart(zip: JSZip, path: string, maxBytes = 200 * 1024 * 1024): Promise<string | undefined> {
+  const f = zip.file(path);
+  if (!f) return undefined;
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  await new Promise<void>((resolve, reject) => {
+    // internalStream exists at run time but is missing from JSZip's type definitions.
+    type Stream = { on(ev: string, cb: (x: never) => void): Stream; pause(): Stream; resume(): Stream };
+    const stream = (f as unknown as { internalStream(type: "uint8array"): Stream }).internalStream("uint8array");
+    stream
+      .on("data", (chunk: Uint8Array) => {
+        total += chunk.length;
+        if (total > maxBytes) {
+          stream.pause();
+          reject(new Error("This file unpacks to more than the app can open."));
+          return;
+        }
+        chunks.push(chunk);
+      })
+      .on("error", (e: Error) => reject(e))
+      .on("end", () => resolve())
+      .resume();
+  });
+  const all = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) (all.set(c, at), (at += c.length));
+  return new TextDecoder().decode(all);
+}
 const byTag = (el: Document | Element, ns: string, tag: string) => Array.from(el.getElementsByTagNameNS(ns, tag));
 
 const NS = {
@@ -97,7 +128,7 @@ export async function readXlsx(bytes: Uint8Array): Promise<SheetData[]> {
   if (!wbXml) throw new Error("This does not look like an Excel workbook.");
   const wbRels = await rels(zip, "xl/workbook.xml");
   const shared: string[] = [];
-  const ssXml = await zip.file("xl/sharedStrings.xml")?.async("string");
+  const ssXml = await readPart(zip, "xl/sharedStrings.xml");
   if (ssXml) for (const si of byTag(parse(ssXml), NS.main, "si")) shared.push(byTag(si, NS.main, "t").map((t) => t.textContent ?? "").join(""));
   // Number formats by cell style, so dates, prices and percentages read as they are shown.
   const formats: (string | undefined)[] = [];
@@ -113,10 +144,15 @@ export async function readXlsx(bytes: Uint8Array): Promise<SheetData[]> {
     }
   }
   const sheets: SheetData[] = [];
-  for (const s of byTag(parse(wbXml), NS.main, "sheet")) {
+  // Each sheet part is read once, and only so many sheets (a crafted workbook can point thousands
+  // of sheet entries at one large part).
+  const readTargets = new Set<string>();
+  for (const s of byTag(parse(wbXml), NS.main, "sheet").slice(0, 256)) {
     const rid = s.getAttributeNS(NS.rel, "id") ?? s.getAttribute("r:id") ?? "";
     const target = wbRels.get(rid);
-    const xml = target ? await zip.file(target)?.async("string") : undefined;
+    if (target && readTargets.has(target)) continue;
+    if (target) readTargets.add(target);
+    const xml = target ? await readPart(zip, target) : undefined;
     const rows: string[][] = [];
     const formulas = new Map<string, string>();
     let maxCol = 0;
@@ -154,7 +190,12 @@ export async function readXlsx(bytes: Uint8Array): Promise<SheetData[]> {
         rows[r] = vals;
       }
     }
-    // Fill gaps (sparse rows) only up to the data actually present.
+    // Fill gaps (sparse rows) only up to the data actually present, and never past the cell limit
+    // (two far-apart cells in a tiny file would otherwise describe millions of empty ones).
+    if (rows.length * Math.max(1, maxCol) > LIMITS.cells) {
+      rows.length = Math.max(1, Math.floor(LIMITS.cells / Math.max(1, maxCol)));
+      truncated = true;
+    }
     for (let i = 0; i < rows.length; i++) rows[i] = Array.from({ length: maxCol }, (_, c) => rows[i]?.[c] ?? "");
     sheets.push({ name: s.getAttribute("name") ?? `Sheet${sheets.length + 1}`, rows, formulas, maxCol, truncated });
   }
@@ -182,10 +223,15 @@ export async function readPptx(bytes: Uint8Array): Promise<SlideText[]> {
   const presRels = await rels(zip, "ppt/presentation.xml");
   const out: SlideText[] = [];
   let i = 0;
-  for (const s of byTag(parse(presXml), NS.p, "sldId")) {
+  // Each slide part is read once and only so many slides (a crafted deck can point thousands of
+  // slide entries at one large slide).
+  const readTargets = new Set<string>();
+  for (const s of byTag(parse(presXml), NS.p, "sldId").slice(0, 2000)) {
     const target = presRels.get(s.getAttributeNS(NS.rel, "id") ?? s.getAttribute("r:id") ?? "");
-    const xml = target ? await zip.file(target)?.async("string") : undefined;
-    if (!xml || !target) continue;
+    if (!target || readTargets.has(target)) continue;
+    readTargets.add(target);
+    const xml = await readPart(zip, target);
+    if (!xml) continue;
     i++;
     const slideRels = await rels(zip, target);
     const notesPath = [...slideRels.values()].find((p) => p.includes("notesSlide"));

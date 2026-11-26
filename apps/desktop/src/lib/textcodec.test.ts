@@ -48,4 +48,13 @@ describe("text codec round trips byte-for-byte", () => {
     const out = encodeText(d.text + "y\n", d.format);
     expect(bytesEqual(out, u8(0xef, 0xbb, 0xbf, ...utf8("x\r\ny\r\n")))).toBe(true);
   });
+
+  it("keeps a UTF-8 mark on a file read as Windows-1252, byte for byte", () => {
+    const bytes = new Uint8Array([0xef, 0xbb, 0xbf, 0x63, 0x61, 0x66, 0xe9, 0x0a]);
+    const d = decodeText(bytes);
+    expect(d.format.encoding).toBe("windows-1252");
+    expect(d.text).toBe("café\n");
+    expect(Array.from(encodeText(d.text, d.format))).toEqual(Array.from(bytes));
+    expect(Array.from(encodeText(d.text + "!", d.format).slice(0, 3))).toEqual([0xef, 0xbb, 0xbf]);
+  });
 });

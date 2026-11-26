@@ -3,7 +3,7 @@ import { useModalFocus, focusMain } from "./modalFocus";
 import { NotebookText, FileText, Sheet, FileSearch, FileType, FileSpreadsheet, Presentation } from "lucide-react";
 import { useStore, setState, activeTab, handles, toast, dismissToast, holdToasts, type Toast } from "../app/store";
 import { useAsk } from "../app/dialogs";
-import { updateSettings, newFile, newOfficeFile, pickAndOpen, suggestExportPath, openPath, handleExternalChange, addRecent } from "../app/actions";
+import { updateSettings, newFile, newOfficeFile, pickAndOpen, suggestExportPath, exportTargetOk, explainError, openPath, handleExternalChange, addRecent } from "../app/actions";
 import { getRegistry, sourceFormat, FORMAT_LABEL, PREFERRED_EXPORTS } from "../app/exporters";
 import { kindFromName } from "../lib/formats";
 import { QUALITY_LABEL, type Route } from "../lib/convert";
@@ -225,7 +225,7 @@ function Export() {
     const handle = handles.get(tab.id);
     if (!handle?.convert) return;
     const target = await platform.pickSave({ defaultPath: suggestExportPath(tab, ext), filters: [{ name: label, extensions: [ext] }] });
-    if (!target) return;
+    if (!target || !exportTargetOk(tab, target)) return;
     setBusy(ext);
     try {
       const bytes = await handle.convert(ext);
@@ -235,7 +235,7 @@ function Export() {
       closeDialog();
       exported([target], null);
     } catch (e) {
-      toast(`Export failed: ${e instanceof Error ? e.message : e}`, "error");
+      toast(`Export failed: ${explainError(e instanceof Error ? e.message : String(e))}`, "error");
     } finally {
       setBusy(null);
     }
@@ -245,7 +245,7 @@ function Export() {
     if (!handle) return;
     const loss = getRegistry().lossNote(route, sourceText);
     const target = await platform.pickSave({ defaultPath: suggestExportPath(tab, route.to), filters: [{ name: FORMAT_LABEL[route.to] ?? route.to.toUpperCase(), extensions: [route.to] }] });
-    if (!target) return;
+    if (!target || !exportTargetOk(tab, target)) return;
     setBusy(route.to);
     try {
       const bytes = await handle.serialize();
@@ -260,7 +260,7 @@ function Export() {
       closeDialog();
       exported(written, loss);
     } catch (e) {
-      toast(`Export failed: ${e instanceof Error ? e.message : e}`, "error");
+      toast(`Export failed: ${explainError(e instanceof Error ? e.message : String(e))}`, "error");
     } finally {
       setBusy(null);
     }

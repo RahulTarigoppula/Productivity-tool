@@ -41,6 +41,25 @@ function openReplace(view: EditorView): boolean {
   return true;
 }
 
+/** A very long paragraph packed with emphasis or link marks (thousands of unmatched * _ [ ):
+ *  formatting it takes the Markdown parser minutes, so such a note is shown as plain text. */
+function denseMarkers(text: string): boolean {
+  if (text.length < 20_000) return false;
+  for (let start = 0; start < text.length; ) {
+    let end = text.indexOf("\n\n", start);
+    if (end < 0) end = text.length;
+    if (end - start > 20_000) {
+      let marks = 0;
+      for (let i = start; i < end; i++) {
+        const c = text.charCodeAt(i);
+        if ((c === 42 || c === 95 || c === 91) && ++marks > 2000) return true;
+      }
+    }
+    start = end + 2;
+  }
+  return false;
+}
+
 /** Whether a character occurs at least `count` times (stops counting as soon as it does). */
 function manyOf(text: string, ch: string, count: number): boolean {
   for (let i = text.indexOf(ch), n = 0; i >= 0; i = text.indexOf(ch, i + 1)) if (++n >= count) return true;
@@ -132,7 +151,7 @@ export default function TextEngine({ host }: { host: EngineHost }) {
     const text = decoded.text;
     // Extremely deep nesting (hostile or broken files) is shown as plain text: the Markdown
     // parser would exhaust the stack on it.
-    const tooDeep = isMd && ((manyOf(text, ">", 200) && /^(?:[ \t]*>){200}/m.test(text)) || /^[ \t]{400,}(?:[-*+]|\d+[.)]) /m.test(text));
+    const tooDeep = isMd && ((manyOf(text, ">", 200) && /^(?:[ \t]*>){200}/m.test(text)) || /^[ \t]{400,}(?:[-*+]|\d+[.)]) /m.test(text) || denseMarkers(text));
     if (tooDeep) host.toast(`${host.name} is nested too deeply to format, so it is shown as plain text.`);
     const large = text.length > LARGE || tooDeep;
     const indent = detectIndent(text, getState().settings.tabSize);

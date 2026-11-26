@@ -33,4 +33,9 @@ describe("file kinds", () => {
     expect(isOtherOffice("deck.odp")).toBe(true);
     expect(isOtherOffice("deck.pptx")).toBe(false);
   });
+
+  it("a note that starts with %PDF stays a note unless it really is a PDF", () => {
+    expect(detectKind("plan.md", text("%PDF-1.4 is the version line of a PDF"))).toBe("markdown");
+    expect(detectKind("plan.md", bytes(0x25, 0x50, 0x44, 0x46, 0x2d))).toBe("pdf");
+  });
 });

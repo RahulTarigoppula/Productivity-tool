@@ -141,7 +141,10 @@ export function serializeCsv(doc: CsvDoc): string {
       // Every row except the last needs a terminator (rows can move, for example after sorting);
       // the last row ends the way the file originally ended.
       const term = i < last ? r.term || doc.eol : doc.finalNewline ? r.term || doc.eol : "";
-      const body = r.raw !== null ? r.raw.slice(0, r.raw.length - r.term.length) : serializeRow(r, doc.delimiter);
+      // A row that had no line break of its own (the last one, or one whose open quote ran to the
+      // end of the file) is written afresh once it is no longer last, so it cannot swallow the next row.
+      const reuse = r.raw !== null && (r.term !== "" || i === last);
+      const body = reuse ? r.raw!.slice(0, r.raw!.length - r.term.length) : serializeRow(r, doc.delimiter);
       return body + term;
     })
     .join("");

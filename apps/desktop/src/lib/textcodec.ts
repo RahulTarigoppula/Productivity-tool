@@ -143,7 +143,9 @@ export function encodeText(text: string, f: TextFormat): Uint8Array {
     }
   }
   if (!f.bom) return body;
-  const bomBytes = f.encoding === "utf-8" ? [0xef, 0xbb, 0xbf] : f.encoding === "utf-16le" ? [0xff, 0xfe] : [0xfe, 0xff];
+  // A file that starts with the UTF-8 mark but holds older Windows characters (read as Windows-1252)
+  // gets the same three bytes back, so it saves exactly as it was read.
+  const bomBytes = f.encoding === "utf-8" || f.encoding === "windows-1252" ? [0xef, 0xbb, 0xbf] : f.encoding === "utf-16le" ? [0xff, 0xfe] : [0xfe, 0xff];
   const out = new Uint8Array(bomBytes.length + body.length);
   out.set(bomBytes, 0);
   out.set(body, bomBytes.length);

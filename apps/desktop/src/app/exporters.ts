@@ -107,7 +107,9 @@ export function tableToHtml(rows: string[][], header = true): string {
 
 export function tableToMarkdown(rows: string[][]): string {
   if (!rows.length) return "";
-  const width = Math.max(...rows.map((r) => r.length));
+  // A loop, not Math.max(...rows): spreading a million rows overflows the call stack.
+  let width = 0;
+  for (const r of rows) if (r.length > width) width = r.length;
   const cell = (s: string) => s.replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>");
   const line = (r: string[]) => `| ${Array.from({ length: width }, (_, i) => cell(r[i] ?? "")).join(" | ")} |`;
   return [line(rows[0]), `| ${Array(width).fill("---").join(" | ")} |`, ...rows.slice(1).map(line)].join("\n") + "\n";
@@ -130,8 +132,12 @@ export function tableToJson(rows: string[][]): string {
 export function jsonToTable(text: string): string[][] {
   const data = JSON.parse(text);
   const arr: unknown[] = Array.isArray(data) ? data : [data];
+  // Keys collected through a Set (a list lookup made 10,000 keys take seconds); a table wider than
+  // a spreadsheet can show is refused rather than written.
+  const seen = new Set<string>();
   const keys: string[] = [];
-  for (const o of arr) if (o && typeof o === "object" && !Array.isArray(o)) for (const k of Object.keys(o)) if (!keys.includes(k)) keys.push(k);
+  for (const o of arr) if (o && typeof o === "object" && !Array.isArray(o)) for (const k of Object.keys(o)) if (!seen.has(k)) (seen.add(k), keys.push(k));
+  if (keys.length > 16_384) throw new Error(`This JSON has ${keys.length.toLocaleString()} different fields, more columns than a table can hold.`);
   if (!keys.length) return [["value"], ...arr.map((v) => [typeof v === "string" ? v : JSON.stringify(v)])];
   return [keys, ...arr.map((o) => keys.map((k) => {
     const v = (o as Record<string, unknown>)?.[k];
@@ -141,6 +147,8 @@ export function jsonToTable(text: string): string[][] {
 
 /** Lay out plain text on A4 pages with a monospaced font. */
 export async function textToPdf(text: string, title: string): Promise<Uint8Array> {
+  // Every character becomes drawing commands; beyond this the window would run out of memory.
+  if (text.length > 20_000_000) throw new Error("This text is too long to turn into a PDF here. Export it as plain text or a Word document instead.");
   const { PDFDocument, StandardFonts } = await import("@cantoo/pdf-lib");
   const doc = await PDFDocument.create();
   doc.setTitle(title);
@@ -176,7 +184,8 @@ async function pdfToImages(bytes: Uint8Array): Promise<{ suffix: string; bytes: 
     canvas.width = Math.ceil(vp.width);
     canvas.height = Math.ceil(vp.height);
     await page.render({ canvas, viewport: vp }).promise;
-    const blob: Blob = await new Promise((r) => canvas.toBlob((b) => r(b!), "image/png"));
+    const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/png"));
+    if (!blob) throw new Error(`Page ${i} is too large to turn into a picture.`);
     out.push({ suffix: `-page${String(i).padStart(String(doc.numPages).length, "0")}`, bytes: new Uint8Array(await blob.arrayBuffer()) });
   }
   await doc.loadingTask.destroy();
@@ -199,6 +208,13 @@ export async function pdfToText(bytes: Uint8Array): Promise<string> {
 }
 
 async function imageToPdf(bytes: Uint8Array, isPng: boolean): Promise<Uint8Array> {
+  // A PNG is decoded pixel by pixel to go into a PDF; its size is read from the header first
+  // (a small file can describe a picture of billions of pixels). JPEGs go in without decoding.
+  if (isPng && bytes.length > 24) {
+    const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const w = v.getUint32(16), h = v.getUint32(20);
+    if (w * h > 60_000_000) throw new Error(`This picture is ${w.toLocaleString()} × ${h.toLocaleString()} pixels, too large to put into a PDF here.`);
+  }
   const { PDFDocument } = await import("@cantoo/pdf-lib");
   const doc = await PDFDocument.create();
   const img = isPng ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
@@ -208,6 +224,29 @@ async function imageToPdf(bytes: Uint8Array, isPng: boolean): Promise<Uint8Array
 }
 
 const c = (from: string, to: string, quality: Converter["quality"], run: Converter["run"], loses?: Converter["loses"]): Converter => ({ id: `${from}->${to}`, from, to, quality, run, loses });
+
+/** Markdown → Word in a worker, stopped if it runs too long (where workers exist; tests run it directly). */
+async function markdownToDocxOffThread(md: string, title: string): Promise<Uint8Array> {
+  if (typeof Worker === "undefined") return (await import("../lib/docxWriter")).markdownToDocx(md, title);
+  const worker = new Worker(new URL("../lib/docx.worker.ts", import.meta.url), { type: "module" });
+  try {
+    return await new Promise<Uint8Array>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("This note is too complex to convert to Word.")), Math.max(30_000, md.length / 50));
+      worker.onmessage = (e: MessageEvent<{ bytes?: Uint8Array; error?: string }>) => {
+        clearTimeout(timer);
+        if (e.data.bytes) resolve(e.data.bytes);
+        else reject(new Error(e.data.error ?? "Conversion failed."));
+      };
+      worker.onerror = (e) => {
+        clearTimeout(timer);
+        reject(new Error(e.message || "Conversion failed."));
+      };
+      worker.postMessage({ md, title });
+    });
+  } finally {
+    worker.terminate();
+  }
+}
 
 export function buildRegistry(): ConversionRegistry {
   const r = new ConversionRegistry();
@@ -222,8 +261,7 @@ export function buildRegistry(): ConversionRegistry {
   r.register(c("txt", "pdf", "exact", async ({ bytes, name }) => one(await textToPdf(textOf(bytes), stem(name)))));
   // Word documents, written natively (headings, lists, tables, links and styles stay structured).
   r.register(c("md", "docx", "good", async ({ bytes, name }) => {
-    const { markdownToDocx } = await import("../lib/docxWriter");
-    return one(await markdownToDocx(textOf(bytes), stem(name)));
+    return one(await markdownToDocxOffThread(textOf(bytes), stem(name)));
   }, (text) => (/!\[[^\]]*\]\(/.test(text) ? "Images are left out (their descriptions are kept)." : null)));
   r.register(c("txt", "docx", "exact", async ({ bytes, name }) => {
     const { textToDocx } = await import("../lib/docxWriter");
@@ -277,7 +315,16 @@ export function buildRegistry(): ConversionRegistry {
   r.register(c("xlsx", "csv", "good", async ({ bytes }) => {
     const { readXlsx } = await import("../engines/office/ooxml");
     const sheets = await readXlsx(bytes);
-    return { files: sheets.map((s, i) => ({ suffix: sheets.length > 1 ? `-${s.name.replace(/[\\/:*?"<>|]/g, "_")}` : i ? `-${i}` : "", bytes: enc(tableToDelimited(s.rows, ",")) })) };
+    // One file per sheet; names that clean up alike ("a/b" and "a:b") get a number, never overwrite each other.
+    const used = new Set<string>();
+    const suffix = (name: string) => {
+      const base = `-${name.replace(/[\\/:*?"<>|]/g, "_")}`;
+      let out = base;
+      for (let n = 2; used.has(out.toLowerCase()); n++) out = `${base} (${n})`;
+      used.add(out.toLowerCase());
+      return out;
+    };
+    return { files: sheets.map((s) => ({ suffix: sheets.length > 1 ? suffix(s.name) : "", bytes: enc(tableToDelimited(s.rows, ",")) })) };
   }, "Values only: formulas, formatting and charts are not kept. One file per sheet."));
   r.register(c("docx", "md", "good", async ({ bytes }) => {
     const { docxToMarkdown } = await import("../lib/docxToMarkdown");

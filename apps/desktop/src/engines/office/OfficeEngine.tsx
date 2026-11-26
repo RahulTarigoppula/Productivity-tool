@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Info, ExternalLink, ZoomIn, ZoomOut, FileWarning } from "lucide-react";
 import { isOtherOffice } from "../../lib/formats";
 import type { EngineHost } from "../../app/editor-api";
-import { readXlsx, readPptx, colName, type SheetData, type SlideText } from "./ooxml";
+import { readXlsx, readPptx, colName, openZip, readPart, type SheetData, type SlideText } from "./ooxml";
+import { explainError } from "../../app/actions";
 import { platform } from "../../platform";
 import { OfficeEditor } from "./OfficeEditor";
 import { updateTab } from "../../app/store";
@@ -30,6 +31,8 @@ function DocxView({ bytes, zoom, onLink }: { bytes: Uint8Array; zoom: number; on
       if (!ref.current || !live) return;
       ref.current.innerHTML = "";
       try {
+        // The previewer unpacks the file itself: check first what it really unpacks to.
+        await readPart(await openZip(bytes), "word/document.xml", 60 * 1024 * 1024);
         await renderAsync(new Blob([bytes.slice()]), ref.current, undefined, {
           inWrapper: true, ignoreLastRenderedPageBreak: false, breakPages: true, renderHeaders: true, renderFooters: true, renderFootnotes: true, useBase64URL: true,
           // Embedded HTML chunks would render in a same-origin frame; never allow them.
@@ -41,7 +44,7 @@ function DocxView({ bytes, zoom, onLink }: { bytes: Uint8Array; zoom: number; on
           if (!/^(data:|blob:)/i.test(img.getAttribute("src") ?? "")) img.remove();
         });
       } catch (e) {
-        if (live) setErr(e instanceof Error ? e.message : String(e));
+        if (live) setErr(explainError(e instanceof Error ? e.message : String(e)));
       }
     });
     return () => {
@@ -77,6 +80,9 @@ function XlsxView({ sheets }: { sheets: SheetData[] }) {
   if (!s) return <div className="center-note">This workbook has no sheets.</div>;
   const ref = cell ? `${colName(cell.c)}${cell.r + 1}` : "";
   const formula = cell ? s.formulas.get(ref) : undefined;
+  // The preview draws at most about 100,000 cells (a sparse sheet can describe millions of empty ones).
+  const shownCols = Math.min(s.maxCol, 500);
+  const shownRows = Math.min(s.rows.length, MAX_ROWS, Math.max(1, Math.floor(100_000 / Math.max(1, shownCols))));
   return (
     <div className="xlsx">
       <div className="xlsx-bar">
@@ -88,23 +94,25 @@ function XlsxView({ sheets }: { sheets: SheetData[] }) {
           <thead>
             <tr>
               <th />
-              {Array.from({ length: s.maxCol }, (_, c) => <th key={c}>{colName(c)}</th>)}
+              {Array.from({ length: shownCols }, (_, c) => <th key={c}>{colName(c)}</th>)}
             </tr>
           </thead>
           <tbody>
-            {s.rows.slice(0, MAX_ROWS).map((row, r) => (
+            {s.rows.slice(0, shownRows).map((row, r) => (
               <tr key={r}>
                 <th>{r + 1}</th>
-                {row.map((v, c) => (
+                {row.slice(0, shownCols).map((v, c) => (
                   <td key={c} className={`${cell?.r === r && cell?.c === c ? "cur" : ""} ${v && !isNaN(Number(v)) ? "num" : ""}`} onClick={() => setCell({ r, c })} title={s.formulas.get(`${colName(c)}${r + 1}`) ? `=${s.formulas.get(`${colName(c)}${r + 1}`)}` : undefined}>
-                    {v}
+                    {v.length > 1000 ? `${v.slice(0, 1000)}…` : v}
                   </td>
                 ))}
               </tr>
             ))}
           </tbody>
         </table>
-        {s.rows.length > MAX_ROWS && <div className="empty-note">Showing the first {MAX_ROWS.toLocaleString()} of {s.rows.length.toLocaleString()} rows.</div>}
+        {(s.rows.length > shownRows || s.maxCol > shownCols) && (
+          <div className="empty-note">Showing the first {shownRows.toLocaleString()} of {s.rows.length.toLocaleString()} rows and {shownCols.toLocaleString()} of {s.maxCol.toLocaleString()} columns.</div>
+        )}
         {s.truncated && <div className="empty-note">This sheet is larger than the preview limits; some cells are not shown.</div>}
       </div>
       <div className="xlsx-tabs" role="tablist">
@@ -140,8 +148,8 @@ function OfficePreview({ host }: { host: EngineHost }) {
   const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
-    if (host.kind === "xlsx") readXlsx(host.bytes).then(setSheets).catch((e) => setErr(String(e?.message ?? e)));
-    if (host.kind === "pptx") readPptx(host.bytes).then(setSlides).catch((e) => setErr(String(e?.message ?? e)));
+    if (host.kind === "xlsx") readXlsx(host.bytes).then(setSheets).catch((e) => setErr(explainError(String(e?.message ?? e))));
+    if (host.kind === "pptx") readPptx(host.bytes).then(setSlides).catch((e) => setErr(explainError(String(e?.message ?? e))));
   }, [host]);
 
   useEffect(() => {

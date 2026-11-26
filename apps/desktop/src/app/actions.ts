@@ -488,6 +488,16 @@ async function saveTabNow(id: string, opts: { as?: boolean; explicit?: boolean }
 }
 
 /** Operating-system error codes in plain words. */
+/** Messages from libraries, in plain words (they are written for programmers). */
+export function explainError(msg: string): string {
+  const m = msg.toLowerCase();
+  if (/maximum call stack|too much recursion|excessive node nesting/.test(m)) return "This document is nested too deeply to read or convert.";
+  if (/invalid string length|array buffer allocation|out of memory|allocation failed/.test(m)) return "This document is too large to convert here.";
+  if (/uncompressed data size mismatch|invalid (length\/literal|distance|stored block|code lengths)|corrupted zip|end of central directory|crc32/.test(m)) return "This file is damaged: its packed contents cannot be read.";
+  // Library messages sometimes ask to file a report with them; that is not for the person here.
+  return msg.replace(/\s*please report this to \S+\.?/i, "").trim();
+}
+
 export function friendlyError(msg: string): string {
   const m = msg.toLowerCase();
   if (/eacces|eperm|access is denied|permission denied|os error 5\b|os error 13\b/.test(m)) return "you do not have permission to change this file, or it is open in another program. Try Save As to keep a copy.";
@@ -495,7 +505,7 @@ export function friendlyError(msg: string): string {
   if (/enoent|not found|os error 2\b|os error 3\b/.test(m)) return "its folder no longer exists.";
   if (/ebusy|being used by another process|os error 32\b|os error 33\b/.test(m)) return "another program is using the file. Close it there and try again.";
   if (/erofs|read-only file system/.test(m)) return "the drive is read-only.";
-  return msg;
+  return explainError(msg);
 }
 
 /** A save that stopped before writing: engines drop anything they prepared for it. */
@@ -789,6 +799,17 @@ type State = ReturnType<typeof getState>;
 
 export function suggestExportPath(tab: Tab, ext: string, suffix = ""): string {
   const base = tab.path ?? join(getState().workspace ?? "", tab.name);
+  // Never suggest the file being exported (a misnamed report.pdf exported to PDF).
+  if (!suffix && tab.path && samePath(withExtension(base, ext), tab.path)) suffix = " (exported)";
   const p = withExtension(base, ext);
   return suffix ? p.replace(new RegExp(`\\.${ext}$`), `${suffix}.${ext}`) : p;
+}
+
+/** Whether an export may write to a path: never over the file it comes from. */
+export function exportTargetOk(tab: Tab, target: string): boolean {
+  if (tab.path && samePath(tab.path, target)) {
+    toast(`${basename(target)} is the file you are exporting from. Choose another name.`, "error");
+    return false;
+  }
+  return true;
 }

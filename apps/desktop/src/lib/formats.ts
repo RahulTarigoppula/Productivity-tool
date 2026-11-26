@@ -66,7 +66,8 @@ export function looksBinary(bytes: Uint8Array): boolean {
 export function detectKind(path: string, bytes: Uint8Array): Kind {
   const k = kindFromName(path);
   const head = String.fromCharCode(...bytes.slice(0, 5));
-  if (head.startsWith("%PDF")) return "pdf";
+  // A real PDF has binary content; a note or text file that merely starts with "%PDF" stays text.
+  if (head.startsWith("%PDF") && (k === "pdf" || k === "binary" || looksBinary(bytes))) return "pdf";
   if (k === "docx" || k === "xlsx" || k === "pptx") {
     const e = extname(path);
     const ole = bytes[0] === 0xd0 && bytes[1] === 0xcf && bytes[2] === 0x11 && bytes[3] === 0xe0;

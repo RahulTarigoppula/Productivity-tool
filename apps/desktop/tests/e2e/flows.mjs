@@ -1075,7 +1075,8 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     assert((await field.inputValue()) === "wrong", "the field lost what was typed");
     await page.keyboard.press("Escape");
     await waitFor(async () => !(await dlg.count()), 2000, "Escape closed the dialog");
-    assert(await page.locator(".pdf-locked").isVisible(), "no way back after cancelling");
+    // The "Enter password…" way back appears once the cancelled load has settled.
+    await waitFor(() => page.locator("section.doc-pane:not([hidden]) .pdf-locked").isVisible(), 4000, "a way back after cancelling");
     await page.getByRole("button", { name: "Enter password…" }).click();
     await dlg.waitFor({ timeout: 3000 });
     await dlg.getByLabel("Password").fill("open sesame");

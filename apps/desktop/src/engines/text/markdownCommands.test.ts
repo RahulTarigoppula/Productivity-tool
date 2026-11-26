@@ -1,13 +1,23 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { setHeading, toggleLinePrefix, insertLink, insertBlock } from "./markdownCommands";
 
+// jsdom has no layout; the editor measures text on the next frame.
+const noRects = () => Object.assign([], { item: () => null }) as unknown as DOMRectList;
+Range.prototype.getClientRects ??= noRects;
+Range.prototype.getBoundingClientRect ??= () => new DOMRect();
+
+const views: EditorView[] = [];
+afterEach(() => views.splice(0).forEach((v) => v.destroy()));
+
 function view(doc: string, anchor = doc.length, head = anchor) {
   const parent = document.createElement("div");
   document.body.appendChild(parent);
-  return new EditorView({ parent, state: EditorState.create({ doc, selection: { anchor, head } }) });
+  const v = new EditorView({ parent, state: EditorState.create({ doc, selection: { anchor, head } }) });
+  views.push(v);
+  return v;
 }
 
 describe("Markdown commands", () => {

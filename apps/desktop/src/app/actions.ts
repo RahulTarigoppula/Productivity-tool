@@ -77,6 +77,22 @@ export function activate(id: string | null) {
   setState({ activeId: id });
   updateTitle();
   if (id) setTimeout(() => handles.get(id)?.focus(), 0);
+  // Keys must never keep going to a document that is no longer shown (an Office editor frame
+  // keeps focus when its tab is hidden): move focus out at once; the new document takes it as
+  // soon as it is ready (see focusIfStranded).
+  setTimeout(() => {
+    const a = document.activeElement as HTMLElement | null;
+    if (a && a !== document.body && a.closest("section.doc-pane[hidden]")) a.blur();
+  }, 0);
+}
+
+/** Called when a document's editor becomes ready: if it is the visible tab and the keyboard is
+ *  nowhere useful (or still in a hidden document), the new document gets it. */
+export function focusIfStranded(id: string) {
+  if (getState().activeId !== id) return;
+  const a = document.activeElement as HTMLElement | null;
+  const stranded = !a || a === document.body || !!a.closest("section.doc-pane[hidden]");
+  if (stranded) handles.get(id)?.focus();
 }
 
 export function updateTitle() {

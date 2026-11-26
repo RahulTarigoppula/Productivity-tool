@@ -217,6 +217,15 @@ export function buildRegistry(): ConversionRegistry {
     return one(enc((div.innerText || div.textContent || "").replace(/\n{3,}/g, "\n\n").trim() + "\n"));
   }, "Formatting such as headings, bold and links becomes plain text."));
   r.register(c("txt", "pdf", "exact", async ({ bytes, name }) => one(await textToPdf(textOf(bytes), stem(name)))));
+  // Word documents, written natively (headings, lists, tables, links and styles stay structured).
+  r.register(c("md", "docx", "good", async ({ bytes, name }) => {
+    const { markdownToDocx } = await import("../lib/docxWriter");
+    return one(await markdownToDocx(textOf(bytes), stem(name)));
+  }, "Images are left out (their descriptions are kept)."));
+  r.register(c("txt", "docx", "exact", async ({ bytes, name }) => {
+    const { textToDocx } = await import("../lib/docxWriter");
+    return one(await textToDocx(textOf(bytes), stem(name), !/\.(txt|text|log)$/i.test(name)));
+  }));
   // Markdown straight to PDF is a plain-text PDF; the formatted route is Print.
   r.register(c("md", "pdf", "text", async ({ bytes, name }) => {
     const html = await markdownToHtml(textOf(bytes));
@@ -242,6 +251,15 @@ export function buildRegistry(): ConversionRegistry {
     };
     r.register(c(src, "txt", "good", async ({ bytes }) => one(enc(aligned(bytes))), "Columns are lined up with spaces; very long cells are shortened."));
     r.register(c(src, "pdf", "good", async ({ bytes, name }) => one(await textToPdf(aligned(bytes), stem(name))), "A plain table in a fixed-width font; very long cells are shortened."));
+  }
+  for (const src of ["csv", "tsv"]) {
+    // Excel workbooks: numbers stay numbers, IDs with leading zeros stay text.
+    r.register(c(src, "xlsx", "good", async ({ bytes, name }) => {
+      const { tablesToXlsx, asNumber } = await import("../lib/xlsxWriter");
+      const rows = table(bytes, src);
+      const header = rows.length > 1 && rows[0].length > 0 && rows[0].every((v) => v.trim() !== "" && asNumber(v) === null);
+      return one(await tablesToXlsx([{ name: stem(name), rows, header }]));
+    }, "Values only: one sheet, no formulas or formatting."));
   }
   r.register(c("csv", "tsv", "exact", async ({ bytes }) => one(enc(tableToDelimited(table(bytes, "csv"), "\t")))));
   r.register(c("tsv", "csv", "exact", async ({ bytes }) => one(enc(tableToDelimited(table(bytes, "tsv"), ",")))));
@@ -287,5 +305,5 @@ export function sourceFormat(name: string, kind: string): string {
 }
 
 export const FORMAT_LABEL: Record<string, string> = {
-  html: "Web page", txt: "Plain text", pdf: "PDF", md: "Markdown", json: "JSON", csv: "CSV", tsv: "Tab-separated", png: "PNG images",
+  html: "Web page", txt: "Plain text", pdf: "PDF", md: "Markdown", json: "JSON", csv: "CSV", tsv: "Tab-separated", png: "PNG images", docx: "Word document", xlsx: "Excel workbook",
 };

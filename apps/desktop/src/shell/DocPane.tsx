@@ -1,7 +1,7 @@
 import { Suspense, useMemo, useEffect, useRef, useState, Component, type ReactNode } from "react";
 import { Info, TriangleAlert, FileWarning } from "lucide-react";
 import { setState, updateTab, handles, tabBytes, knownMeta, toast, type Tab } from "../app/store";
-import { openBytes, removeRecent, metaKey, contentChanged, keepMine, reloadFromDisk, saveTab, closeTab, openLink, reopenAs, takePendingGoTo, engineSetDirty } from "../app/actions";
+import { focusIfStranded, openBytes, removeRecent, metaKey, contentChanged, keepMine, reloadFromDisk, saveTab, closeTab, openLink, reopenAs, takePendingGoTo, engineSetDirty } from "../app/actions";
 import type { EngineHost } from "../app/editor-api";
 import { engineFor } from "../engines";
 import { platform } from "../platform";
@@ -107,6 +107,7 @@ function EngineMount({ tab }: { tab: Tab }) {
       setOutline: (items) => setState((s) => ({ outline: { ...s.outline, [tab.id]: items } })),
       register: (h) => {
         handles.set(tab.id, h);
+        setTimeout(() => focusIfStranded(tab.id), 0);
         const loc = takePendingGoTo(tab.id);
         if (loc) setTimeout(() => h.goTo?.(loc), 30);
       },

@@ -67,7 +67,7 @@ The app is one window with tabs. Four things are always there: **tabs** at the t
 - **New** Document/Spreadsheet/Presentation from the home screen or Ctrl+K (installed app only).
 
 ### Export and print
-- **Ctrl+E** lists every format the file can become, with a **Text only** label where formatting is lost (for example Markdown → plain text). The original file is never changed.
+- **Ctrl+E** lists every format the file can become, with a **Text only** label where formatting is lost (for example Markdown → plain text). Notes become **Word documents** and tables become **Excel workbooks** (numbers stay numbers, IDs keep their leading zeros), all offline. The original file is never changed.
 - **Print or save as a formatted PDF** opens the print window (choose *Save as PDF*).
 
 ### Safety nets
@@ -123,10 +123,10 @@ Note: a plain `cargo build --release` does not embed the interface (it points at
 
 | What | Command (in `apps/desktop`) | Count today |
 |---|---|---|
-| Unit tests | `pnpm test` | 63 |
+| Unit tests | `pnpm test` | 71 |
 | Rust tests | `cd src-tauri && cargo test --release` | 22 |
 | End-to-end flows (browser build) | `pnpm build && pnpm preview --port 1420 &` then `APP_URL=http://localhost:1420/ pnpm e2e` | 46 |
-| Office editing flows | `pnpm office-pack`, `node tests/office-server.mjs &`, then `pnpm e2e:office` | 10 |
+| Office editing flows | `pnpm office-pack`, `node tests/office-server.mjs &`, then `pnpm e2e:office` | 13 |
 | Real-app self-test (Windows/Linux) | `PRODUCTIVITY_SELF_TEST=<folder with tests/corpus files> productivity.exe` → writes `selftest-report.json` there | 23 checks |
 | Real-app self-test (Android emulator) | `tests/android-smoke.sh <apk> <out-dir>` (needs USB debugging on) | 23 checks |
 
@@ -186,7 +186,7 @@ Design and decisions: `docs/plans/` (vision, architecture, UX, roadmap), `docs/f
 | Area | Gap | Where planned |
 |---|---|---|
 | All | Not yet used on real hardware | Section 4 checklist |
-| Windows | Exe not code-signed; native Mica title bar; Markdown ↔ Word conversion; language servers/terminal (light workbench) | W5–W6, convert pack |
+| Windows | Exe not code-signed; native Mica title bar; richer Word → Markdown and PDF → Word conversion; language servers/terminal (light workbench) | W5–W6, convert pack |
 | Android | Office files are previews only; no folders; very old system WebViews may not draw PDF pages; files shared once cannot be reopened after a restart | `docs/decisions/0003-android.md` |
 | Office | Non-Latin scripts use a fallback font in the core pack (`--fonts=all` adds them); release-candidate editors pinned | `docs/decisions/0002-office-engine.md` |
 | Next phase | Phase 3: macOS and iOS; Release 4: sync across devices | `docs/plans/03-roadmap.md`, `12-platforms-and-mobile.md`, `11-sync-and-continuity.md` |

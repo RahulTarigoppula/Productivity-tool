@@ -104,7 +104,7 @@ These are planned; none is hidden from the user in the app.
 |---|---|
 | Office documents in Chinese, Japanese, Korean, Indic or other non-Latin scripts use a fallback font (the pack ships a core font set) | Optional full-font pack |
 | The first Office file of a session takes longer to open (the editor engine starts) | W6 |
-| Markdown ↔ Word conversion, PDF → Word | Convert pack (Pandoc) |
+| Word → Markdown keeps text and headings only (Markdown → Word and CSV → Excel are built in); PDF → Word | Convert pack |
 | Language servers, terminal, git panel, minimap | W5 — light workbench |
 | PDF: annotation list panel, highlight colours, sticky-note comments, certificate signatures | W2 follow-up / later |
 | Printing PDFs goes through page images | Later |

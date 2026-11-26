@@ -174,6 +174,59 @@ const frameBox = async () => page.locator("section.doc-pane:not([hidden]) .offic
     assert(!t.dirty, "a woken tab must not be marked unsaved");
   });
 
+  await check("O-11", "a note exported to Word opens in the Word editor with its content", async () => {
+    const md = "# Kickoff plan\n\nSome **bold** words and a [link](https://example.com).\n\n1. First step\n2. Second step\n\n| Owner | Task |\n|---|---|\n| Asha | Design |\n";
+    await page.evaluate((t) => window.__fs.write("/work/kickoff.md", new TextEncoder().encode(t)), md);
+    await page.evaluate(() => window.__app.openPath("/work/kickoff.md"));
+    await page.waitForSelector("section.doc-pane:not([hidden]) .cm-content");
+    await page.evaluate(() => window.__fs.queueSave("/work/kickoff.docx"));
+    await page.keyboard.press("Control+e");
+    await page.locator(".export-row", { hasText: "Word document" }).first().click();
+    await waitFor(async () => !!(await fsRead("/work/kickoff.docx")), 15000, "Word file written");
+    await page.evaluate(() => window.__app.openPath("/work/kickoff.docx"));
+    await waitFor(editorReady, 90000, "Word editor ready");
+    const xml = await page.evaluate(async () => {
+      const s = window.__app.getState();
+      const b = await window.__app.handles.get(s.activeId).serialize({ forSave: true });
+      return Array.from(b);
+    }).then(zipText);
+    assert(xml.includes("Kickoff plan") && xml.includes("Second step") && xml.includes("Asha"), "content lost after the editor saved it");
+  });
+
+  await check("O-12", "a table exported to Excel opens in the spreadsheet editor with numbers and IDs intact", async () => {
+    await page.evaluate(() => window.__fs.write("/work/sales.csv", new TextEncoder().encode("id,region,amount\n00012,North,10.5\n00013,South,20\n")));
+    await page.evaluate(() => window.__app.openPath("/work/sales.csv"));
+    await page.waitForSelector("section.doc-pane:not([hidden]) .csv-cell");
+    await page.evaluate(() => window.__fs.queueSave("/work/sales.xlsx"));
+    await page.keyboard.press("Control+e");
+    await page.locator(".export-row", { hasText: "Excel workbook" }).first().click();
+    await waitFor(async () => !!(await fsRead("/work/sales.xlsx")), 15000, "Excel file written");
+    await page.evaluate(() => window.__app.openPath("/work/sales.xlsx"));
+    await waitFor(editorReady, 90000, "spreadsheet editor ready");
+    const xml = await page.evaluate(async () => {
+      const s = window.__app.getState();
+      const b = await window.__app.handles.get(s.activeId).serialize({ forSave: true });
+      return Array.from(b);
+    }).then(zipText);
+    assert(xml.includes("00012") && xml.includes("North"), "text values lost");
+    assert(/<v>10\.5<\/v>/.test(xml), "the amount is no longer a number");
+  });
+
+  await check("O-13", "after working in an Office file, opening another file sends typing to the new file", async () => {
+    await page.evaluate(() => window.__app.openPath("/work/report.docx"));
+    await waitFor(editorReady, 90000, "editor ready");
+    const b = await frameBox();
+    await page.mouse.click(b.x + b.width / 2, b.y + b.height * 0.6);
+    await page.evaluate(() => window.__fs.write("/work/after-office.md", new TextEncoder().encode("start\n")));
+    await page.evaluate(() => window.__app.openPath("/work/after-office.md"));
+    await page.waitForSelector("section.doc-pane:not([hidden]) .cm-content");
+    await page.waitForTimeout(300);
+    await page.keyboard.type("typed here");
+    await page.waitForTimeout(300);
+    const text = await page.evaluate(async () => { const s = window.__app.getState(); return new TextDecoder().decode(await window.__app.handles.get(s.activeId).serialize()); });
+    assert(text.includes("typed here"), `typing went elsewhere; the note reads ${JSON.stringify(text)}`);
+  });
+
   await page.screenshot({ path: join(shots, "office-final.png") });
   await browser.close();
   const failed = results.filter((r) => !r.ok);

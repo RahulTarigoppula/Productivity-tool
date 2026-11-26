@@ -109,7 +109,11 @@ export async function runSelfTest(dir: string) {
   const selector: Record<string, string> = {
     md: ".cm-content", txt: ".cm-content", py: ".cm-content", csv: ".csv-cell",
     pdf: ".pdfViewer .page canvas", docx: ".docx-host section, .office-frame[style*='visible']", xlsx: ".xlsx-table td, .office-frame[style*='visible']", pptx: ".slide-card, .office-frame[style*='visible']",
+    // Older and OpenDocument files: the editor, or (without it) the message saying what they need.
+    doc: ".office-frame[style*='visible'], .center-note h3", odt: ".office-frame[style*='visible'], .center-note h3",
+    mp3: "audio, .center-note h3", webm: "video, .center-note h3",
   };
+  const officeExt = ["docx", "xlsx", "pptx", "doc", "odt"];
   const office = await platform.officePack();
   const seen: string[] = [];
   window.addEventListener("message", (e) => {
@@ -125,7 +129,7 @@ export async function runSelfTest(dir: string) {
       const id = await openPath(f.path);
       assert(id, "no tab");
       // The first Office file also starts the editor engine (WebAssembly compile), so allow longer.
-      const deadline = t0 + (["docx", "xlsx", "pptx"].includes(ext) ? 90000 : 20000);
+      const deadline = t0 + (officeExt.includes(ext) ? 90000 : 20000);
       for (;;) {
         const tab = getState().tabs.find((x) => x.id === id);
         assert(tab && !tab.error, tab?.error ?? "tab missing");
@@ -140,7 +144,7 @@ export async function runSelfTest(dir: string) {
       }
       timings[`open:${f.name}`] = Math.round(performance.now() - t0);
       // With the Office pack installed, Office files must open in the real editor and save.
-      if (office.available && ["docx", "xlsx", "pptx"].includes(ext)) {
+      if (office.available && officeExt.includes(ext)) {
         assert(document.querySelector("section.doc-pane:not([hidden]) .office-frame"), "opened as a preview, not in the editor");
         const t1 = performance.now();
         const bytes = await handles.get(id!)!.serialize({ forSave: true });

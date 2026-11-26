@@ -3,6 +3,8 @@ import { OLD_WEBVIEW } from "../../polyfills";
 
 type PdfjsLib = typeof import("pdfjs-dist");
 type PdfViewerLib = typeof import("pdfjs-dist/web/pdf_viewer.mjs");
+export type Viewer = InstanceType<PdfViewerLib["PDFViewer"]>;
+export type Bus = InstanceType<PdfViewerLib["EventBus"]>;
 
 let lib: Promise<PdfjsLib> | null = null;
 let viewer: Promise<PdfViewerLib> | null = null;

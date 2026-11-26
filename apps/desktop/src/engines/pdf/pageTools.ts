@@ -44,14 +44,28 @@ export async function insertPdf(bytes: Uint8Array, other: Uint8Array, at: number
   return doc.save();
 }
 
-/** Place a PNG image (a drawn signature) on a page at PDF coordinates (origin bottom-left). */
-export async function placeImage(bytes: Uint8Array, pageIndex: number, png: Uint8Array, x: number, y: number, width: number): Promise<Uint8Array> {
+/** Place a PNG image (a signature) on a page, centred on a point in PDF coordinates (origin
+ *  bottom-left) and upright as the page is shown, even on a rotated page. */
+export async function placeImage(bytes: Uint8Array, pageIndex: number, png: Uint8Array, cx: number, cy: number, width: number): Promise<Uint8Array> {
   const doc = await load(bytes);
   const img = await doc.embedPng(png);
   const page = doc.getPage(pageIndex);
   const height = (img.height / img.width) * width;
-  page.drawImage(img, { x, y: y - height, width, height });
+  const { x, y, angle } = uprightPlacement(cx, cy, width, height, page.getRotation().angle);
+  page.drawImage(img, { x, y, width, height, rotate: degrees(angle) });
   return doc.save();
+}
+
+/** Where to draw a w×h image so that its centre is at (cx, cy) and it looks upright on a page shown
+ *  turned `rotation` degrees clockwise: the image is turned as far the other way, around the corner
+ *  it is drawn from. */
+export function uprightPlacement(cx: number, cy: number, w: number, h: number, rotation: number): { x: number; y: number; angle: number } {
+  const angle = ((rotation % 360) + 360) % 360;
+  const a = (angle * Math.PI) / 180;
+  // The image's centre seen from that corner once turned.
+  const ox = (w / 2) * Math.cos(a) - (h / 2) * Math.sin(a);
+  const oy = (w / 2) * Math.sin(a) + (h / 2) * Math.cos(a);
+  return { x: cx - ox, y: cy - oy, angle };
 }
 
 export function movedOrder(count: number, selected: number[], target: number): number[] {
@@ -60,4 +74,18 @@ export function movedOrder(count: number, selected: number[], target: number): n
   const before = rest.filter((i) => i < target).length;
   const moving = [...selected].sort((a, b) => a - b);
   return [...rest.slice(0, before), ...moving, ...rest.slice(before)];
+}
+
+/** New order after moving each of the given pages one place up (-1) or down (+1). A page already at
+ *  the end it moves towards, or blocked by another moving page there, stays where it is. */
+export function shiftedOrder(count: number, pages: number[], delta: -1 | 1): number[] {
+  const order = [...Array(count).keys()];
+  const moving = new Set(pages);
+  // Walk in the direction of travel so a block of pages moves together.
+  for (let k = 0; k < count; k++) {
+    const i = delta < 0 ? k : count - 1 - k;
+    const j = i + delta;
+    if (j >= 0 && j < count && moving.has(order[i]) && !moving.has(order[j])) [order[i], order[j]] = [order[j], order[i]];
+  }
+  return order;
 }

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { useStore, getState } from "../app/store";
+import { useStore, getState, setState } from "../app/store";
 import { startup, openPath, handleExternalChange, flushAll, persistSession, openBytes } from "../app/actions";
 import { installKeys } from "../app/keys";
+import { toggleFocusMode } from "../app/commands";
 import { platform } from "../platform";
 import { TabBar } from "./TabBar";
 import { Toolbar } from "./Toolbar";
@@ -108,6 +109,8 @@ export function App() {
       {tabs.length ? <Boundary name="toolbar"><Toolbar /></Boundary> : <div className="toolbar empty" aria-hidden />}
       <div className="main">
         {leftOpen && !focusMode && <Boundary name="sidebar"><Sidebar /></Boundary>}
+        {/* On narrow screens the side panels float over the document; tapping beside them closes them. */}
+        {(leftOpen || (rightOpen && tabs.length > 0)) && !focusMode && <div className="side-backdrop" aria-hidden onClick={() => setState({ leftOpen: false, rightOpen: false })} />}
         <main className="doc-area">
           {tabs.map((t) => <DocPane key={t.id} tab={t} active={t.id === activeId} />)}
           {!tabs.length && <Boundary name="home screen"><Home /></Boundary>}
@@ -115,6 +118,12 @@ export function App() {
         {rightOpen && !focusMode && tabs.length > 0 && <Boundary name="side panel"><RightPanel /></Boundary>}
       </div>
       <Boundary name="status bar"><StatusBar /></Boundary>
+      {/* A way out of focus mode for the mouse: it appears when the pointer reaches the top edge. */}
+      {focusMode && (
+        <div className="focus-exit-zone">
+          <button className="btn sm focus-exit" onClick={toggleFocusMode}>Exit focus mode</button>
+        </div>
+      )}
       <Boundary name="command palette" variant="silent"><Palette /></Boundary>
       <Boundary name="dialog" variant="silent"><Dialogs /></Boundary>
       {/* Questions such as "Save changes?" have their own boundary: other dialogs failing never blocks them. */}

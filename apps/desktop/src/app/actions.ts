@@ -532,11 +532,12 @@ export async function flushAll() {
 
 // ---------- close ----------
 
-export async function closeTab(id: string): Promise<boolean> {
+/** Closes a tab, asking about unsaved changes unless the person already chose to discard them. */
+export async function closeTab(id: string, opts: { discard?: boolean } = {}): Promise<boolean> {
   handles.get(id)?.flush?.();
   const tab = getState().tabs.find((t) => t.id === id);
   if (!tab) return true;
-  if (tab.dirty) {
+  if (tab.dirty && !opts.discard) {
     const autoSaves = getState().settings.autoSave && tab.path && isTextual(tab.kind) && !tab.conflict;
     const saved = autoSaves ? await saveTab(id) : false;
     if (!saved) {

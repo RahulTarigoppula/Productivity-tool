@@ -61,11 +61,13 @@ function Banner({ tab }: { tab: Tab }) {
     );
   if (tab.conflict === "deleted")
     return (
-      <div className="banner warn" role="alert">
+      <div className="banner warn wrap" role="alert">
         <TriangleAlert />
         <span className="msg">This file was moved or deleted outside the app. Your content is still here.</span>
-        <button className="btn" onClick={() => void saveTab(tab.id, { explicit: true })}>Save to recreate</button>
-        <button className="btn" onClick={() => void saveTab(tab.id, { as: true, explicit: true })}>Save as…</button>
+        <span className="banner-acts">
+          <button className="btn primary sm" onClick={() => void saveTab(tab.id, { explicit: true })}>Save it again</button>
+          <button className="btn sm" onClick={() => void saveTab(tab.id, { as: true, explicit: true })}>Save as…</button>
+        </span>
       </div>
     );
   if (tab.notice && tab.saveState === "recovered" && tab.path)
@@ -76,6 +78,18 @@ function Banner({ tab }: { tab: Tab }) {
         <span className="banner-acts">
           <button className="btn primary sm" onClick={() => void saveTab(tab.id, { explicit: true })}>Save them</button>
           <button className="btn sm" onClick={() => void reloadFromDisk(tab.id, false)}>Discard them</button>
+        </span>
+      </div>
+    );
+  // Recovered work that never had a file: offer to save it somewhere, or to let it go.
+  if (tab.notice && tab.saveState === "recovered")
+    return (
+      <div className="banner wrap">
+        <Info />
+        <span className="msg">{tab.notice.text}</span>
+        <span className="banner-acts">
+          <button className="btn primary sm" onClick={() => void saveTab(tab.id, { explicit: true })}>Save…</button>
+          <button className="btn sm" onClick={() => void closeTab(tab.id, { discard: true })}>Discard</button>
         </span>
       </div>
     );

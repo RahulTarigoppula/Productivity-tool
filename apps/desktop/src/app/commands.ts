@@ -22,6 +22,8 @@ export function toggleFocusMode() {
   const on = !getState().focusMode;
   setState({ focusMode: on });
   if (on) toast(window.matchMedia("(hover: none)").matches ? "Focus mode. Use the back gesture to leave." : "Focus mode. Press F11 or Esc to leave.");
+  // The hint about leaving is done once focus mode is.
+  else setState((s) => ({ toasts: s.toasts.filter((t) => !t.text.startsWith("Focus mode.")) }));
   void platform.setFullscreen(on);
 }
 

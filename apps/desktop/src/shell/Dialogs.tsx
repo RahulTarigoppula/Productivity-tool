@@ -101,13 +101,13 @@ function Settings() {
         <h3>Settings</h3>
         <div className="settings-group">
           <div className="group-title">Appearance</div>
-          <Row label="Theme" help="Follow Windows, or choose.">
+          <Row label="Theme" help="Match this device, or choose.">
             <Segmented label="Theme" value={s.theme} onChange={(v) => void updateSettings({ theme: v })} options={[{ value: "system", label: "System" }, { value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} />
           </Row>
         </div>
         <div className="settings-group">
           <div className="group-title">Saving</div>
-          <Row label="Auto-save" help="Text, Markdown, code and CSV save themselves a moment after you stop typing. PDFs and Office files save with Ctrl+S.">{flag("autoSave", "Auto-save")}</Row>
+          <Row label="Auto-save" help="Text, Markdown, code and CSV save themselves a moment after you stop typing. PDFs and Office files save when you choose Save.">{flag("autoSave", "Auto-save")}</Row>
         </div>
         <div className="settings-group">
           <div className="group-title">Editor</div>

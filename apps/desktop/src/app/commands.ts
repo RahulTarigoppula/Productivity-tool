@@ -35,7 +35,7 @@ export function shellCommands(): Command[] {
   // The theme on screen (System follows Windows).
   const shownDark = s.settings.theme === "dark" || (s.settings.theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const cmds: Command[] = [
-    { id: "file.newMarkdown", title: "New Markdown note", group: "File", shortcut: "Ctrl+N", run: () => void newFile("markdown") },
+    { id: "file.newMarkdown", title: "New note", group: "File", shortcut: "Ctrl+N", run: () => void newFile("markdown") },
     { id: "file.newText", title: "New text file", group: "File", run: () => void newFile("text") },
     { id: "file.newCsv", title: "New CSV table", group: "File", run: () => void newFile("csv") },
     // New Office files only where they can be edited (installer with the Office pack).
@@ -115,7 +115,7 @@ export function appMenu(): MenuItem[] {
     return c ? { label: label ?? c.title, shortcut: c.shortcut, run: () => void c.run() } : { label: label ?? id, disabled: true };
   };
   return [
-    item("file.newMarkdown", "New Markdown note"),
+    item("file.newMarkdown", "New note"),
     item("file.open"),
     item("file.openFolder"),
     { divider: true },

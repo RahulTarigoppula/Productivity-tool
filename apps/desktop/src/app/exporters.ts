@@ -12,7 +12,8 @@ const one = (bytes: Uint8Array) => ({ files: [{ suffix: "", bytes }] });
 export const HTML_STYLE = `body{font:16px/1.6 "Segoe UI",system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 20px;color:#1c1c22}
 pre,code{font-family:"Cascadia Code",Consolas,monospace;font-size:.9em}pre{background:#f4f4f6;padding:12px;border-radius:6px;overflow:auto;white-space:pre-wrap}
 code{background:#f4f4f6;padding:1px 4px;border-radius:4px}pre code{background:none;padding:0}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:4px 8px;text-align:left}
-blockquote{border-left:3px solid #ccd;margin:0;padding-left:14px;color:#555}img{max-width:100%}h1,h2,h3{line-height:1.25}`;
+blockquote{border-left:3px solid #ccd;margin:0;padding-left:14px;color:#555}img{max-width:100%}h1,h2,h3{line-height:1.25}
+li:has(>.task-box:first-child),li:has(>p:first-child>.task-box:first-child){list-style:none;margin-left:-1.2em}`;
 
 export function htmlDocument(title: string, body: string): string {
   const esc = title.replace(/[<&>]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" })[c]!);

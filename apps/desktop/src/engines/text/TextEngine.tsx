@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { EditorState, Compartment, Prec, type Text } from "@codemirror/state";
 import {
   EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor,
-  rectangularSelection, crosshairCursor, highlightActiveLine,
+  rectangularSelection, crosshairCursor, highlightActiveLine, placeholder,
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { indentOnInput, syntaxHighlighting, bracketMatching, foldGutter, foldKeymap, indentUnit, syntaxTree, LanguageDescription } from "@codemirror/language";
@@ -15,7 +15,7 @@ import { decodeText, encodeText, describeFormat, canEncode, type TextFormat } fr
 import { useStore, getState } from "../../app/store";
 import { baseTheme, proseTheme, highlight } from "./theme";
 import { livePreview, livePreviewTheme } from "./livePreview";
-import { toggleWrap, setHeading, toggleLinePrefix, insertLink, insertBlock } from "./markdownCommands";
+import { toggleWrap, setHeading, toggleLinePrefix, insertLink, insertBlock, exitListOnEmptyItem, tableNextCell, tableEnter } from "./markdownCommands";
 import { detectLanguage, loadLanguage, ALL_LANGUAGES, detectIndent } from "./language";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { platform } from "../../platform";
@@ -27,6 +27,13 @@ const LARGE = 5_000_000;
 const defaultEol = (): TextFormat["eol"] => (navigator.userAgent.includes("Windows") ? "\r\n" : "\n");
 
 const WORD = /[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu;
+
+/** The find bar with the cursor in "Replace with". */
+function openReplace(view: EditorView): boolean {
+  openSearchPanel(view);
+  requestAnimationFrame(() => view.dom.querySelector<HTMLInputElement>(".cm-search input[name=replace]")?.focus());
+  return true;
+}
 
 function countWords(text: string): number {
   const m = text.match(WORD);
@@ -95,7 +102,7 @@ export default function TextEngine({ host }: { host: EngineHost }) {
   useEffect(() => {
     const decoded = host.bytes.length ? decodeText(host.bytes) : { text: "", format: formatRef.current, lossless: true };
     formatRef.current = decoded.format;
-    if (decoded.format.encoding === "windows-1252" && host.bytes.length) host.toast(`${host.name} uses an older text format (Windows 1252). If some letters look wrong, the file may be damaged.`);
+    if (decoded.format.encoding === "windows-1252" && host.bytes.length) host.toast(`${host.name} was opened with an older Windows character set. If letters look wrong, choose another text format under Details.`);
     if (decoded.format.mixedEol) {
       formatDirty.current = false;
       host.toast(`${host.name} mixes line-ending styles. Saving will use one style consistently.`);
@@ -157,14 +164,16 @@ export default function TextEngine({ host }: { host: EngineHost }) {
         : [{ id: "pos", text: `Line ${line.number}, column ${sel.head - line.from + 1}`, onClick: () => openPalette(":") }];
       if (!sel.empty && sel.to - sel.from <= 2_000_000) {
         const t = state.sliceDoc(sel.from, sel.to);
-        items.push({ id: "sel", text: `${t.length} selected${isMd || host.kind === "text" ? `, ${countWords(t)} words` : ""}`, onClick: undefined as never });
+        const w = countWords(t);
+        items.push({ id: "sel", text: `${t.length.toLocaleString()} selected${isMd || host.kind === "text" ? `, ${w.toLocaleString()} ${w === 1 ? "word" : "words"}` : ""}`, onClick: undefined as never });
       }
       if (isMd || /\.(txt|text)$/i.test(host.name) || langName.current === "Plain text") {
         const n = wordCount(state);
-        if (n !== null) items.push({ id: "words", text: `${n.toLocaleString()} words`, onClick: undefined as never });
+        if (n !== null) items.push({ id: "words", text: `${n.toLocaleString()} ${n === 1 ? "word" : "words"}`, onClick: undefined as never });
       }
       const fmt = formatRef.current;
-      const unusual = fmt.encoding !== "utf-8" || fmt.bom || fmt.mixedEol;
+      // A byte-order mark is common (Windows Notepad writes one) and changes nothing for the reader.
+      const unusual = fmt.encoding !== "utf-8" || fmt.mixedEol;
       const showDetails = () =>
         openMenu(window.innerWidth - 270, window.innerHeight - 40, [
           { label: `Language: ${langName.current}`, run: chooseLanguage },
@@ -203,8 +212,33 @@ export default function TextEngine({ host }: { host: EngineHost }) {
           isMd ? [] : highlightActiveLine(),
           large ? [] : highlightSelectionMatches(),
           search({ top: true }),
+          // Plain words in the find bar.
+          EditorState.phrases.of({
+            Find: "Find",
+            Replace: "Replace with",
+            next: "Next",
+            previous: "Previous",
+            all: "Select all",
+            "match case": "Match case",
+            "by word": "Whole words",
+            regexp: "Pattern",
+            replace: "Replace",
+            "replace all": "Replace all",
+            close: "Close",
+          }),
+          isMd ? placeholder("Start writing…") : [],
           c.indent.of([indentUnit.of(indent.unit), EditorState.tabSize.of(indent.size)]),
+          // Lists and tables come before the Markdown keymap's own Enter and the Tab that indents.
+          isMd
+            ? Prec.highest(
+                keymap.of([
+                  { key: "Enter", run: (v: EditorView) => tableEnter(v) || exitListOnEmptyItem(v) },
+                  { key: "Tab", run: (v: EditorView) => tableNextCell(v, 1), shift: (v: EditorView) => tableNextCell(v, -1) },
+                ]),
+              )
+            : [],
           keymap.of([
+            { key: "Mod-h", run: openReplace },
             ...(isMd
               ? [
                   { key: "Mod-b", run: (v: EditorView) => toggleWrap(v, "**") },
@@ -321,11 +355,17 @@ export default function TextEngine({ host }: { host: EngineHost }) {
 
     const md = (f: (v: EditorView) => boolean) => () => f(view);
     const commands: Command[] = [
-      { id: "text.find", title: "Find and replace", group: "Edit", shortcut: "Ctrl+F", run: () => openSearchPanel(view) },
+      { id: "text.find", title: "Find", group: "Edit", shortcut: "Ctrl+F", run: () => openSearchPanel(view) },
+      { id: "text.replace", title: "Find and replace", group: "Edit", shortcut: "Ctrl+H", run: () => openReplace(view) },
       { id: "text.wrap", title: "Wrap long lines", group: "View", run: () => toggleWrapLines() },
-      { id: "text.language", title: "Set language (for colours and indentation)…", group: "View", run: chooseLanguage },
-      // Rarely needed; grouped as Advanced so everyday lists stay short.
-      { id: "text.eol", title: `Use ${formatRef.current.eol === "\r\n" ? "Unix (LF)" : "Windows (CRLF)"} line endings`, group: "Advanced", run: toggleEol },
+      // A note is always Markdown with ordinary line endings; these are for code and plain text.
+      ...(isMd
+        ? []
+        : [
+            { id: "text.language", title: "Set language (for colours and indentation)…", group: "View", run: chooseLanguage },
+            // Rarely needed; grouped as Advanced so everyday lists stay short.
+            { id: "text.eol", title: `Use ${formatRef.current.eol === "\r\n" ? "Unix (LF)" : "Windows (CRLF)"} line endings`, group: "Advanced", run: toggleEol },
+          ]),
       { id: "text.encoding", title: "Reopen or save with another text format…", group: "Advanced", run: chooseEncoding },
     ];
     if (isMd) {

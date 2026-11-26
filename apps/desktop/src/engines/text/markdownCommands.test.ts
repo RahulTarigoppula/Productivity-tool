@@ -2,7 +2,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { setHeading, toggleLinePrefix, insertLink, insertBlock } from "./markdownCommands";
+import { setHeading, toggleLinePrefix, insertLink, insertBlock, toggleWrap, exitListOnEmptyItem, tableNextCell, tableEnter, tableCells } from "./markdownCommands";
 
 // jsdom has no layout; the editor measures text on the next frame.
 const noRects = () => Object.assign([], { item: () => null }) as unknown as DOMRectList;
@@ -79,5 +79,62 @@ describe("Markdown commands", () => {
     insertBlock(v, "| Column | Column |\n| --- | --- |\n|  |  |\n", 2, 6);
     const { from, to } = v.state.selection.main;
     expect(v.state.sliceDoc(from, to)).toBe("Column");
+  });
+
+  it("Bold with nothing selected formats the word at the cursor", () => {
+    const v = view("make this bold", 7);
+    toggleWrap(v, "**");
+    expect(v.state.doc.toString()).toBe("make **this** bold");
+    const empty = view("end ", 4);
+    toggleWrap(empty, "**");
+    expect(empty.state.doc.toString()).toBe("end ****");
+    expect(empty.state.selection.main.head).toBe(6);
+  });
+
+  it("Enter on an empty list item ends the list with a blank line", () => {
+    const v = view("- Mitochondria\n- ");
+    expect(exitListOnEmptyItem(v)).toBe(true);
+    v.dispatch(v.state.replaceSelection("Next paragraph"));
+    expect(v.state.doc.toString()).toBe("- Mitochondria\n\nNext paragraph");
+    // Not for a nested item (the editor moves it out a level) or a line being typed on its own.
+    expect(exitListOnEmptyItem(view("- a\n  - "))).toBe(false);
+    expect(exitListOnEmptyItem(view("- "))).toBe(false);
+    expect(exitListOnEmptyItem(view("text\n- "))).toBe(false);
+  });
+
+  it("finds the cells of a table row, with escaped pipes", () => {
+    const t = "| a | b \\| c |  |";
+    expect(tableCells(t).map((c) => t.slice(c.from, c.to))).toEqual(["a", "b \\| c", ""]);
+  });
+
+  it("Tab moves through table cells, skips the divider row and adds a row at the end", () => {
+    const doc = "| Name | Qty |\n| --- | --- |\n| Pens | 3 |";
+    const v = view(doc, 2);
+    const selected = () => v.state.sliceDoc(v.state.selection.main.from, v.state.selection.main.to);
+    tableNextCell(v, 1);
+    expect(selected()).toBe("Qty");
+    tableNextCell(v, 1);
+    expect(selected()).toBe("Pens");
+    tableNextCell(v, -1);
+    expect(selected()).toBe("Qty");
+    tableNextCell(v, 1);
+    tableNextCell(v, 1);
+    expect(selected()).toBe("3");
+    tableNextCell(v, 1);
+    expect(v.state.doc.toString()).toBe(doc + "\n|  |  |");
+    v.dispatch(v.state.replaceSelection("Ink"));
+    expect(v.state.doc.toString()).toBe(doc + "\n| Ink |  |");
+    expect(tableNextCell(view("plain text", 2), 1)).toBe(false);
+  });
+
+  it("Enter at the end of a table row adds a row; on an empty last row it leaves the table", () => {
+    const v = view("| a | b |\n| --- | --- |\n| 1 | 2 |");
+    expect(tableEnter(v)).toBe(true);
+    expect(v.state.doc.toString()).toBe("| a | b |\n| --- | --- |\n| 1 | 2 |\n|  |  |");
+    v.dispatch({ selection: { anchor: v.state.doc.length } });
+    expect(tableEnter(v)).toBe(true);
+    v.dispatch(v.state.replaceSelection("After"));
+    expect(v.state.doc.toString()).toBe("| a | b |\n| --- | --- |\n| 1 | 2 |\n\nAfter");
+    expect(tableEnter(view("| a | b |", 3))).toBe(false);
   });
 });

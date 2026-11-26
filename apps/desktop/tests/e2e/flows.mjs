@@ -662,6 +662,66 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     assert(focused, "focus left the grid after renaming");
   });
 
+  await check("U-6", "a table: insert row then type fills the new row; Tab leaves at the edge; Enter returns to the first column", async () => {
+    await page.evaluate(() => window.__fs.write("/work/stock.csv", new TextEncoder().encode("item,qty,price\nBread loaf,3,1.10\nMilk,5,0.99\n")));
+    await open("/work/stock.csv");
+    const pane = "section.doc-pane:not([hidden])";
+    await waitFor(() => page.locator(`${pane} .csv-cell`, { hasText: "Bread loaf" }).isVisible(), 5000, "grid");
+    await page.locator(`${pane} .csv-cell`, { hasText: "Bread loaf" }).click();
+    await page.getByRole("button", { name: "Insert row below" }).click();
+    await page.keyboard.type("Eggs");
+    await page.keyboard.press("Tab");
+    await page.keyboard.type("12");
+    await page.keyboard.press("Tab");
+    await page.keyboard.type("2.40");
+    await page.keyboard.press("Enter");
+    const text = await page.evaluate(async () => { const s = window.__app.getState(); return new TextDecoder().decode(await window.__app.handles.get(s.activeId).serialize()); });
+    assert(text === "item,qty,price\nBread loaf,3,1.10\nEggs,12,2.40\nMilk,5,0.99\n", `document reads ${JSON.stringify(text)}`);
+    // Enter after Tab entries goes to the next row's first column, as in a spreadsheet.
+    const cur = await page.locator(`${pane} .csv-cell.cur`).textContent();
+    assert(cur === "Milk", `current cell is ${JSON.stringify(cur)}`);
+    // The screen-reader active cell follows the selection.
+    const active = await page.evaluate((pane) => { const g = document.querySelector(`${pane} [role=grid]`); const id = g?.getAttribute("aria-activedescendant"); return id ? document.getElementById(id)?.textContent : null; }, pane);
+    assert(active === "Milk", `active descendant is ${JSON.stringify(active)}`);
+    // Tab at the last column moves on out of the table.
+    await page.keyboard.press("End");
+    await page.keyboard.press("Tab");
+    const inGrid = await page.evaluate((pane) => !!document.activeElement?.closest(`${pane} [role=grid]`), pane);
+    assert(!inGrid, "Tab at the last column kept focus in the table");
+  });
+
+  await check("U-7", "a note: leaving a list starts a paragraph, Tab fills a table, Ctrl+H opens replace", async () => {
+    await page.evaluate(() => window.__app.newFile("markdown"));
+    const pane = "section.doc-pane:not([hidden])";
+    await page.waitForSelector(`${pane} .cm-content`);
+    await page.locator(`${pane} .cm-content`).click();
+    await page.keyboard.type("- Mitochondria");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Paragraph after.");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+    const read = () => page.evaluate(async () => { const s = window.__app.getState(); return new TextDecoder().decode(await window.__app.handles.get(s.activeId).serialize()); });
+    await page.keyboard.press("Control+k");
+    await page.locator("[cmdk-input]").fill(">insert table");
+    await page.keyboard.press("Enter");
+    await waitFor(async () => (await read()).includes("| Column |"), 3000, "table inserted");
+    await page.keyboard.type("Item");
+    await page.keyboard.press("Tab");
+    await page.keyboard.type("Qty");
+    await page.keyboard.press("Tab");
+    await page.keyboard.type("Pens");
+    await page.keyboard.press("Tab");
+    await page.keyboard.type("3");
+    const text = await read();
+    assert(text.startsWith("- Mitochondria\n\nParagraph after.\n\n"), `document reads ${JSON.stringify(text)}`);
+    assert(text.includes("| Item | Qty |\n| --- | --- |\n| Pens | 3 |"), `table reads ${JSON.stringify(text)}`);
+    await page.keyboard.press("Control+h");
+    const inReplace = await page.evaluate(() => document.activeElement?.getAttribute("name") === "replace");
+    assert(inReplace, "Ctrl+H did not put the cursor in the replace box");
+    await page.keyboard.press("Escape");
+  });
+
   await check("F-34", "dark theme applies", async () => {
     await page.evaluate(() => window.__app.updateSettings({ theme: "dark" }));
     await waitFor(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", 2000, "dark");

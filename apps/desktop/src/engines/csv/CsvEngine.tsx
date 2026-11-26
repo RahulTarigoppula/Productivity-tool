@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpNarrowWide, ArrowDownWideNarrow, Rows3, Columns3, Trash2, Filter, Heading, FileText, X, BetweenHorizontalStart, BetweenVerticalStart } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { ArrowUpNarrowWide, ArrowDownWideNarrow, Trash2, Filter, Heading, FileText, X, BetweenHorizontalStart, BetweenHorizontalEnd, BetweenVerticalStart, BetweenVerticalEnd } from "lucide-react";
 import type { EngineHost, Command } from "../../app/editor-api";
 import { loadCsv, saveCsv, serializeCsv, columnCount, setCell, emptyRow, insertColumn, deleteColumn, compareCells, looksLikeHeader, type CsvDoc, type CsvRow } from "../../lib/csv";
 import { describeFormat, canEncode } from "../../lib/textcodec";
@@ -139,6 +139,13 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
   const [headEdit, setHeadEdit] = useState<{ c: number; value: string } | null>(null);
   const headDone = useRef(false);
   const editDone = useRef(true);
+  /** Column where a row of Tab entries began, so Enter returns there on the next row (as in Excel). */
+  const tabAnchor = useRef<number | null>(null);
+  const beginRename = (c: number) => {
+    if (!header || !rows[0]) return;
+    headDone.current = false;
+    setHeadEdit({ c, value: rows[0].cells[c] ?? "" });
+  };
   const renameColumn = (c: number, value: string) => {
     // Enter and then the input losing focus must rename only once.
     if (headDone.current) return;
@@ -170,8 +177,16 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
         setRows(next);
       }
     }
+    const from = editing;
     setEditing(null);
-    if (move) moveSel(move[0], move[1], false);
+    if (move && from) {
+      if (move[1] !== 0 && tabAnchor.current === null) tabAnchor.current = from.c;
+      if (move[0] !== 0 && tabAnchor.current !== null) {
+        move = [move[0], tabAnchor.current - from.c];
+        tabAnchor.current = null;
+      }
+      moveSel(move[0], move[1], false);
+    }
     scrollRef.current?.focus();
   };
 
@@ -214,6 +229,12 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
       const next = rows.slice();
       next.splice(at, 0, emptyRow(cols, term));
       setRows(next);
+      // The new row takes the selection, so typing fills it instead of overwriting its neighbour.
+      if (filter) setFilter(null);
+      const r = at - first;
+      setSel({ r, c: 0, r2: r, c2: 0 });
+      tabAnchor.current = null;
+      requestAnimationFrame(() => ensureVisible(r, 0));
     },
     deleteRows() {
       const { r1, r2 } = norm(sel);
@@ -235,6 +256,12 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
       }
       setRows(next);
       setWidths((w) => [...w.slice(0, at), 100, ...w.slice(at)]);
+      setSel({ r: sel.r, c: at, r2: sel.r, c2: at });
+      requestAnimationFrame(() => ensureVisible(sel.r, at));
+    },
+    fitColumns(all: boolean) {
+      const { c1, c2 } = norm(sel);
+      setWidths((ws) => ws.map((w, i) => (all || (i >= c1 && i <= c2) ? fitColumn(rows, i, header) : w)));
     },
     deleteCol() {
       if (cols <= 1) return;
@@ -302,12 +329,18 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
   };
   const opsRef = useRef(ops);
   opsRef.current = ops;
+  const renameRef = useRef(() => {});
+  renameRef.current = () => {
+    ensureVisible(sel.r, sel.c);
+    beginRename(sel.c);
+  };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (editing) return;
     const mod = e.ctrlKey || e.metaKey;
     const k = e.key;
     const page = Math.max(1, Math.floor((scrollRef.current?.clientHeight ?? 400) / ROW_H) - 2);
+    if (k !== "Tab" && k !== "Enter" && k !== "F2" && !(k.length === 1 && !mod)) tabAnchor.current = null;
     if (k === "ArrowDown") moveSel(1, 0, e.shiftKey);
     else if (k === "ArrowUp") moveSel(-1, 0, e.shiftKey);
     else if (k === "ArrowRight") moveSel(0, 1, e.shiftKey);
@@ -316,7 +349,15 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
     else if (k === "PageUp") moveSel(-page, 0, e.shiftKey);
     else if (k === "Home") moveSel(mod ? -1e9 : 0, -1e9, e.shiftKey);
     else if (k === "End") moveSel(mod ? 1e9 : 0, 1e9, e.shiftKey);
-    else if (k === "Tab") moveSel(0, e.shiftKey ? -1 : 1, false);
+    else if (k === "Tab") {
+      // At the table's edge Tab moves on to the rest of the window instead of being kept here.
+      if (e.shiftKey ? sel.c <= 0 : sel.c >= cols - 1) {
+        tabAnchor.current = null;
+        return;
+      }
+      if (tabAnchor.current === null) tabAnchor.current = sel.c;
+      moveSel(0, e.shiftKey ? -1 : 1, false);
+    }
     else if (k === "Enter" || k === "F2") startEdit(sel.r, sel.c);
     else if (k === "Delete" || k === "Backspace") ops.clear();
     else if (mod && k.toLowerCase() === "z") (e.shiftKey ? ops.redo() : ops.undo());
@@ -342,6 +383,8 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
         const v = (row.cells[c] ?? "").trim();
         if (!v) continue;
         count++;
+        // IDs with leading zeros (ZIP codes, item numbers) and long digit strings are labels, not amounts.
+        if (/^0\d/.test(v) || /\d{16,}/.test(v)) continue;
         const n = Number(v.replace(/,/g, ""));
         if (!isNaN(n)) { nums++; sum += n; }
       }
@@ -355,9 +398,11 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
     const f = describeFormat(docRef.current.format);
     const items = [
       { id: "size", text: `${plural(rows.length - first, "row")} × ${plural(cols, "column")}` },
-      { id: "cell", text: `Cell ${colName(sel.c)}${sel.r + 1}` },
+      // Named as the person sees it: by column name and data row when there is a header row.
+      { id: "cell", text: header && rows[0]?.cells[sel.c]?.trim() ? `${rows[0].cells[sel.c].trim().slice(0, 40)} · row ${sel.r + 1}` : `Cell ${colName(sel.c)}${sel.r + 1}` },
     ];
-    if (stats.cells > 1 && stats.nums > 0) items.push({ id: "sum", text: `Sum ${+stats.sum.toFixed(10)} · Average ${+(stats.sum / stats.nums).toFixed(4)} · Count ${stats.count}` });
+    const num = (n: number, digits: number) => n.toLocaleString(undefined, { maximumFractionDigits: digits });
+    if (stats.cells > 1 && stats.nums > 0) items.push({ id: "sum", text: `Sum ${num(stats.sum, 10)} · Average ${num(stats.sum / stats.nums, 4)} · Count ${stats.count}` });
     else if (stats.cells > 1) items.push({ id: "sum", text: `Count ${stats.count}` });
     if (filter) items.push({ id: "filter", text: `Showing ${plural(view.length, "matching row")}` });
     // Separator, text format and line endings only when unusual; all of them under Details.
@@ -372,17 +417,17 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
         { label: `Line endings: ${f.eol === "CRLF" ? "Windows (CRLF)" : f.eol === "LF" ? "Unix (LF)" : f.eol}`, disabled: true },
       ]);
     host.setStatus([...items, ...extra, { id: "details", text: "Details", align: "right", title: "Separator, text format and line endings", onClick: details } as never]);
-  }, [rows, cols, sel, stats, filter, view.length, first, host, delimName]);
+  }, [rows, cols, sel, stats, filter, view.length, first, host, delimName, header]);
 
   useEffect(() => {
     const b = (id: string, label: string, icon: React.ReactNode, run: () => void, group: string, extra = {}) => ({ id, label, icon, run, group, ...extra });
     host.setToolbar([
-      b("header", "First row is a header", <Heading />, () => setHeader((h) => !h), "a", { active: header, text: "Header row" }),
+      b("header", "Header row", <Heading />, () => setHeader((h) => !h), "a", { active: header, text: "Header row" }),
       b("rowAbove", "Insert row above", <BetweenHorizontalStart />, () => opsRef.current.insertRow(false), "b"),
-      b("rowBelow", "Insert row below", <Rows3 />, () => opsRef.current.insertRow(true), "b"),
+      b("rowBelow", "Insert row below", <BetweenHorizontalEnd />, () => opsRef.current.insertRow(true), "b"),
       b("delRow", "Delete rows", <Trash2 />, () => opsRef.current.deleteRows(), "b"),
       b("colLeft", "Insert column left", <BetweenVerticalStart />, () => opsRef.current.insertCol(false), "c", { overflow: true }),
-      b("colRight", "Insert column right", <Columns3 />, () => opsRef.current.insertCol(true), "c"),
+      b("colRight", "Insert column right", <BetweenVerticalEnd />, () => opsRef.current.insertCol(true), "c"),
       b("delCol", "Delete columns", <Trash2 style={{ transform: "rotate(90deg)" }} />, () => opsRef.current.deleteCol(), "c", { overflow: true }),
       b("asc", "Sort A to Z by this column", <ArrowUpNarrowWide />, () => opsRef.current.sort(1), "d"),
       b("desc", "Sort Z to A by this column", <ArrowDownWideNarrow />, () => opsRef.current.sort(-1), "d"),
@@ -400,6 +445,9 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
       { id: "csv.colRight", title: "Insert column right", group: "Table", run: () => opsRef.current.insertCol(true) },
       { id: "csv.colLeft", title: "Insert column left", group: "Table", run: () => opsRef.current.insertCol(false) },
       { id: "csv.delCol", title: "Delete selected columns", group: "Table", run: () => opsRef.current.deleteCol() },
+      ...(header ? [{ id: "csv.renameCol", title: "Rename column…", group: "Table", run: () => renameRef.current() }] : []),
+      { id: "csv.fitCols", title: "Fit column width to its contents", group: "Table", run: () => opsRef.current.fitColumns(false) },
+      { id: "csv.fitAll", title: "Fit all columns to their contents", group: "Table", run: () => opsRef.current.fitColumns(true) },
       { id: "csv.sortAsc", title: "Sort A to Z by current column", group: "Table", run: () => opsRef.current.sort(1) },
       { id: "csv.sortDesc", title: "Sort Z to A by current column", group: "Table", run: () => opsRef.current.sort(-1) },
       { id: "csv.filter", title: "Filter rows", group: "Table", shortcut: "Ctrl+F", run: () => setFilter("") },
@@ -509,6 +557,16 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
   };
 
   const dragFrom = useRef<{ r: number; c: number } | null>(null);
+  /** The cell editor sits over its cell but never runs past the visible edge (narrow screens). */
+  const editorBox = (e: { r: number; c: number }) => {
+    const width = Math.min(Math.max(widths[e.c] ?? 100, 160), Math.max(120, scroll.width - NUM_W - 8));
+    const maxLeft = scroll.left + scroll.width - width - 4;
+    return { top: (e.r + 1) * ROW_H, left: Math.max(scroll.left + NUM_W, Math.min(left(e.c), maxLeft)), width };
+  };
+  // Screen readers follow the current cell through aria-activedescendant; it must be drawn to be named.
+  const gridId = useId();
+  const cellId = (r: number, c: number) => `${gridId}-${r}-${c}`;
+  const curDrawn = sel.r >= start && sel.r < end && sel.c >= colStart && sel.c < colEnd;
 
   return (
     <div className="csv">
@@ -525,26 +583,27 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
         ref={scrollRef}
         tabIndex={0}
         role="grid"
-        aria-rowcount={view.length}
-        aria-colcount={cols}
+        aria-label={host.name}
+        aria-multiselectable="true"
+        aria-rowcount={view.length + 1}
+        aria-colcount={cols + 1}
+        aria-activedescendant={curDrawn && !editing ? cellId(sel.r, sel.c) : undefined}
         onKeyDown={onKeyDown}
         onScroll={(e) => setScroll({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight, left: e.currentTarget.scrollLeft, width: e.currentTarget.clientWidth })}
       >
         <div style={{ height: (view.length + 1) * ROW_H, width: totalW, position: "relative" }}>
-          <div className="csv-head" style={{ width: totalW }}>
-            <div className="csv-corner" style={{ width: NUM_W }} onClick={() => setSel({ r: 0, c: 0, r2: view.length - 1, c2: cols - 1 })} />
+          <div className="csv-head" style={{ width: totalW }} role="row" aria-rowindex={1}>
+            <div className="csv-corner" style={{ width: NUM_W }} role="columnheader" aria-colindex={1} aria-label="Row" onClick={() => setSel({ r: 0, c: 0, r2: view.length - 1, c2: cols - 1 })} />
             {headCols.map((c) => (
               <div
                 key={c}
                 className={`csv-hcell ${c >= c1 && c <= c2 ? "sel" : ""}`}
+                role="columnheader"
+                aria-colindex={c + 2}
                 style={{ left: left(c), width: widths[c] }}
                 onClick={(e) => setSel(e.shiftKey ? { ...sel, r2: view.length - 1, c2: c } : { r: 0, c, r2: view.length - 1, c2: c })}
                 // With a header row, double-click a column name to rename it.
-                onDoubleClick={() => {
-                  if (!header || !rows[0]) return;
-                  headDone.current = false;
-                  setHeadEdit({ c, value: rows[0].cells[c] ?? "" });
-                }}
+                onDoubleClick={() => beginRename(c)}
                 title={header ? `${rows[0]?.cells[c] ?? ""} (double-click to rename)` : colName(c)}
               >
                 {headEdit?.c === c ? (
@@ -584,8 +643,8 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
             const di = view[r];
             const row = rows[di];
             return (
-              <div key={di} className="csv-row" style={{ top: (r + 1) * ROW_H, width: totalW }} role="row">
-                <div className={`csv-num ${r >= r1 && r <= r2 ? "sel" : ""}`} style={{ width: NUM_W }} onClick={(e) => setSel(e.shiftKey ? { ...sel, r2: r, c2: cols - 1 } : { r, c: 0, r2: r, c2: cols - 1 })}>{di - first + 1}</div>
+              <div key={di} className="csv-row" style={{ top: (r + 1) * ROW_H, width: totalW }} role="row" aria-rowindex={r + 2}>
+                <div className={`csv-num ${r >= r1 && r <= r2 ? "sel" : ""}`} style={{ width: NUM_W }} role="rowheader" aria-colindex={1} onClick={(e) => setSel(e.shiftKey ? { ...sel, r2: r, c2: cols - 1 } : { r, c: 0, r2: r, c2: cols - 1 })}>{di - first + 1}</div>
                 {visibleCols.map((c) => {
                   const inSel = r >= r1 && r <= r2 && c >= c1 && c <= c2;
                   const isCur = r === sel.r && c === sel.c;
@@ -593,11 +652,15 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
                   return (
                     <div
                       key={c}
+                      id={cellId(r, c)}
                       role="gridcell"
+                      aria-colindex={c + 2}
+                      aria-selected={inSel}
                       className={`csv-cell ${inSel ? "sel" : ""} ${isCur ? "cur" : ""} ${v && !isNaN(Number(v)) ? "num" : ""}`}
                       style={{ left: left(c), width: widths[c] }}
                       onMouseDown={(e) => {
                         if (editing) finishEdit(true);
+                        tabAnchor.current = null;
                         dragFrom.current = { r, c };
                         setSel(e.shiftKey ? { ...sel, r2: r, c2: c } : { r, c, r2: r, c2: c });
                         scrollRef.current?.focus();
@@ -614,6 +677,8 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
                           { label: "Insert row below", run: () => opsRef.current.insertRow(true) },
                           { label: "Insert column left", run: () => opsRef.current.insertCol(false) },
                           { label: "Insert column right", run: () => opsRef.current.insertCol(true) },
+                          ...(header ? [{ label: "Rename column…", run: () => beginRename(c) }] : []),
+                          { label: "Fit column width", run: () => opsRef.current.fitColumns(false) },
                           { divider: true },
                           { label: "Sort A to Z", run: () => opsRef.current.sort(1) },
                           { label: "Sort Z to A", run: () => opsRef.current.sort(-1) },
@@ -636,7 +701,7 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
             <textarea
               className="csv-editor"
               autoFocus
-              style={{ top: (editing.r + 1) * ROW_H, left: left(editing.c), width: Math.max(widths[editing.c], 160) }}
+              style={editorBox(editing)}
               value={editing.value}
               onChange={(e) => setEditing({ ...editing, value: e.target.value })}
               onBlur={() => finishEdit(true)}

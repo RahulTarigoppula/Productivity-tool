@@ -3,7 +3,13 @@ import { EditorSelection, type ChangeSpec } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 
 export function toggleWrap(view: EditorView, mark: string): boolean {
-  const { state } = view;
+  let { state } = view;
+  // With nothing selected inside a word, the whole word is formatted (as word processors do).
+  const words = state.selection.ranges.map((r) => (r.empty ? state.wordAt(r.head) : null));
+  if (words.some(Boolean)) {
+    view.dispatch({ selection: EditorSelection.create(state.selection.ranges.map((r, i) => (words[i] && words[i]!.from < r.head && r.head < words[i]!.to ? EditorSelection.range(words[i]!.from, words[i]!.to) : r)), state.selection.mainIndex) });
+    state = view.state;
+  }
   const tr = state.changeByRange((range) => {
     const before = state.sliceDoc(range.from - mark.length, range.from);
     const after = state.sliceDoc(range.to, range.to + mark.length);
@@ -120,5 +126,110 @@ export function insertBlock(view: EditorView, text: string, cursorOffset?: numbe
     scrollIntoView: true,
   });
   view.focus();
+  return true;
+}
+
+// ---------- lists ----------
+
+const EMPTY_TOP_ITEM = /^([-*+]|\d{1,9}[.)])( \[[ xX]\])?\s*$/;
+const LIST_LINE = /^\s*([-*+]|\d{1,9}[.)])\s/;
+
+/** Enter on an empty top-level list item ends the list with a blank line, so what follows is its own
+ *  paragraph. Without the blank line Markdown reads the next text as part of the last item. */
+export function exitListOnEmptyItem(view: EditorView): boolean {
+  const { state } = view;
+  const sel = state.selection.main;
+  if (state.selection.ranges.length > 1 || !sel.empty) return false;
+  const line = state.doc.lineAt(sel.head);
+  if (sel.head !== line.to || !EMPTY_TOP_ITEM.test(line.text) || line.number === 1) return false;
+  const prev = state.doc.line(line.number - 1).text;
+  if (!LIST_LINE.test(prev) && !/^\s+\S/.test(prev)) return false;
+  view.dispatch({ changes: { from: line.from, to: line.to, insert: "\n" }, selection: { anchor: line.from + 1 }, scrollIntoView: true, userEvent: "input" });
+  return true;
+}
+
+// ---------- tables ----------
+
+const TABLE_ROW = /^\s*\|.*\|\s*$/;
+const DELIMITER_ROW = /^\s*\|(\s*:?-+:?\s*\|)+\s*$/;
+
+/** The cells of a table row: where each cell's text starts and ends (offsets in the line). */
+export function tableCells(text: string): { from: number; to: number }[] {
+  const pipes: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "\\") i++;
+    else if (text[i] === "|") pipes.push(i);
+  }
+  const cells: { from: number; to: number }[] = [];
+  for (let k = 0; k + 1 < pipes.length; k++) {
+    let from = pipes[k] + 1, to = pipes[k + 1];
+    while (from < to && text[from] === " ") from++;
+    while (to > from && text[to - 1] === " ") to--;
+    // An empty cell: the cursor goes after the first space, inside the cell.
+    if (from === to) from = to = Math.min(pipes[k] + 2, pipes[k + 1]);
+    cells.push({ from, to });
+  }
+  return cells;
+}
+
+const isRow = (t: string) => TABLE_ROW.test(t) && !DELIMITER_ROW.test(t);
+const emptyRowFor = (t: string) => "|" + "  |".repeat(Math.max(1, tableCells(t).length));
+
+/** Tab and Shift+Tab move between table cells (selecting the cell's text); Tab after the last cell
+ *  adds a row. Outside tables they do nothing, so indenting works as usual. */
+export function tableNextCell(view: EditorView, dir: 1 | -1): boolean {
+  const { state } = view;
+  const sel = state.selection.main;
+  const line = state.doc.lineAt(sel.head);
+  if (!isRow(line.text) || state.selection.ranges.length > 1) return false;
+  const cells = tableCells(line.text);
+  // The cell the cursor is in: one less than the number of cell borders before it.
+  const at = sel.head - line.from;
+  let borders = 0;
+  for (let k = 0; k < at; k++) {
+    if (line.text[k] === "\\") k++;
+    else if (line.text[k] === "|") borders++;
+  }
+  const i = Math.max(0, Math.min(cells.length - 1, borders - 1));
+  const select = (ln: { from: number; text: string }, cell: { from: number; to: number }) =>
+    view.dispatch({ selection: EditorSelection.range(ln.from + cell.from, ln.from + cell.to), scrollIntoView: true });
+  if (cells[i + dir]) {
+    select(line, cells[i + dir]);
+    return true;
+  }
+  const step = (n: number) => {
+    let k = n + dir;
+    while (k >= 1 && k <= state.doc.lines && DELIMITER_ROW.test(state.doc.line(k).text)) k += dir;
+    return k >= 1 && k <= state.doc.lines && isRow(state.doc.line(k).text) ? state.doc.line(k) : null;
+  };
+  const next = step(line.number);
+  if (next) {
+    const nc = tableCells(next.text);
+    select(next, dir > 0 ? nc[0] : nc[nc.length - 1]);
+    return true;
+  }
+  if (dir < 0) return true;
+  addRow(view, line);
+  return true;
+}
+
+function addRow(view: EditorView, line: { to: number; text: string }) {
+  const row = emptyRowFor(line.text);
+  view.dispatch({ changes: { from: line.to, insert: "\n" + row }, selection: { anchor: line.to + 3 }, scrollIntoView: true, userEvent: "input" });
+}
+
+/** Enter at the end of a table row adds a row below; Enter on an empty last row leaves the table. */
+export function tableEnter(view: EditorView): boolean {
+  const { state } = view;
+  const sel = state.selection.main;
+  if (state.selection.ranges.length > 1 || !sel.empty) return false;
+  const line = state.doc.lineAt(sel.head);
+  if (!isRow(line.text) || sel.head < line.from + line.text.trimEnd().length - 1) return false;
+  const nextIsRow = line.number < state.doc.lines && TABLE_ROW.test(state.doc.line(line.number + 1).text);
+  if (!nextIsRow && tableCells(line.text).every((c) => c.from === c.to)) {
+    view.dispatch({ changes: { from: line.from, to: line.to, insert: "\n" }, selection: { anchor: line.from + 1 }, scrollIntoView: true, userEvent: "input" });
+    return true;
+  }
+  addRow(view, line);
   return true;
 }

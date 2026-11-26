@@ -255,6 +255,8 @@ a { color: var(--accent); }
 .md-preview td, .md-preview th { border: 1px solid var(--border-strong); padding: 4px 10px; }
 .md-preview img { max-width: 100%; }
 .md-preview hr { border: 0; border-top: 1px solid var(--border-strong); }
+/* A task item shows its box instead of a bullet. */
+.md-preview li:has(> .task-box:first-child), .md-preview li:has(> p:first-child > .task-box:first-child) { list-style: none; margin-left: -1.2em; }
 .menu { max-height: 70vh; overflow: auto; }
 
 /* ---------- CSV grid ---------- */

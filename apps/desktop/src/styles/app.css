@@ -12,6 +12,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 ::selection { background: var(--selection); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 a { color: var(--accent); }
+/* Read out by screen readers, not shown. */
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* scrollbars */
 ::-webkit-scrollbar { width: 12px; height: 12px; }
@@ -65,23 +67,30 @@ a { color: var(--accent); }
 .tabs { display: flex; align-items: flex-end; gap: 2px; overflow-x: auto; overflow-y: hidden; flex: 1; min-width: 0; scrollbar-width: none; padding-top: 5px; }
 .tabs::-webkit-scrollbar { display: none; }
 .tab {
-  display: flex; align-items: center; gap: 7px; height: calc(var(--row-tabs) - 6px); max-width: 220px; min-width: 96px;
-  padding: 0 6px 0 10px; border-radius: var(--radius-m) var(--radius-m) 0 0; color: var(--text-2);
+  display: flex; align-items: center; gap: 2px; height: calc(var(--row-tabs) - 6px); max-width: 220px; min-width: 96px;
+  padding: 0 6px 0 0; border-radius: var(--radius-m) var(--radius-m) 0 0; color: var(--text-2);
   border: 1px solid transparent; border-bottom: 0; flex: none; position: relative;
 }
 .tab:hover { background: var(--hover); color: var(--text); }
 .tab.active { background: var(--surface); color: var(--text); border-color: var(--border); }
 .tab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--surface); }
+/* The tab itself (name and icon); the close button sits beside it. The focus ring goes round both. */
+.tab-main { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; align-self: stretch; padding-left: 10px; }
+.tab-main:focus-visible { outline: none; }
+.tab:has(> .tab-main:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
 .tab .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .tab .kind { width: 15px; height: 15px; flex: none; }
-.tab .close, .tab .dot { width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex: none; }
-.tab .close { border: 0; background: transparent; color: var(--text-3); padding: 0; }
+.tab .close { width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex: none; border: 0; background: transparent; color: var(--text-3); padding: 0; }
 .tab .close:hover { background: var(--press); color: var(--text); }
 .tab .close svg { width: 13px; height: 13px; }
-.tab .dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--text-2); }
-.tab:hover .dot::before { display: none; }
+/* Unsaved changes: a dot, which turns into the close button on hover. */
+.tab.dirty .close::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--text-2); }
+.tab.dirty .close svg, .tab.dirty:hover .close::before { display: none; }
+.tab.dirty:hover .close svg { display: block; }
 .tab.dragging { opacity: 0.4; }
+/* All open files: shown when the tabs do not fit (and always on phones). */
 .tab-count { display: none; }
+.tabrow.overflowing .tab-count { display: inline-flex; }
 
 /* ---------- toolbar ---------- */
 .toolbar {
@@ -89,9 +98,15 @@ a { color: var(--accent); }
   background: var(--surface); border-bottom: 1px solid var(--border); overflow: hidden;
 }
 .toolbar.empty { height: 0; border: 0; padding: 0; }
-.toolbar .group { display: flex; align-items: center; gap: 1px; }
+/* The engine's tools scroll sideways when they do not fit; More and Export stay at the end. The
+   padding leaves room for focus rings at the edges. */
+.toolbar > .tools { display: flex; align-items: center; gap: 2px; flex: 1 1 auto; min-width: 0; align-self: stretch; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding: 0 3px; margin: 0 4px 0 -3px; }
+.toolbar .tools::-webkit-scrollbar { display: none; }
+.toolbar .tools.fade-right { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); }
+.toolbar .tools.fade-left { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 24px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 24px), transparent); }
+.toolbar .tools.fade-left.fade-right { -webkit-mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent); mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent); }
+.toolbar .group { display: flex; align-items: center; gap: 1px; flex: none; }
 .toolbar .divider { width: 1px; height: 18px; background: var(--border); margin: 0 6px; flex: none; }
-.toolbar .spacer { flex: 1; }
 .toolbar .title { color: var(--text-3); padding: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------- status bar ---------- */
@@ -132,8 +147,9 @@ a { color: var(--accent); }
 .outline-row { display: block; padding: 4px 8px; border-radius: 5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .outline-row:hover { background: var(--hover); color: var(--text); }
 .search-box { display: flex; flex-direction: column; gap: 6px; padding: 4px 4px 8px; }
-.input { height: 30px; padding: 0 9px; border: 1px solid var(--border-strong); border-radius: var(--radius-m); background: var(--surface); outline: none; width: 100%; }
-.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.input { height: 30px; padding: 0 9px; border: 1px solid var(--control-edge); border-radius: var(--radius-m); background: var(--surface); outline: none; width: 100%; }
+/* The ring is a shadow; the transparent outline is what shows in Windows high-contrast themes. */
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); outline: 2px solid transparent; outline-offset: 1px; }
 .toggles { display: flex; gap: 2px; }
 .toggles .icon-btn { font-size: 12px; font-family: var(--font-mono); }
 .hit-file { font-weight: 600; color: var(--text); padding: 6px 8px 2px; font-size: 12.5px; display: flex; gap: 6px; align-items: center; }
@@ -160,14 +176,27 @@ a { color: var(--accent); }
 .tile svg { width: 22px; height: 22px; }
 .tile .t { font-weight: 600; }
 .tile .d { color: var(--text-3); font-size: 12px; margin-top: -6px; }
-.recent-row { display: grid; grid-template-columns: 22px 1fr auto auto; align-items: center; gap: 10px; padding: 7px 10px; border-radius: var(--radius-m); }
+.recent-row { position: relative; display: flex; align-items: center; gap: 10px; padding-right: 10px; border-radius: var(--radius-m); }
 .recent-row:hover { background: var(--hover); }
-.recent-row svg { width: 17px; height: 17px; }
+.recent-row svg { width: 17px; height: 17px; flex: none; }
+/* The file's own button; its ::after makes the whole row the place to click. */
+.recent-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; align-self: stretch; padding: 7px 0 7px 10px; border: 0; background: none; color: inherit; text-align: left; cursor: default; }
+.recent-open::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.recent-open:focus-visible { outline: none; }
+.recent-row:has(> .recent-open:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+.recent-text { display: flex; flex-direction: column; min-width: 0; }
 .recent-row .n { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recent-row .p { color: var(--text-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.recent-row .when { color: var(--text-3); font-size: 12px; }
-.recent-row .row-act { opacity: 0; }
-.recent-row:hover .row-act { opacity: 1; }
+.recent-row .when { color: var(--text-3); font-size: 12px; flex: none; transition: opacity var(--motion); }
+/* Pin and Remove sit at the right end over the time, which makes way when they show (on hover and
+   on focus). On touch screens they are always there, after the time. */
+.row-acts { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); z-index: 1; display: flex; opacity: 0; transition: opacity var(--motion); }
+.recent-row:hover .row-acts, .recent-row:focus-within .row-acts { opacity: 1; }
+.recent-row:hover .when, .recent-row:focus-within .when { opacity: 0; }
+@media (hover: none) {
+  .row-acts { position: relative; right: auto; top: auto; transform: none; opacity: 1; }
+  .recent-row .when, .recent-row:hover .when, .recent-row:focus-within .when { opacity: 1; }
+}
 .drop-hint { margin-top: 30px; padding: 22px; border: 1.5px dashed var(--border-strong); border-radius: var(--radius-l); color: var(--text-3); text-align: center; }
 .kbd { font-family: var(--font-ui); font-size: 11.5px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border-strong); border-bottom-width: 2px; color: var(--text-2); background: var(--surface-2); white-space: nowrap; }
 .drag-over::after { content: "Drop to open"; position: fixed; inset: 8px; border: 2px dashed var(--accent); border-radius: 12px; background: var(--accent-soft); display: flex; align-items: center; justify-content: center; font-size: 18px; color: var(--accent); z-index: 100; pointer-events: none; }
@@ -177,6 +206,8 @@ a { color: var(--accent); }
 :root[data-theme="dark"] .overlay { background: rgba(0, 0, 0, 0.45); }
 .palette { width: min(640px, calc(100vw - 32px)); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-pop); overflow: hidden; }
 .palette [cmdk-input] { width: 100%; height: 48px; border: 0; outline: none; padding: 0 18px; font-size: 15px; background: transparent; border-bottom: 1px solid var(--border); }
+/* Invisible normally (the box always has the keyboard while open); shows in high-contrast themes. */
+.palette [cmdk-input]:focus { outline: 2px solid transparent; outline-offset: -2px; }
 .palette [cmdk-list] { max-height: min(420px, 60vh); overflow: auto; padding: 6px; }
 .palette [cmdk-group-heading] { font-size: 11px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 10px 4px; }
 .palette [cmdk-item] { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 7px; color: var(--text); }
@@ -185,6 +216,7 @@ a { color: var(--accent); }
 .palette [cmdk-item] .label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette [cmdk-item] .label mark { background: none; color: var(--accent); font-weight: 600; }
 .palette [cmdk-item] .hint { color: var(--text-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
+.palette [cmdk-item][data-selected="true"] .hint { color: var(--text-2); }
 .palette [cmdk-empty] { padding: 22px; text-align: center; color: var(--text-3); }
 .palette .foot { display: flex; gap: 14px; padding: 7px 14px; border-top: 1px solid var(--border); color: var(--text-3); font-size: 11.5px; flex-wrap: wrap; }
 .dialog { width: min(520px, calc(100vw - 32px)); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-pop); padding: 20px 22px 18px; user-select: text; max-height: 80vh; overflow: auto; }
@@ -195,7 +227,7 @@ a { color: var(--accent); }
 .field:last-of-type { border-bottom: 0; }
 .field .lbl { font-weight: 500; }
 .field .help { color: var(--text-3); font-size: 12px; }
-.select { height: 28px; border: 1px solid var(--border-strong); border-radius: var(--radius-m); background: var(--surface); padding: 0 6px; }
+.select { height: 28px; border: 1px solid var(--control-edge); border-radius: var(--radius-m); background: var(--surface); padding: 0 6px; }
 .export-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; cursor: default; }
 .export-row:hover { border-color: var(--accent); background: var(--accent-soft); }
 .export-row .fmt { font-weight: 600; width: 64px; text-transform: uppercase; }
@@ -207,10 +239,20 @@ a { color: var(--accent); }
 .export-row.unavailable { opacity: 0.55; pointer-events: none; }
 
 /* ---------- toasts ---------- */
-.toasts { position: fixed; bottom: 38px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 60; align-items: center; }
+.toasts { position: fixed; bottom: 38px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; z-index: 60; align-items: center; }
+/* Errors and other messages are separate live regions, shown as one stack. */
+.toast-stack { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.toast-stack + .toast-stack:not(:empty) { margin-top: 8px; }
 .toast { display: flex; align-items: center; gap: 12px; background: var(--text); color: var(--surface); padding: 9px 14px; border-radius: 9px; box-shadow: var(--shadow-pop); max-width: min(560px, calc(100vw - 32px)); animation: rise var(--motion) ease-out; user-select: text; }
-.toast.error { background: var(--danger); color: #fff; }
-.toast button { background: none; border: 0; color: inherit; font-weight: 600; text-decoration: underline; cursor: default; }
+.toast .msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.toast.error { background: var(--danger); color: var(--danger-text); }
+.toast button { min-width: 24px; min-height: 24px; background: none; border: 0; color: inherit; font-weight: 600; text-decoration: underline; cursor: default; }
+/* Phones: the full width, less a margin (centring would squeeze the text). */
+@media (max-width: 599px) {
+  .toasts { left: 16px; right: 16px; transform: none; align-items: stretch; }
+  .toast-stack { align-items: stretch; }
+  .toast { max-width: none; }
+}
 @keyframes rise { from { transform: translateY(6px); opacity: 0; } }
 
 /* ---------- state screens ---------- */
@@ -223,8 +265,6 @@ a { color: var(--accent); }
 .side-backdrop { display: none; position: absolute; inset: 0; z-index: 19; background: rgba(10, 10, 20, 0.28); animation: fade-in var(--motion) ease-out; }
 /* ---------- compact layout (phone-width windows) ---------- */
 @media (max-width: 599px) {
-  .toolbar { overflow-x: auto; scrollbar-width: none; }
-  .toolbar::-webkit-scrollbar { display: none; }
   .side { position: absolute; z-index: 20; top: 0; bottom: 0; left: 0; width: min(86vw, 320px); box-shadow: var(--shadow-pop); }
   .side.right { left: auto; right: 0; }
   .side-backdrop { display: block; }
@@ -244,8 +284,9 @@ a { color: var(--accent); }
 /* ---------- popup menu ---------- */
 .menu { position: fixed; z-index: 70; min-width: 220px; padding: 5px; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; box-shadow: var(--shadow-pop); }
 .menu-item { display: flex; width: 100%; justify-content: space-between; gap: 20px; padding: 6px 10px; border: 0; background: none; border-radius: 6px; text-align: left; color: var(--text); }
-.menu-item:hover:not(:disabled) { background: var(--accent-soft); }
-.menu-item:disabled { opacity: 0.45; }
+.menu-item:hover:not([aria-disabled="true"]) { background: var(--accent-soft); }
+.menu-item:focus-visible { background: var(--accent-soft); outline-offset: -2px; }
+.menu-item[aria-disabled="true"] { opacity: 0.45; }
 .menu-item .sc { color: var(--text-3); font-size: 12px; }
 .menu-div { height: 1px; background: var(--border); margin: 4px 6px; }
 .more-btn { display: none; }
@@ -406,10 +447,10 @@ a { color: var(--accent); }
 .home .sub { margin: 0; }
 .home-search { position: relative; display: flex; align-items: center; margin-bottom: 30px; }
 .home-search .lead { position: absolute; left: 13px; width: 17px; height: 17px; color: var(--text-3); pointer-events: none; }
-.home-search .input { height: 44px; font-size: 14.5px; padding-left: 40px; padding-right: 64px; border-radius: 10px; background: var(--surface-2); border-color: var(--border); transition: background var(--motion), border-color var(--motion), box-shadow var(--motion); }
-.home-search .input:hover { border-color: var(--border-strong); }
+.home-search .input { height: 44px; font-size: 14.5px; padding-left: 40px; padding-right: 64px; border-radius: 10px; background: var(--surface-2); transition: background var(--motion), border-color var(--motion), box-shadow var(--motion); }
+.home-search .input:hover { border-color: var(--text-3); }
 .home-search .input:focus { background: var(--surface); }
-.home-search .search-kbd { position: absolute; right: 10px; cursor: default; }
+.home-search .search-kbd { position: absolute; right: 10px; min-height: 24px; display: inline-flex; align-items: center; cursor: default; }
 .home h2 { margin: 30px 0 10px; }
 /* Three per row: the three everyday kinds, or six with the Office editors, never leave one alone. */
 .create-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
@@ -431,9 +472,8 @@ a { color: var(--accent); }
 .open-btn .t { font-weight: 600; }
 .open-btn .d { color: var(--text-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .open-btn .kbd { margin-left: auto; }
-.recent-list { border: 1px solid var(--border); border-radius: 12px; padding: 4px; background: var(--surface); }
+.recent-list { list-style: none; margin: 0; border: 1px solid var(--border); border-radius: 12px; padding: 4px; background: var(--surface); }
 .recent-row { cursor: default; }
-.recent-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .home-empty { display: flex; align-items: center; gap: 14px; padding: 18px; border: 1.5px dashed var(--border-strong); border-radius: 12px; color: var(--text-3); }
 .home-empty > svg { width: 22px; height: 22px; flex: none; }
 .home-empty .t { color: var(--text-2); font-weight: 600; }
@@ -466,18 +506,20 @@ a { color: var(--accent); }
 .export-row .desc { display: flex; flex-direction: column; min-width: 0; }
 .export-row .desc .t { font-weight: 600; color: var(--text); }
 .export-row .desc .help { color: var(--text-3); font-size: 12px; }
+/* The tint is mixed with the dialog's own colour (not see-through), so the badge reads the same,
+   at 4.5:1 or more, whether or not its row is highlighted. */
 .fmt-badge { flex: none; width: 46px; height: 34px; border-radius: 8px; display: grid; place-items: center; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
-  color: var(--fc, var(--text-2)); background: color-mix(in srgb, var(--fc, var(--text-3)) 12%, transparent); }
-.fmt-pdf { --fc: var(--k-pdf); } .fmt-html { --fc: #c4522a; } .fmt-md { --fc: var(--k-markdown); } .fmt-txt { --fc: var(--k-text); }
+  color: var(--fc, var(--text-2)); background: color-mix(in srgb, var(--fc, var(--text-3)) 12%, var(--surface)); }
+.fmt-pdf { --fc: var(--k-pdf); } .fmt-html { --fc: var(--k-pptx); } .fmt-md { --fc: var(--k-markdown); } .fmt-txt { --fc: var(--k-text); }
 .fmt-csv, .fmt-tsv, .fmt-ods, .fmt-xlsx { --fc: var(--k-csv); } .fmt-odt, .fmt-rtf, .fmt-docx { --fc: var(--k-docx); } .fmt-odp, .fmt-pptx { --fc: var(--k-pptx); }
-.fmt-png { --fc: var(--k-image); } .fmt-json { --fc: #b35c00; } .fmt-print { --fc: var(--accent); font-size: 10px; }
+.fmt-png { --fc: var(--k-image); } .fmt-json { --fc: var(--k-json); } .fmt-print { --fc: var(--accent); font-size: 10px; }
 
 /* Settings */
 .settings-dialog { width: min(560px, calc(100vw - 32px)); }
 .settings-group { margin-top: 14px; }
 .group-title { font-size: 11.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-3); margin-bottom: 2px; }
 .settings-group .field:last-child { border-bottom: 0; }
-.switch { position: relative; width: 36px; height: 20px; border-radius: 10px; border: 0; padding: 0; background: var(--border-strong); cursor: default; flex: none; transition: background var(--motion); }
+.switch { position: relative; width: 36px; height: 20px; border-radius: 10px; border: 0; padding: 0; background: var(--control-edge); cursor: default; flex: none; transition: background var(--motion); }
 .switch .knob { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: transform var(--motion); }
 .switch.on { background: var(--accent); }
 .switch.on .knob { transform: translateX(16px); }
@@ -485,7 +527,7 @@ a { color: var(--accent); }
 .segmented { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); flex: none; }
 .segmented button { height: 26px; padding: 0 11px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); cursor: default; font-size: 12.5px; }
 .segmented button:hover { color: var(--text); }
-.segmented button.on { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), 0 0 0 1px var(--border); }
+.segmented button.on { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), 0 0 0 1px var(--control-edge); }
 
 /* Buttons with icons line up with their text */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
@@ -517,8 +559,9 @@ a { color: var(--accent); }
 .tooltip-key { padding: 0 5px; border-radius: 4px; background: rgba(255, 255, 255, 0.14); color: #d9d9e3; font-size: 11px; white-space: nowrap; }
 :root[data-theme="dark"] .tooltip { background: #3a3a44; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); }
 
-/* Tabs: close buttons appear on hover (always on the active tab); a thin accent line marks the active tab. */
-.tab:not(.active):not(:hover):not(:focus-within) .close { opacity: 0; }
+/* Tabs: close buttons appear on hover (always on the active tab, and as a dot while there are
+   unsaved changes); a thin accent line marks the active tab. */
+.tab:not(.active):not(.dirty):not(:hover):not(:focus-within) .close { opacity: 0; }
 .tab .close { transition: opacity var(--motion); }
 .tab.active::before { content: ""; position: absolute; left: 10px; right: 10px; top: -1px; height: 2px; border-radius: 0 0 2px 2px; background: var(--accent); }
 @media (hover: none) { .tab .close { opacity: 1 !important; } }
@@ -528,10 +571,9 @@ a { color: var(--accent); }
 .tabs.fade-left { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent); }
 .tabs.fade-left.fade-right { -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
 
-/* Touch-only screens: no keyboard shortcuts in menus; the toolbar shows a soft edge where it scrolls. */
+/* Touch-only screens: no keyboard shortcuts in menus. */
 @media (hover: none) and (pointer: coarse) {
   .menu .sc { display: none; }
-  .toolbar[role="toolbar"] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); padding-right: 24px; }
 }
 
 /* Toast close button */
@@ -572,3 +614,33 @@ a { color: var(--accent); }
 .csv-head-input { width: 100%; height: 22px; border: 1.5px solid var(--accent); border-radius: 4px; padding: 0 5px; font: inherit; font-weight: 600; background: var(--surface); color: var(--text); outline: none; }
 
 @keyframes fade-in { from { opacity: 0; } }
+
+/* Touch: everything a finger has to hit is at least 24 by 24 pixels. */
+@media (pointer: coarse) {
+  .tab .close { width: 28px; height: 28px; }
+  .cm-editor .cm-line .cm-md-task { width: 24px; height: 24px; }
+  .csv-hcell .grip { right: 0; width: 24px; }
+  .statusbar button.item { min-height: 24px; }
+  .switch { width: 42px; height: 24px; border-radius: 12px; }
+  .switch .knob { width: 20px; height: 20px; }
+  .switch.on .knob { transform: translateX(18px); }
+}
+
+/* Windows high-contrast themes replace colours, backgrounds and shadows with the person's own, so
+   tints and shadow rings vanish: selections, pressed buttons, the open tab and switches are drawn
+   with system colours instead. Text on Highlight needs forced-color-adjust: none, or the browser
+   paints a Canvas-coloured plate behind it and the text disappears. */
+@media (forced-colors: active) {
+  .csv-cell.sel, .csv-hcell.sel, .csv-num.sel, .icon-btn.active, .icon-btn[aria-pressed="true"], .segmented button.on {
+    forced-color-adjust: none; background: Highlight; color: HighlightText;
+  }
+  .icon-btn.active:focus-visible, .icon-btn[aria-pressed="true"]:focus-visible, .segmented button.on:focus-visible { outline-color: CanvasText; }
+  .csv-cell.cur { outline: 2px solid HighlightText; outline-offset: -3px; }
+  .tab.active::before { background: Highlight; }
+  .palette [cmdk-item][data-selected="true"], .thumb.sel, .tree-row.active, .menu-item:hover, .menu-item:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
+  .switch { border: 1px solid ButtonText; background: ButtonFace; }
+  .switch .knob { top: 1px; left: 1px; background: ButtonText; }
+  .switch.on { border-color: Highlight; background: Highlight; }
+  .switch.on .knob { background: HighlightText; }
+  .toast, .tooltip { border: 1px solid CanvasText; }
+}

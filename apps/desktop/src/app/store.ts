@@ -157,12 +157,55 @@ export const tabBytes = new Map<string, Uint8Array>();
 export const knownMeta = new Map<string, { size: number; modified: number }>();
 
 let nextToast = 1;
+/** Time left for each toast without a button. A toast with a button stays until it is used or
+ *  dismissed: there must be time to reach the button. */
+const toastClocks = new Map<number, { left: number; since: number; timer?: ReturnType<typeof setTimeout> }>();
+let toastsHeld = false;
+/** After a pause, a toast stays at least this long, so it never vanishes the moment the pointer leaves. */
+const TOAST_GRACE = 2000;
+
+function startClock(id: number) {
+  const c = toastClocks.get(id);
+  if (!c) return;
+  c.since = Date.now();
+  c.timer = setTimeout(() => dismissToast(id), c.left);
+}
+
 export function toast(text: string, tone: "info" | "error" = "info", action?: Toast["action"]) {
   // The same message twice in a row is shown once.
   if (state.toasts.some((t) => t.text === text)) return;
   const id = nextToast++;
   setState((s) => ({ toasts: [...s.toasts, { id, text, tone, action }].slice(-4) }));
-  setTimeout(() => setState((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), tone === "error" ? 8000 : 4500);
+  // Clocks of toasts pushed out by this one are no longer needed.
+  for (const [old, c] of toastClocks) {
+    if (state.toasts.some((t) => t.id === old)) continue;
+    clearTimeout(c.timer);
+    toastClocks.delete(old);
+  }
+  if (action) return;
+  toastClocks.set(id, { left: tone === "error" ? 8000 : 4500, since: 0 });
+  if (!toastsHeld) startClock(id);
+}
+
+export function dismissToast(id: number) {
+  clearTimeout(toastClocks.get(id)?.timer);
+  toastClocks.delete(id);
+  setState((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+}
+
+/** Stops every toast's clock while one is pointed at or has the keyboard, and starts them again after. */
+export function holdToasts(hold: boolean) {
+  if (hold === toastsHeld) return;
+  toastsHeld = hold;
+  for (const [id, c] of toastClocks) {
+    if (hold) {
+      clearTimeout(c.timer);
+      c.left = Math.max(0, c.left - (Date.now() - c.since));
+    } else {
+      c.left = Math.max(c.left, TOAST_GRACE);
+      startClock(id);
+    }
+  }
 }
 
 let idCounter = 0;

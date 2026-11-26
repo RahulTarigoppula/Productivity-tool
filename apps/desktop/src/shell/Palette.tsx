@@ -1,15 +1,37 @@
 import { Command as Cmdk } from "cmdk";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { pushLayer, popLayer } from "./modalFocus";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { pushLayer, popLayer, focusMain } from "./modalFocus";
 import { Zap, Hash, CornerDownRight, FolderSearch, Keyboard } from "lucide-react";
 import { useStore, setState, getState, handles } from "../app/store";
 import { allCommands } from "../app/commands";
 import { activate, openPath } from "../app/actions";
+import type { Command } from "../app/editor-api";
 import { rank, type Match } from "../lib/fuzzy";
-import { basename, dirname, samePath } from "../lib/paths";
+import { basename, dirname } from "../lib/paths";
 import { kindFromName } from "../lib/formats";
 import { platform, type SearchHit } from "../platform";
 import { KindIcon } from "./icons";
+
+/** Keys that are not commands, for the shortcuts list. */
+const KEY_HELP: Command[] = [
+  { id: "keys.regions", title: "Move between the tab bar, toolbar, document and status bar", shortcut: "F6, Shift+F6", run: () => {} },
+  { id: "keys.tabs", title: "Move along the tabs in the tab bar (Enter opens one)", shortcut: "← →", run: () => {} },
+  { id: "keys.closeTab", title: "Close the tab the tab bar is on", shortcut: "Delete", run: () => {} },
+  { id: "keys.leaveEditor", title: "Leave a note or code editor (Tab indents inside it)", shortcut: "Esc, then Tab", run: () => {} },
+];
+
+/** A membership test for paths that matches as samePath does (drive-letter paths ignore case), built
+ *  once so thousands of folder files can be checked on each key press. */
+export function pathMatcher(paths: string[]): (p: string) => boolean {
+  const n = (s: string) => s.replace(/\\/g, "/").replace(/\/+$/, "");
+  const exact = new Set<string>();
+  const folded = new Set<string>();
+  for (const p of paths) {
+    if (/^[a-zA-Z]:/.test(p)) folded.add(n(p).toLowerCase());
+    else exact.add(n(p));
+  }
+  return (p) => exact.has(n(p)) || (folded.size > 0 && folded.has(n(p).toLowerCase()));
+}
 
 function Hl({ text, match }: { text: string; match?: Match }) {
   if (!match?.positions.length) return <>{text}</>;
@@ -64,20 +86,26 @@ export function Palette() {
     return () => clearTimeout(t);
   }, [mode, term, workspace]);
 
-  const s = getState();
+  // React keeps its previous render, closures and all, so this render holds on to nothing that holds
+  // a document: only the state's plain data (its toolbar and status entries are handlers over the
+  // open documents), and the commands are not memoized.
+  const { tabs: openTabs, activeId, outline, recent: recentFiles } = getState();
+  const s = { tabs: openTabs, activeId, outline, recent: recentFiles };
   const active = s.tabs.find((t) => t.id === s.activeId);
-  const commands = useMemo(() => (open ? allCommands() : []), [open, q]);
+  const commands = open ? allCommands() : [];
 
   // Focus returns to where the person was when the palette closes (Esc or after a choice that
   // does not move focus itself).
   const overlayRef = useRef<HTMLDivElement>(null);
   const focusBefore = useRef<HTMLElement | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (open) {
+      // Noted before the search box takes the keyboard (which is why it has no autoFocus).
       focusBefore.current = document.activeElement as HTMLElement | null;
+      overlayRef.current?.querySelector<HTMLElement>("[cmdk-input]")?.focus();
       // While the palette is open it is the top layer: dialogs below ignore Tab and Escape, Tab
-      // stays in the palette, and Escape closes it wherever focus is.
-      const layer = pushLayer();
+      // stays in the palette, Escape closes it wherever focus is, and the window behind is inert.
+      const layer = pushLayer(overlayRef.current);
       const onKey = (e: KeyboardEvent) => {
         const box = overlayRef.current;
         if (!box) return;
@@ -97,11 +125,13 @@ export function Palette() {
       };
     }
     const prev = focusBefore.current;
+    // Not opened yet (the first render).
+    if (!prev) return;
     focusBefore.current = null;
     window.setTimeout(() => {
       if (document.activeElement && document.activeElement !== document.body) return;
-      if (prev && prev.isConnected && prev !== document.body) prev.focus();
-      else document.querySelector<HTMLElement>("section.doc-pane:not([hidden]) .cm-content, section.doc-pane:not([hidden]) [tabindex='0']")?.focus();
+      if (prev.isConnected && prev !== document.body) prev.focus();
+      else focusMain();
     }, 0);
   }, [open]);
 
@@ -121,7 +151,7 @@ export function Palette() {
           <Cmdk.Item key={item.id} value={item.id} onSelect={() => run(() => void item.run())}>
             <Zap />
             <span className="label"><Hl text={item.title} match={match} /></span>
-            {item.shortcut && <span className="kbd">{item.shortcut}</span>}
+            {item.shortcut && <span className="kbd keys-only">{item.shortcut}</span>}
           </Cmdk.Item>
         ))}
       </Cmdk.Group>
@@ -174,14 +204,14 @@ export function Palette() {
   } else if (mode === "?") {
     const seen = new Set<string>();
     const unique = commands.filter((c) => c.shortcut && !seen.has(c.shortcut) && (seen.add(c.shortcut), true));
-    const r = rank(unique, term, (c) => c.title, undefined, 200);
+    const r = rank([...unique, ...KEY_HELP], term, (c) => c.title, undefined, 200);
     body = (
       <Cmdk.Group heading="Keyboard shortcuts">
         {r.map(({ item }) => (
           <Cmdk.Item key={item.id} value={item.id} onSelect={() => run(() => void item.run())}>
             <Keyboard />
             <span className="label">{item.title}</span>
-            <span className="kbd">{item.shortcut}</span>
+            <span className="kbd keys-only">{item.shortcut}</span>
           </Cmdk.Item>
         ))}
       </Cmdk.Group>
@@ -189,16 +219,17 @@ export function Palette() {
   } else {
     const tabs = rank(s.tabs, term, (t) => t.name, (t) => (t.id === s.activeId ? -50 : 100), 20);
     const openPaths = s.tabs.map((t) => t.path).filter(Boolean) as string[];
+    const isOpen = pathMatcher(openPaths);
     const recent = rank(
-      s.recent.filter((r) => !openPaths.some((p) => samePath(p, r.path))),
+      s.recent.filter((r) => !isOpen(r.path)),
       term,
       (r) => basename(r.path),
       (r) => Math.max(0, 60 - (Date.now() - r.opened) / 3.6e6),
       term ? 15 : 8,
     );
-    const ws = term
-      ? rank(files.filter((f) => !openPaths.some((p) => samePath(p, f)) && !s.recent.some((r) => samePath(r.path, f))), term, (f) => basename(f), undefined, 20)
-      : [];
+    // Open and recent files are listed above, so the folder's own list leaves them out.
+    const listed = pathMatcher([...openPaths, ...s.recent.map((r) => r.path)]);
+    const ws = term ? rank(files.filter((f) => !listed(f)), term, (f) => basename(f), undefined, 20) : [];
     const cmds = term ? rank(commands, term, (c) => c.title, undefined, 8) : [];
     body = (
       <>
@@ -241,7 +272,7 @@ export function Palette() {
               <Cmdk.Item key={item.id} value={item.id} onSelect={() => run(() => void item.run())}>
                 <Zap />
                 <span className="label"><Hl text={item.title} match={match} /></span>
-                {item.shortcut && <span className="kbd">{item.shortcut}</span>}
+                {item.shortcut && <span className="kbd keys-only">{item.shortcut}</span>}
               </Cmdk.Item>
             ))}
           </Cmdk.Group>
@@ -254,7 +285,7 @@ export function Palette() {
                 <Cmdk.Item key={item.id} value={item.id} onSelect={() => run(() => void item.run())}>
                   <Zap />
                   <span className="label">{item.title}</span>
-                  {item.shortcut && <span className="kbd">{item.shortcut}</span>}
+                  {item.shortcut && <span className="kbd keys-only">{item.shortcut}</span>}
                 </Cmdk.Item>
               ))}
           </Cmdk.Group>
@@ -265,8 +296,8 @@ export function Palette() {
 
   return (
     <div className="overlay" ref={overlayRef} onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <Cmdk className="palette" shouldFilter={false} loop label="Search files and commands" onKeyDown={(e) => e.key === "Escape" && close()}>
-        <Cmdk.Input autoFocus value={q} onValueChange={setQ} placeholder="Search files and commands" />
+      <Cmdk className="palette" role="dialog" aria-modal="true" aria-label="Search files and commands" shouldFilter={false} loop label="Search files and commands" onKeyDown={(e) => e.key === "Escape" && close()}>
+        <Cmdk.Input value={q} onValueChange={setQ} placeholder="Search files and commands" />
         <Cmdk.List>
           {/* Folder search has its own messages. */}
           {mode !== "#" && <Cmdk.Empty>No matches.</Cmdk.Empty>}
@@ -279,7 +310,7 @@ export function Palette() {
             </span>
           ) : (
             <span>
-              Tip: start with <span className="kbd">&gt;</span> for commands, <span className="kbd">#</span> to search inside files, <span className="kbd">?</span> for shortcuts
+              Tip: start with <span className="kbd">&gt;</span> for commands, <span className="kbd">#</span> to search inside files<span className="keys-only">, <span className="kbd">?</span> for shortcuts</span>
             </span>
           )}
         </div>

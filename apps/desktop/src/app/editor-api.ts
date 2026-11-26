@@ -71,6 +71,9 @@ export interface EngineHandle {
   exportFormats?(): { ext: string; label: string }[];
   /** Produce the document in another format (for engine-provided export formats). */
   convert?(ext: string): Promise<Uint8Array>;
+  /** Undo and redo the last change (shown in the app menu, so they work without a keyboard). */
+  undo?(): void;
+  redo?(): void;
   /** Choices made in the editor that exports should follow (for example a table's header row). */
   exportHints?(): import("../lib/convert").ExportHints;
 }

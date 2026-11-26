@@ -539,6 +539,8 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
       { id: "csv.redo", title: "Redo", group: "Edit", shortcut: "Ctrl+Y", run: () => opsRef.current.redo() },
     ];
     host.register({
+      undo: () => opsRef.current.undo(),
+      redo: () => opsRef.current.redo(),
       async serialize(opts) {
         if (opts?.forSave) commitPendingRef.current();
         let doc = docRef.current;

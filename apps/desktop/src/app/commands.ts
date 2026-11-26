@@ -112,11 +112,21 @@ export function runCommand(id: string) {
 
 export function appMenu(): MenuItem[] {
   const tab = activeTab();
+  // Undo and Redo where the document supports them: the only way to undo on a phone.
+  const h = tab ? handles.get(tab.id) : undefined;
+  const edit: MenuItem[] = h?.undo
+    ? [
+        { label: "Undo", shortcut: "Ctrl+Z", run: () => h.undo?.() },
+        { label: "Redo", shortcut: "Ctrl+Y", run: () => h.redo?.() },
+        { divider: true },
+      ]
+    : [];
   const item = (id: string, label?: string): MenuItem => {
     const c = allCommands().find((x) => x.id === id);
     return c ? { label: label ?? c.title, shortcut: c.shortcut, run: () => void c.run() } : { label: label ?? id, disabled: true };
   };
   return [
+    ...edit,
     item("file.newMarkdown", "New note"),
     item("file.open"),
     item("file.openFolder"),

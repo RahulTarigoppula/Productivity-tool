@@ -776,6 +776,23 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     await waitFor(() => page.locator(pane, { hasText: "can't be played here" }).isVisible(), 8000, "explanation");
   });
 
+  await check("U-12", "Undo and Redo in the app menu work without a keyboard", async () => {
+    await page.evaluate(() => window.__app.newFile("markdown"));
+    const pane = "section.doc-pane:not([hidden])";
+    await page.waitForSelector(`${pane} .cm-content`);
+    await page.locator(`${pane} .cm-content`).click();
+    await page.keyboard.type("Keep this");
+    await page.waitForTimeout(600);
+    await page.keyboard.type(" but not this");
+    const read = () => page.evaluate(async () => { const s = window.__app.getState(); return new TextDecoder().decode(await window.__app.handles.get(s.activeId).serialize()); });
+    await page.getByRole("button", { name: "Menu" }).click();
+    await page.getByRole("menuitem", { name: /^Undo/ }).click();
+    assert(!(await read()).includes("but not this"), `after Undo: ${JSON.stringify(await read())}`);
+    await page.getByRole("button", { name: "Menu" }).click();
+    await page.getByRole("menuitem", { name: /^Redo/ }).click();
+    assert((await read()).includes("but not this"), `after Redo: ${JSON.stringify(await read())}`);
+  });
+
   await check("F-34", "dark theme applies", async () => {
     await page.evaluate(() => window.__app.updateSettings({ theme: "dark" }));
     await waitFor(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", 2000, "dark");

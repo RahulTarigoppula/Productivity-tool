@@ -4,7 +4,7 @@ import {
   EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor,
   rectangularSelection, crosshairCursor, highlightActiveLine, placeholder,
 } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, indentWithTab, undo, redo } from "@codemirror/commands";
 import { indentOnInput, syntaxHighlighting, bracketMatching, foldGutter, foldKeymap, indentUnit, syntaxTree, LanguageDescription } from "@codemirror/language";
 import { searchKeymap, highlightSelectionMatches, openSearchPanel, search } from "@codemirror/search";
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
@@ -389,6 +389,8 @@ export default function TextEngine({ host }: { host: EngineHost }) {
 
     const md = (f: (v: EditorView) => boolean) => () => f(view);
     const commands: Command[] = [
+      { id: "text.undo", title: "Undo", group: "Edit", shortcut: "Ctrl+Z", run: () => (undo(view), view.focus()) },
+      { id: "text.redo", title: "Redo", group: "Edit", shortcut: "Ctrl+Y", run: () => (redo(view), view.focus()) },
       { id: "text.find", title: "Find", group: "Edit", shortcut: "Ctrl+F", run: () => openSearchPanel(view) },
       { id: "text.replace", title: "Find and replace", group: "Edit", shortcut: "Ctrl+H", run: () => openReplace(view) },
       { id: "text.wrap", title: "Wrap long lines", group: "View", run: () => toggleWrapLines() },
@@ -469,6 +471,8 @@ export default function TextEngine({ host }: { host: EngineHost }) {
     setToolbar();
 
     host.register({
+      undo: () => (undo(view), view.focus()),
+      redo: () => (redo(view), view.focus()),
       async serialize(opts) {
         const doc = view.state.doc;
         const textNow = doc.toString();

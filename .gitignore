@@ -9,3 +9,4 @@ playwright-report/
 apps/desktop/public/vendor/
 packs/
 .cache/
+.claude/worktrees/

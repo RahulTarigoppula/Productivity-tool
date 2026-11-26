@@ -679,6 +679,416 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     await page.setViewportSize({ width: 1280, height: 800 });
   });
 
+  // ---------- Accessibility (A-*): keyboard, screen reader names and states, contrast, touch ----------
+  const focusInfo = () => page.evaluate(() => {
+    const a = document.activeElement;
+    if (!a || a === document.body) return { where: "body" };
+    const part = a.closest(".tabrow, .toolbar, .doc-area, .statusbar, .toasts, .menu, .side, .overlay");
+    return { where: part ? part.classList[0] : "elsewhere", role: a.getAttribute("role"), name: (a.getAttribute("aria-label") ?? a.textContent ?? "").trim().slice(0, 40) };
+  });
+  const closeAllTabs = async () => {
+    await page.evaluate(() => window.__app.updateSettings({ autoSave: false }));
+    for (let i = 0; i < 60 && (await page.evaluate(() => window.__app.getState().tabs.length)); i++) {
+      await page.evaluate(() => { const s = window.__app.getState(); void window.__app.closeTab(s.tabs[0].id); });
+      const dlg = page.getByRole("alertdialog");
+      if (await dlg.waitFor({ timeout: 500 }).then(() => true, () => false)) await dlg.getByRole("button", { name: "Don't save" }).click();
+    }
+    await page.evaluate(() => window.__app.updateSettings({ autoSave: true }));
+  };
+  const menuItem = () => page.evaluate(() => document.activeElement?.getAttribute("role") === "menuitem" ? document.activeElement.firstElementChild.textContent : "(not on a menu item)");
+
+  await check("A-1", "menus: Enter opens on the first item; arrows, Home, End and letters move; Escape goes back to the button", async () => {
+    await open("/work/notes.md");
+    const btn = page.getByRole("button", { name: "Menu", exact: true });
+    assert((await btn.getAttribute("aria-haspopup")) === "menu" && (await btn.getAttribute("aria-expanded")) === "false", "the Menu button does not say it opens a menu");
+    await btn.focus();
+    await page.keyboard.press("Enter");
+    await waitFor(() => page.locator(".menu[role=menu]").isVisible(), 2000, "the menu");
+    assert((await btn.getAttribute("aria-expanded")) === "true", "aria-expanded is not true while open");
+    assert((await menuItem()) === "New Markdown note", `it opened on ${await menuItem()}`);
+    await page.keyboard.press("ArrowDown");
+    assert((await menuItem()) === "Open file…", `ArrowDown went to ${await menuItem()}`);
+    await page.keyboard.press("End");
+    assert((await menuItem()) === "About Productivity", `End went to ${await menuItem()}`);
+    await page.keyboard.press("ArrowDown");
+    assert((await menuItem()) === "New Markdown note", "ArrowDown does not wrap round to the top");
+    await page.keyboard.type("se");
+    assert((await menuItem()) === "Settings", `typing "se" went to ${await menuItem()}`);
+    await page.keyboard.press("Escape");
+    await waitFor(async () => !(await page.locator(".menu").count()), 2000, "the menu to close");
+    assert(await btn.evaluate((el) => el === document.activeElement), `Escape left the keyboard on ${JSON.stringify(await focusInfo())}`);
+    assert((await btn.getAttribute("aria-expanded")) === "false", "aria-expanded is still true");
+  });
+
+  await check("A-2", "menus: Tab closes one and moves on; the status bar's Details menu goes back to its button", async () => {
+    await page.getByRole("button", { name: "Menu", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await waitFor(() => page.locator(".menu").isVisible(), 2000, "the menu");
+    await page.keyboard.press("Tab");
+    await waitFor(async () => !(await page.locator(".menu").count()), 2000, "Tab to close the menu");
+    assert((await focusInfo()).where === "toolbar", `Tab went to ${JSON.stringify(await focusInfo())}`);
+    const details = page.locator("#status-details");
+    assert((await details.getAttribute("aria-haspopup")) === "menu", "Details does not say it opens a menu");
+    await details.click();
+    await waitFor(() => page.locator(".menu").isVisible(), 2000, "the Details menu");
+    assert((await details.getAttribute("aria-expanded")) === "true", "Details is not marked expanded");
+    assert((await menuItem()).startsWith("Language"), `the Details menu opened on ${await menuItem()}`);
+    await page.keyboard.press("Escape");
+    assert(await details.evaluate((el) => el === document.activeElement), `Escape went to ${JSON.stringify(await focusInfo())}`);
+  });
+
+  await check("A-3", "tabs: one Tab stop, arrows move without opening, Enter opens, Delete closes and stays on the strip", async () => {
+    await closeAllTabs();
+    for (const f of ["plan.md", "data.csv", "legacy.txt"]) await open(`/work/${f}`);
+    const s = await page.evaluate(() => ({
+      nested: document.querySelectorAll(".tabs [role=tab] :is(button, a, input, [tabindex])").length,
+      others: [...document.querySelectorAll(".tabs[role=tablist] *")].filter((el) => !el.closest("[aria-hidden=true]") && (el.hasAttribute("role") ? el.getAttribute("role") !== "tab" : el.matches("button, a, input"))).length,
+      stops: document.querySelectorAll(".tabs[role=tablist] [tabindex='0']").length,
+    }));
+    assert(!s.nested && !s.others && s.stops === 1, `tab strip structure: ${JSON.stringify(s)}`);
+    const tabName = () => page.evaluate(() => document.activeElement?.getAttribute("role") === "tab" ? document.activeElement.querySelector(".name").textContent : "(not on a tab)");
+    await page.locator(".tabs [role=tab][aria-selected=true]").focus();
+    await page.keyboard.press("ArrowLeft");
+    assert((await tabName()) === "data.csv", `ArrowLeft went to ${await tabName()}`);
+    assert((await activeTab()).name === "legacy.txt", "an arrow key opened the tab");
+    await page.keyboard.press("Enter");
+    await waitFor(async () => (await activeTab()).name === "data.csv", 2000, "Enter to open data.csv");
+    await waitFor(async () => (await focusInfo()).where === "doc-area", 2000, "the keyboard to move into the opened table");
+    await page.locator(".tabs [role=tab][aria-selected=true]").focus();
+    await page.keyboard.press("End");
+    assert((await tabName()) === "legacy.txt", `End went to ${await tabName()}`);
+    await page.keyboard.press("Delete");
+    await waitFor(async () => !(await appState()).tabs.some((t) => t.name === "legacy.txt"), 3000, "Delete to close legacy.txt");
+    await waitFor(async () => (await tabName()) === "data.csv", 2000, "the keyboard to stay on the tab strip");
+    const tab = page.locator(".tab", { hasText: "plan.md" });
+    await tab.hover();
+    await tab.locator(".close").click();
+    await waitFor(async () => !(await appState()).tabs.some((t) => t.name === "plan.md"), 3000, "the close button to close plan.md");
+  });
+
+  await check("A-4", "Ctrl+W on the last tab leaves the keyboard on the home screen, which says nothing in its status bar", async () => {
+    await closeAllTabs();
+    await open("/work/plan.md");
+    await page.locator("section.doc-pane:not([hidden]) .cm-content").click();
+    await page.keyboard.press("Control+w");
+    await waitFor(() => page.locator(".home").isVisible(), 3000, "the home screen");
+    await waitFor(() => page.evaluate(() => !!document.activeElement?.matches(".create-card")), 2000, "the keyboard on the first Create card");
+    assert((await page.locator(".statusbar").innerText()).trim() === "", "the status bar has text with no file open");
+    assert((await page.locator(".search-kbd").getAttribute("aria-label")) === "Search files and commands, Ctrl K", "the home search button's name");
+  });
+
+  await check("A-5", "home: recent files are a list of real buttons; Pin and Remove show on focus; the time lines up at the right", async () => {
+    const s = await page.evaluate(() => {
+      const row = document.querySelector(".recent-row");
+      const r = row.getBoundingClientRect(), w = row.querySelector(".when").getBoundingClientRect();
+      return { list: row.parentElement.tagName, row: row.tagName, fake: document.querySelectorAll(".home [role=button]").length, nested: document.querySelectorAll(".recent-open :is(button, a)").length, gap: Math.round(r.right - w.right) };
+    });
+    assert(s.list === "UL" && s.row === "LI" && !s.fake && !s.nested, `structure: ${JSON.stringify(s)}`);
+    assert(s.gap <= 12, `the time is ${s.gap}px in from the right edge`);
+    const first = page.locator(".recent-row").first();
+    await first.locator(".recent-open").focus();
+    await waitFor(async () => (await first.locator(".row-acts").evaluate((el) => getComputedStyle(el).opacity)) === "1", 1000, "Pin and Remove to show on focus");
+    const name = await first.locator(".n").textContent();
+    await page.keyboard.press(" ");
+    await waitFor(async () => (await activeTab())?.name === name, 3000, "Space to open the file");
+  });
+
+  await check("A-6", "toasts stay while pointed at or focused, ones with a button wait to be used, and errors are alerts", async () => {
+    await open("/work/report.docx");
+    await waitFor(() => page.getByText("Quarterly report").first().isVisible(), 8000, "the Word preview");
+    await page.locator(".tabs [role=tab][aria-selected=true]").focus();
+    await page.keyboard.press("Control+s"); // a read-only preview: a message without a button
+    const t = page.locator(".toast", { hasText: "read-only" });
+    await waitFor(() => t.isVisible(), 2000, "the toast");
+    assert((await t.evaluate((el) => el.closest("[role]")?.getAttribute("role"))) === "status", "a message is not a status");
+    await t.hover();
+    await page.waitForTimeout(5000);
+    assert(await t.isVisible(), "it went away while pointed at");
+    await page.mouse.move(640, 300);
+    await waitFor(async () => !(await t.count()), 7000, "it to go after the pointer left");
+    await page.keyboard.press("Control+s");
+    await waitFor(() => t.isVisible(), 2000, "the toast again");
+    await t.locator(".toast-close").focus();
+    await page.waitForTimeout(5000);
+    assert(await t.isVisible(), "it went away while focused");
+    await page.keyboard.press("Enter");
+    await waitFor(async () => !(await t.count()), 2000, "Enter to dismiss it");
+    assert((await focusInfo()).role === "tab", `dismissing it left the keyboard on ${JSON.stringify(await focusInfo())}`);
+    await open("/work/plan.md");
+    await page.evaluate(() => window.__fs.queueSave("/work/plan-a11y.html"));
+    await page.keyboard.press("Control+e");
+    await page.locator(".export-row", { hasText: "Web page" }).click();
+    const done = page.locator(".toast", { hasText: "Exported plan-a11y.html" });
+    await waitFor(() => done.isVisible(), 4000, "the export toast");
+    await page.waitForTimeout(5000);
+    assert(await done.isVisible(), "a toast with a button went away by itself");
+    await done.getByRole("button", { name: "Open" }).click();
+    await waitFor(async () => (await activeTab())?.name === "plan-a11y.html", 3000, "Open in the toast");
+    await page.evaluate(() => { const s = window.__app.getState(); window.__app.openLink(s.tabs.find((x) => x.id === s.activeId), "\\\\server\\share\\x.md"); });
+    const err = page.locator(".toast.error");
+    await waitFor(() => err.isVisible(), 2000, "the error toast");
+    assert((await err.evaluate((el) => el.closest("[role]")?.getAttribute("role"))) === "alert", "an error is not an alert");
+    await err.locator(".toast-close").click();
+  });
+
+  await check("A-7", "dialogs and the palette are modal: the window behind is inert until they close", async () => {
+    const state = () => page.evaluate(() => ({
+      modal: [...document.querySelectorAll('[aria-modal="true"]')].map((d) => d.getAttribute("role")),
+      inert: [".tabrow", ".main", ".statusbar"].map((s) => !!document.querySelector(s)?.closest("[inert]")),
+      toasts: !!document.querySelector(".toasts")?.closest("[inert]"),
+    }));
+    await page.keyboard.press("Control+,");
+    await waitFor(() => page.getByRole("dialog", { name: "Settings" }).isVisible(), 2000, "Settings");
+    let s = await state();
+    assert(s.modal.includes("dialog") && s.inert.every(Boolean) && !s.toasts, `with Settings open: ${JSON.stringify(s)}`);
+    await page.keyboard.press("Escape");
+    await waitFor(async () => !(await page.getByRole("dialog", { name: "Settings" }).count()), 2000, "Settings to close");
+    s = await state();
+    assert(!s.modal.length && !s.inert.some(Boolean), `after closing: ${JSON.stringify(s)}`);
+    await page.keyboard.press("Control+k");
+    await waitFor(() => page.locator("[cmdk-input]").isVisible(), 2000, "the palette");
+    s = await state();
+    assert(s.modal.includes("dialog") && s.inert.every(Boolean), `with the palette open: ${JSON.stringify(s)}`);
+    await page.keyboard.press("Escape");
+    await waitFor(async () => !(await page.locator("[cmdk-input]").count()), 2000, "the palette to close");
+    assert(!(await state()).inert.some(Boolean), "the window stayed inert after the palette");
+    await page.evaluate(() => window.__app.newFile("markdown"));
+    await page.locator("section.doc-pane:not([hidden]) .cm-content").click();
+    await page.keyboard.type("draft");
+    await page.evaluate(() => { const st = window.__app.getState(); void window.__app.closeTab(st.activeId); });
+    const q = page.getByRole("alertdialog");
+    await waitFor(() => q.isVisible(), 2000, "the save question");
+    assert((await q.getAttribute("aria-modal")) === "true" && !!(await q.getAttribute("aria-describedby")), "the question is not a described modal alert dialog");
+    await q.getByRole("button", { name: "Don't save" }).click();
+  });
+
+  await check("A-8", "save results are announced once, not on every key", async () => {
+    await page.evaluate(() => window.__fs.write("/work/a11y-save.txt", new TextEncoder().encode("start")));
+    await open("/work/a11y-save.txt");
+    const live = page.locator(".statusbar [role=status]");
+    assert((await live.textContent()) === "", "something was announced on opening");
+    await page.locator("section.doc-pane:not([hidden]) .cm-content").click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.type(" one");
+    await waitFor(async () => (await live.textContent()) === "Saved", 4000, '"Saved" after the auto-save');
+    await live.evaluate((el) => { window.__said = []; new MutationObserver(() => window.__said.push(el.textContent)).observe(el, { childList: true, characterData: true, subtree: true }); });
+    for (const c of " two three") { await page.keyboard.type(c); await page.waitForTimeout(120); }
+    await waitFor(async () => !(await activeTab()).dirty, 4000, "the next auto-save");
+    await page.waitForTimeout(300);
+    const said = await page.evaluate(() => window.__said);
+    assert(!said.length, `announced while typing and saving again: ${JSON.stringify(said)}`);
+    await page.evaluate(() => { const p = window.__app.platform; window.__origWrite = p.writeFile; p.writeFile = async () => { throw new Error("disk full"); }; });
+    await page.keyboard.type("!");
+    await waitFor(async () => (await live.textContent()) === "Save failed", 4000, '"Save failed"');
+    await page.evaluate(() => { window.__app.platform.writeFile = window.__origWrite; });
+    await page.keyboard.type("?");
+    await waitFor(async () => (await live.textContent()) === "Saved", 4000, '"Saved" once saving works again');
+    assert((await page.locator(".save-state").getAttribute("aria-label")) === "Saved, version history", "the save state's name does not say it opens version history");
+  });
+
+  await check("A-9", "F6 and Shift+F6 move between the tab bar, toolbar, document and status bar; the shortcuts list says so", async () => {
+    if (await page.locator(".side:not(.right)").count()) await page.getByRole("button", { name: "Show or hide the sidebar" }).click();
+    for (const b of await page.locator(".toast-close").all()) await b.click().catch(() => {});
+    await open("/work/notes.md");
+    await page.locator("section.doc-pane:not([hidden]) .cm-content").click();
+    const order = [];
+    for (let i = 0; i < 4; i++) { await page.keyboard.press("F6"); order.push((await focusInfo()).where); }
+    assert(order.join(" ") === "statusbar tabrow toolbar doc-area", `F6 went ${order.join(" → ")}`);
+    await page.keyboard.press("Shift+F6");
+    assert((await focusInfo()).where === "toolbar", `Shift+F6 went to ${JSON.stringify(await focusInfo())}`);
+    await page.keyboard.press("Shift+F6");
+    const f = await focusInfo();
+    assert(f.where === "tabrow" && f.role === "tab", `the tab bar is entered at ${JSON.stringify(f)}`);
+    await page.keyboard.press("Control+k");
+    await page.locator("[cmdk-input]").fill("?");
+    assert(await page.locator("[cmdk-item]", { hasText: "Move between the tab bar" }).isVisible(), "F6 is not in the shortcuts list");
+    assert(await page.locator("[cmdk-item]", { hasText: "Leave a note or code editor" }).isVisible(), "Esc, then Tab is not in the shortcuts list");
+    await page.keyboard.press("Escape");
+  });
+
+  await check("A-10", "Export stays in reach in a 640 × 400 window and on a phone; the zoom figure says what it does", async () => {
+    await page.setViewportSize({ width: 640, height: 400 });
+    try {
+      await open("/work/sample.pdf");
+      await waitFor(async () => (await page.locator(".pdfViewer .page canvas:visible").count()) > 0, 8000, "the pages");
+      const reachable = () => page.evaluate(() => {
+        const b = document.querySelector('.toolbar button[aria-label="Export"]');
+        const r = b.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return r.left >= 0 && r.right <= window.innerWidth && !!hit && b.contains(hit);
+      });
+      assert(await reachable(), "Export is cut off at 640 px");
+      assert(/^Zoom \d+%, fit to width$/.test(await page.locator("#status-zoom").getAttribute("aria-label")), "the zoom figure's name");
+      await page.setViewportSize({ width: 390, height: 780 });
+      await page.waitForTimeout(300);
+      assert(await reachable(), "Export is cut off at 390 px");
+      await page.locator('.toolbar button[aria-label="Export"]').click();
+      await waitFor(() => page.getByRole("dialog", { name: "Export" }).isVisible(), 2000, "the Export dialog");
+      await page.keyboard.press("Escape");
+    } finally {
+      await page.setViewportSize({ width: 1280, height: 800 });
+    }
+  });
+
+  await check("A-11", "Windows high contrast: selections, pressed buttons, the open tab, switches and focus stay visible", async () => {
+    await page.emulateMedia({ forcedColors: "active" });
+    try {
+      const highlight = await page.evaluate(() => { const p = document.createElement("i"); p.style.color = "Highlight"; document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return c; });
+      await open("/work/data.csv");
+      await waitFor(() => page.locator("section.doc-pane:not([hidden]) .csv-cell.cur").isVisible(), 4000, "the grid");
+      const s = await page.evaluate(() => {
+        const cs = (sel, pseudo) => getComputedStyle(document.querySelector(sel), pseudo);
+        return { cell: cs("section.doc-pane:not([hidden]) .csv-cell.sel").backgroundColor, cur: cs("section.doc-pane:not([hidden]) .csv-cell.cur").outlineStyle, pressed: cs(".toolbar .icon-btn.active").backgroundColor, tab: cs(".tab.active", "::before").backgroundColor };
+      });
+      assert(s.cell === highlight && s.pressed === highlight && s.tab === highlight && s.cur === "solid", `${JSON.stringify(s)} (Highlight is ${highlight})`);
+      await page.keyboard.press("Control+k");
+      await waitFor(() => page.locator("[cmdk-item][data-selected=true]").isVisible(), 2000, "a palette item");
+      const pal = await page.evaluate(() => { const c = getComputedStyle(document.querySelector("[cmdk-item][data-selected=true]")); return `${c.outlineStyle} ${c.outlineColor}`; });
+      assert(pal === `solid ${highlight}`, `the palette's selected item: ${pal}`);
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Control+,");
+      await waitFor(() => page.getByRole("dialog", { name: "Settings" }).isVisible(), 2000, "Settings");
+      const sw = await page.evaluate(() => { const el = document.querySelector(".switch"); return { border: getComputedStyle(el).borderTopStyle, knob: getComputedStyle(el.querySelector(".knob")).backgroundColor, track: getComputedStyle(el).backgroundColor }; });
+      assert(sw.border === "solid" && sw.knob !== sw.track, `a switch: ${JSON.stringify(sw)}`);
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Control+f");
+      const box = page.locator("section.doc-pane:not([hidden]) .csv-filter .input");
+      await waitFor(() => box.isVisible(), 2000, "the filter box");
+      const ring = await box.evaluate((el) => { const c = getComputedStyle(el); return `${c.outlineStyle} ${c.outlineWidth}`; });
+      assert(ring === "solid 2px", `a focused text box has no ring: ${ring}`);
+      await page.keyboard.press("Escape");
+    } finally {
+      await page.emulateMedia({ forcedColors: "none" });
+    }
+  });
+
+  await check("A-12", "contrast: format badges, code comments and control edges in light and dark", async () => {
+    const measure = () => page.evaluate(() => {
+      const rgb = (c) => {
+        const m = /^rgba?\(([^)]+)\)/.exec(c);
+        if (m) return m[1].split(/[\s,/]+/).filter(Boolean).slice(0, 3).map(Number);
+        return /^color\(srgb ([^)]+)\)/.exec(c)[1].split(/[\s/]+/).slice(0, 3).map((v) => Number(v) * 255);
+      };
+      const lum = (c) => { const [r, g, b] = rgb(c).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+      const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+      const out = {};
+      for (const b of document.querySelectorAll(".fmt-badge")) { const c = getComputedStyle(b); out[`badge ${b.textContent}`] = ratio(c.color, c.backgroundColor); }
+      const surface = getComputedStyle(document.querySelector(".dialog")).backgroundColor;
+      const probe = document.createElement("i");
+      document.body.append(probe);
+      for (const v of ["--syn-comment", "--control-edge"]) { probe.style.color = `var(${v})`; out[v] = ratio(getComputedStyle(probe).color, surface); }
+      probe.remove();
+      return out;
+    });
+    try {
+      for (const theme of ["light", "dark"]) {
+        await page.evaluate((t) => window.__app.updateSettings({ theme: t }), theme);
+        await open("/work/data.csv");
+        assert(await page.getByRole("button", { name: "Header row" }).isVisible(), "the Header row button is not named by its words");
+        await page.keyboard.press("Control+e");
+        await waitFor(() => page.locator(".fmt-badge").first().isVisible(), 2000, "the Export dialog");
+        const r = await measure();
+        await page.keyboard.press("Escape");
+        const low = Object.entries(r).filter(([k, v]) => v < (k === "--control-edge" ? 3 : 4.5));
+        assert(!low.length, `${theme}: ${low.map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")}`);
+      }
+    } finally {
+      await page.evaluate(() => window.__app.updateSettings({ theme: "light" }));
+    }
+  });
+
+  await check("A-13", "touch screens: no keyboard hints in the palette, controls of at least 24 px, toasts across the width", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    const p = await ctx.newPage();
+    try {
+      await p.goto(URL_);
+      await p.waitForFunction(() => window.__app && window.__fs);
+      await p.evaluate(() => {
+        window.__fs.write("/m/t.csv", new TextEncoder().encode("a,b\n1,2\n"));
+        window.__fs.write("/m/tasks.md", new TextEncoder().encode("- [ ] buy milk\n- [x] call Ana\n"));
+      });
+      const size = (sel) => p.evaluate((s) => { const r = document.querySelector(s).getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; }, sel);
+      await p.evaluate(() => window.__app.openPath("/m/t.csv"));
+      await p.waitForSelector("section.doc-pane:not([hidden]) .csv-hcell .grip");
+      const [gw] = await size("section.doc-pane:not([hidden]) .csv-hcell .grip");
+      assert(gw >= 24, `a column grip is ${gw}px wide`);
+      await p.evaluate(() => window.__app.openPath("/m/tasks.md"));
+      await p.waitForSelector("section.doc-pane:not([hidden]) .cm-md-task");
+      for (const sel of ["section.doc-pane:not([hidden]) .cm-md-task", ".tab.active .close"]) {
+        const [w, h] = await size(sel);
+        assert(w >= 24 && h >= 24, `${sel} is ${w}×${h}`);
+      }
+      await p.getByRole("button", { name: "Search and commands" }).click();
+      await p.locator("[cmdk-input]").waitFor();
+      const hints = await p.evaluate(() => [...document.querySelectorAll(".palette [cmdk-item] .kbd")].filter((k) => k.getClientRects().length).map((k) => k.textContent));
+      assert(!hints.length, `keyboard hints shown on a touch screen: ${hints.join(", ")}`);
+      assert(!(await p.locator(".palette .foot").innerText()).includes("shortcuts"), "the shortcuts tip is shown on a touch screen");
+      await p.keyboard.press("Escape");
+      await p.evaluate(() => { const s = window.__app.getState(); window.__app.openLink(s.tabs.find((t) => t.id === s.activeId), "\\\\server\\x.md"); });
+      const t = p.locator(".toast");
+      await t.first().waitFor();
+      const w = await t.first().evaluate((el) => el.getBoundingClientRect().width);
+      assert(w >= 390 - 32 - 1, `a toast is only ${Math.round(w)}px wide on a 390px screen`);
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  await check("A-14", "the palette stays quick in a folder of 20,000 files", async () => {
+    await page.evaluate(async () => {
+      const b = new TextEncoder().encode("x");
+      for (let i = 0; i < 20000; i++) window.__fs.write(`/big/d${i % 50}/report-${i}.md`, b);
+      await window.__app.openFolder("/big");
+    });
+    await page.keyboard.press("Control+k");
+    await page.locator("[cmdk-input]").waitFor();
+    await page.waitForTimeout(500);
+    const times = [];
+    for (const c of "report-12") {
+      const t0 = Date.now();
+      await page.keyboard.press(c);
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0))));
+      times.push(Date.now() - t0);
+    }
+    await page.keyboard.press("Escape");
+    await page.evaluate(() => window.__app.openFolder("/work"));
+    times.sort((a, b) => a - b);
+    assert(times[times.length >> 1] < 150, `a key takes ${times[times.length >> 1]} ms (median)`);
+  });
+
+  await check("A-15", "closing a large table gives its memory back (nothing keeps the closed document alive)", async () => {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Performance.enable");
+    const heap = async () => {
+      for (let i = 0; i < 3; i++) await cdp.send("HeapProfiler.collectGarbage");
+      const { metrics } = await cdp.send("Performance.getMetrics");
+      return metrics.find((m) => m.name === "JSHeapUsedSize").value / 1048576;
+    };
+    try {
+      await page.evaluate(() => {
+        const parts = ["id,name,zip,amount\n"];
+        for (let i = 0; i < 200000; i++) parts.push(`${i},Person ${i},${10000 + (i % 89999)},${i % 1000}\n`);
+        window.__fs.write("/work/big.csv", new TextEncoder().encode(parts.join("")));
+      });
+      const before = await heap();
+      await open("/work/big.csv");
+      await waitFor(() => page.locator("section.doc-pane:not([hidden]) .csv-cell").first().isVisible(), 20000, "the table");
+      const opened = await heap();
+      // What used to keep it: the Details menu, the palette, and React's copies of the status bar and toolbar.
+      await page.locator("#status-details").click();
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Control+k");
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Control+w");
+      await waitFor(async () => !(await appState()).tabs.some((t) => t.name === "big.csv"), 4000, "the table to close");
+      await page.waitForTimeout(300);
+      const after = await heap();
+      assert(after - before < (opened - before) * 0.2, `${(after - before).toFixed(1)} MB of the table's ${(opened - before).toFixed(1)} MB stayed in memory`);
+    } finally {
+      await cdp.detach();
+    }
+  });
+
   // Screenshots of each engine for review.
   for (const f of ["notes.md", "data.csv", "sample.pdf", "report.docx", "budget.xlsx"]) {
     await open(`/work/${f}`);

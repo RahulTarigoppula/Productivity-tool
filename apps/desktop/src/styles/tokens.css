@@ -24,6 +24,8 @@
   --press: rgba(20, 20, 40, 0.1);
   --border: #e2e2e8;
   --border-strong: #cdcdd6;
+  /* Edges that show where a control is (text boxes, switches): at least 3:1 on every surface. */
+  --control-edge: #85858f;
   --text: #1c1c22;
   --text-2: #565662;
   --text-3: #6b6b76;
@@ -36,21 +38,24 @@
   --warn-soft: #fff4dd;
   --danger: #c4314b;
   --danger-soft: #fde7ea;
+  --danger-text: #ffffff;
   --info-soft: #e8edff;
 
-  --k-text: #6b7280;
-  --k-markdown: #4560e6;
-  --k-csv: #1f8a5a;
-  --k-pdf: #d0453c;
+  /* File kinds. As text on their own 12% tint (format badges) they keep 4.5:1. */
+  --k-text: #5f6673;
+  --k-markdown: #3f58d6;
+  --k-csv: #187650;
+  --k-pdf: #b73a33;
   --k-docx: #2b62c9;
-  --k-xlsx: #1d7a46;
-  --k-pptx: #c4522a;
-  --k-image: #8a4fd6;
+  --k-xlsx: #1a7443;
+  --k-pptx: #ab4723;
+  --k-image: #7d46c7;
+  --k-json: #9f5200;
 
   --syn-keyword: #a626a4;
   --syn-string: #2b7a3d;
   --syn-number: #b35c00;
-  --syn-comment: #8b8b96;
+  --syn-comment: #666670;
   --syn-func: #2c5fd6;
   --syn-type: #b0452c;
   --syn-prop: #1d6b8f;
@@ -77,10 +82,11 @@
   --press: rgba(255, 255, 255, 0.12);
   --border: #33333a;
   --border-strong: #45454e;
+  --control-edge: #7a7a84;
   --text: #ececf1;
   --text-2: #a9a9b4;
   --text-3: #8e8e99;
-  --accent: #8197ff;
+  --accent: #8ca0ff;
   --accent-text: #11131c;
   --accent-soft: rgba(129, 151, 255, 0.16);
   --selection: rgba(129, 151, 255, 0.3);
@@ -89,12 +95,22 @@
   --warn-soft: #3a2f1a;
   --danger: #ff6b81;
   --danger-soft: #3d2229;
+  --danger-text: #1d1013;
   --info-soft: #262c45;
+  --k-text: #a3a9b5;
+  --k-markdown: #8fa1ff;
+  --k-csv: #4fc28a;
+  --k-pdf: #ff8077;
+  --k-docx: #82a6ff;
+  --k-xlsx: #5cc48a;
+  --k-pptx: #ff9469;
+  --k-image: #c4a0ff;
+  --k-json: #eda462;
   --shadow-pop: 0 12px 40px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
   --syn-keyword: #d590e8;
   --syn-string: #8fcf8a;
   --syn-number: #f0a868;
-  --syn-comment: #7c7c88;
+  --syn-comment: #a3a3ae;
   --syn-func: #86a8ff;
   --syn-type: #f08f73;
   --syn-prop: #6ec6e6;

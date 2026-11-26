@@ -1,8 +1,7 @@
-import { useState } from "react";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NotebookText, FileCode2, Sheet, FolderOpen, FileSearch, Pin, PinOff, X, FileType, FileSpreadsheet, Presentation, Search, Clock, Sparkles } from "lucide-react";
 import { platform } from "../platform";
-import { useStore } from "../app/store";
+import { useStore, getState } from "../app/store";
 import { newFile, newOfficeFile, pickAndOpen, openFolder, openPath, togglePin, removeRecent } from "../app/actions";
 import { basename, dirname, samePath } from "../lib/paths";
 import { rank } from "../lib/fuzzy";
@@ -30,24 +29,43 @@ export function Home() {
   const items = q ? rank(recent, q, (r) => basename(r.path), undefined, 30).map((r) => r.item) : recent.filter((r) => !isPinned(r.path)).slice(0, 14);
   const pinnedItems = q ? [] : pinned.map((p) => recent.find((r) => samePath(r.path, p)) ?? { path: p, kind: "text" as const, opened: 0 });
 
-  const row = (r: (typeof recent)[number]) => (
-    <div key={r.path} className="recent-row" role="button" tabIndex={0} onClick={() => void openPath(r.path)} onKeyDown={(e) => e.key === "Enter" && void openPath(r.path)}>
-      <KindIcon kind={r.kind} name={r.path} className="" />
-      <div style={{ minWidth: 0 }}>
-        <div className="n">{basename(r.path)}</div>
-        <div className="p">{dirname(r.path)}</div>
-      </div>
-      <span className="when">{r.opened ? timeAgo(r.opened) : ""}</span>
-      <span style={{ display: "flex" }}>
-        <button className="icon-btn row-act" title={isPinned(r.path) ? "Unpin" : "Pin to top"} onClick={(e) => { e.stopPropagation(); void togglePin(r.path); }}>
-          {isPinned(r.path) ? <PinOff /> : <Pin />}
+  // One list item per file: the file's own button opens it (the whole row is its click area), and
+  // Pin and Remove are buttons beside it, shown on hover, on focus and always on touch screens.
+  const row = (r: (typeof recent)[number]) => {
+    const name = basename(r.path);
+    const pinnedNow = isPinned(r.path);
+    return (
+      <li key={r.path} className="recent-row">
+        <button type="button" className="recent-open" onClick={() => void openPath(r.path)}>
+          <KindIcon kind={r.kind} name={r.path} className="" />
+          <span className="recent-text">
+            <span className="n">{name}</span>
+            <span className="p">{dirname(r.path)}</span>
+          </span>
         </button>
-        <button className="icon-btn row-act" title="Remove from recent" onClick={(e) => { e.stopPropagation(); void removeRecent(r.path); }}>
-          <X />
-        </button>
-      </span>
-    </div>
-  );
+        {r.opened > 0 && <span className="when">{timeAgo(r.opened)}</span>}
+        <span className="row-acts">
+          <button type="button" className="icon-btn row-act" title={pinnedNow ? "Unpin" : "Pin to top"} aria-label={pinnedNow ? `Unpin ${name}` : `Pin ${name} to the top`} onClick={() => void togglePin(r.path)}>
+            {pinnedNow ? <PinOff /> : <Pin />}
+          </button>
+          <button type="button" className="icon-btn row-act" title="Remove from recent" aria-label={`Remove ${name} from recent`} onClick={() => void removeRecent(r.path)}>
+            <X />
+          </button>
+        </span>
+      </li>
+    );
+  };
+
+  // After the last tab closes (Ctrl+W), the keyboard would be left on nothing: it starts on the
+  // first Create card. Not at startup, where nothing had the keyboard yet.
+  const firstCard = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const a = document.activeElement;
+      if (getState().ready && (!a || a === document.body)) firstCard.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, []);
 
   const hour = new Date().getHours();
   const greeting = hour < 5 ? "Working late" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
@@ -87,13 +105,13 @@ export function Home() {
             }}
             aria-label="Find a recent file"
           />
-          <button className="kbd keys-only search-kbd" onClick={() => openPalette("")} title="Search files and commands">Ctrl K</button>
+          <button className="kbd keys-only search-kbd" onClick={() => openPalette("")} title="Search files and commands" aria-label="Search files and commands, Ctrl K" aria-keyshortcuts="Control+K">Ctrl K</button>
         </div>
 
         <h2>Create</h2>
         <div className="create-grid">
-          {create.map((c) => (
-            <button key={c.kind} className={`create-card k-${c.kind}`} onClick={c.run}>
+          {create.map((c, i) => (
+            <button key={c.kind} ref={i === 0 ? firstCard : undefined} className={`create-card k-${c.kind}`} onClick={c.run}>
               <span className="chip">{c.icon}</span>
               <span className="t">{c.label}</span>
               <span className="d">{c.hint}</span>
@@ -118,13 +136,13 @@ export function Home() {
 
         {pinnedItems.length > 0 && (
           <>
-            <h2>Pinned</h2>
-            <div className="recent-list">{pinnedItems.map(row)}</div>
+            <h2 id="home-pinned">Pinned</h2>
+            <ul className="recent-list" aria-labelledby="home-pinned">{pinnedItems.map(row)}</ul>
           </>
         )}
-        <h2>{q ? "Matches" : "Recent"}</h2>
+        <h2 id="home-recent">{q ? "Matches" : "Recent"}</h2>
         {items.length ? (
-          <div className="recent-list">{items.map(row)}</div>
+          <ul className="recent-list" aria-labelledby="home-recent">{items.map(row)}</ul>
         ) : (
           <div className="home-empty">
             <Clock />

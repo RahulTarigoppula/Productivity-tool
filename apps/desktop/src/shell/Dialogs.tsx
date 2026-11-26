@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useModalFocus } from "./modalFocus";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useModalFocus, focusMain } from "./modalFocus";
 import { NotebookText, FileText, Sheet, FileSearch, FileType, FileSpreadsheet, Presentation } from "lucide-react";
-import { useStore, setState, activeTab, handles, toast } from "../app/store";
+import { useStore, setState, activeTab, handles, toast, dismissToast, holdToasts, type Toast } from "../app/store";
 import { useAsk } from "../app/dialogs";
 import { updateSettings, newFile, newOfficeFile, pickAndOpen, suggestExportPath, openPath, handleExternalChange } from "../app/actions";
 import { getRegistry, sourceFormat, FORMAT_LABEL } from "../app/exporters";
@@ -11,6 +11,8 @@ import { basename, dirname, join, stem } from "../lib/paths";
 
 const closeDialog = () => setState({ dialog: null });
 
+/** The backdrop of every dialog. While it is open the dialog inside is marked modal (aria-modal)
+ *  and the window behind it is inert: no clicks, no focus, nothing read out by screen readers. */
 function Overlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   useModalFocus(ref, onClose);
@@ -26,9 +28,9 @@ export function ConfirmDialog() {
   if (!req) return null;
   return (
     <Overlay onClose={() => req.resolve(null)}>
-      <div className="dialog" role="alertdialog" aria-labelledby="ask-title">
+      <div className="dialog" role="alertdialog" aria-labelledby="ask-title" aria-describedby="ask-body">
         <h3 id="ask-title">{req.title}</h3>
-        <p>{req.body}</p>
+        <p id="ask-body">{req.body}</p>
         <div className="acts">
           {req.buttons.map((b, i) => (
             <button key={b} autoFocus={i === 0} className={`btn ${i === 0 ? "primary" : ""}`} onClick={() => req.resolve(b)}>
@@ -306,15 +308,62 @@ export function Dialogs() {
 
 export function Toasts() {
   const toasts = useStore((s) => s.toasts);
-  return (
-    <div className="toasts" role="status" aria-live="polite">
-      {toasts.map((t) => (
+  const ref = useRef<HTMLDivElement>(null);
+  // Nothing disappears while it is being read or used: the clocks stop while the pointer is over
+  // a toast or the keyboard is on one.
+  const [hover, setHover] = useState(false);
+  const [focused, setFocused] = useState(false);
+  useEffect(() => holdToasts(hover || focused), [hover, focused]);
+  useEffect(() => () => holdToasts(false), []);
+
+  // When the toast that has the keyboard goes away, the keyboard goes back to where it came from.
+  const cameFrom = useRef<HTMLElement | null>(null);
+  const goBack = () => {
+    const back = cameFrom.current;
+    cameFrom.current = null;
+    if (back?.isConnected) back.focus();
+    else focusMain();
+  };
+  const close = (t: Toast, run?: () => void) => {
+    if (ref.current?.contains(document.activeElement)) goBack();
+    dismissToast(t.id);
+    run?.();
+  };
+  // A toast can also go while focused without a click (a newer one pushed it out).
+  useLayoutEffect(() => {
+    if (!focused || ref.current?.contains(document.activeElement)) return;
+    setFocused(false);
+    if (!document.activeElement || document.activeElement === document.body) goBack();
+  }, [toasts, focused]);
+
+  const list = (tone: "error" | "other") =>
+    toasts
+      .filter((t) => (t.tone === "error") === (tone === "error"))
+      .map((t) => (
         <div key={t.id} className={`toast ${t.tone}`}>
-          <span>{t.text}</span>
-          {t.action && <button onClick={() => { setState((s) => ({ toasts: s.toasts.filter((x) => x.id !== t.id) })); t.action!.run(); }}>{t.action.label}</button>}
-          <button className="toast-close" aria-label="Dismiss" onClick={() => setState((s) => ({ toasts: s.toasts.filter((x) => x.id !== t.id) }))}>×</button>
+          <span className="msg">{t.text}</span>
+          {t.action && <button type="button" onClick={() => close(t, t.action!.run)}>{t.action.label}</button>}
+          <button type="button" className="toast-close" aria-label="Dismiss" onClick={() => close(t)}>×</button>
         </div>
-      ))}
+      ));
+  return (
+    <div
+      className="toasts"
+      ref={ref}
+      // Notifications stay usable and are still read out while a dialog makes the rest inert.
+      data-stays-live=""
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onFocus={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) cameFrom.current = e.relatedTarget as HTMLElement | null;
+        setFocused(true);
+      }}
+      onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setFocused(false)}
+    >
+      {/* Errors are read out at once; other messages wait until the screen reader is free. Only
+          the new toast is read, not the ones already showing. */}
+      <div className="toast-stack" role="status" aria-atomic="false">{list("other")}</div>
+      <div className="toast-stack" role="alert" aria-atomic="false">{list("error")}</div>
     </div>
   );
 }

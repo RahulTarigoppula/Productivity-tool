@@ -3,6 +3,31 @@
 import { getState, setState, activeTab, handles } from "./store";
 import { newFile, pickAndOpen, saveTab, closeTab, reopenClosed, switchTab, switchToRecentTab, activate } from "./actions";
 import { openPalette, toggleFocusMode } from "./commands";
+import { firstFocusable } from "../shell/modalFocus";
+
+/** The window's parts in F6 order. Only those on screen with something to focus are visited. */
+const REGIONS = [".tabrow", ".toolbar[role=toolbar]", ".side:not(.right)", ".doc-area", ".side.right", ".statusbar", ".toasts"];
+
+/** F6 and Shift+F6: the keyboard moves to the next or previous part of the window (tab bar,
+ *  toolbar, sidebar, document, side panel, status bar, notifications) without Tabbing through
+ *  every control on the way. */
+export function cycleRegions(dir: 1 | -1) {
+  const tab = activeTab();
+  const parts = REGIONS.map((sel) => document.querySelector<HTMLElement>(sel)).filter(
+    (el): el is HTMLElement => !!el && (!!firstFocusable(el) || (!!tab && el.matches(".doc-area"))),
+  );
+  if (!parts.length) return;
+  const here = parts.findIndex((el) => el.contains(document.activeElement));
+  // From nowhere in particular, F6 goes to the document.
+  const doc = Math.max(0, parts.findIndex((el) => el.matches(".doc-area")));
+  const next = parts[here < 0 ? doc : (here + dir + parts.length) % parts.length];
+  if (tab && next.matches(".doc-area")) {
+    handles.get(tab.id)?.focus();
+    if (next.contains(document.activeElement)) return;
+  }
+  // The tab bar starts on the open tab; elsewhere, the first control.
+  (next.querySelector<HTMLElement>('[role="tab"][tabindex="0"]') ?? firstFocusable(next))?.focus();
+}
 
 export interface KeyLike {
   key: string;
@@ -22,7 +47,12 @@ export function handleShortcut(e: KeyLike): boolean {
     let handled = true;
 
     if (e.key === "F11") toggleFocusMode();
-    else if (e.key === "Escape" && s.focusMode && !s.palette.open && !s.dialog) toggleFocusMode();
+    else if (e.key === "F6" && !mod && !e.altKey) {
+      // A dialog or the palette keeps the keyboard while it is open.
+      if (!document.querySelector('[aria-modal="true"]')) cycleRegions(e.shiftKey ? -1 : 1);
+    }
+    // An open menu takes Escape for itself.
+    else if (e.key === "Escape" && s.focusMode && !s.palette.open && !s.dialog && !document.querySelector(".menu")) toggleFocusMode();
     else if (!mod) handled = false;
     else if (k === "k" && !e.shiftKey && !e.altKey) openPalette("");
     else if (k === "p" && e.shiftKey) openPalette(">");

@@ -71,6 +71,10 @@ The app is one window with tabs. Four things are always there: **tabs** at the t
 - Portable exe and Android: read-only preview with zoom and Export. The banner says how to edit.
 - **New** Document/Spreadsheet/Presentation from the home screen or Ctrl+K (installed app only).
 
+### Other files
+- **Audio and video** play in a tab (mp3, wav, m4a, flac, mp4, webm, …). **ZIP archives** list their files; open any of them in its own tab or save it on its own. Pictures open with zoom.
+- Very large tables (over about 1.15 million rows) show their first rows; Filter finds the rest.
+
 ### Export and print
 - **Ctrl+E** lists what people usually want first (a note: Word, then a formatted PDF; a table: Excel) and the rest under **More formats**, with a **Text only** label where formatting is lost. Notes become **Word documents** and tables become **Excel workbooks**: numbers, prices like 1.10, percentages and dates stay numbers that look exactly as typed; IDs with leading zeros and barcodes stay text. **Word → Markdown** keeps headings, bold/italic, links, numbered and nested lists, tables, quotes, code and footnotes. All offline; the original file is never changed, and the message says where the new file went.
 - **Print or save as a formatted PDF** opens the print window (choose *Save as PDF*).
@@ -99,6 +103,7 @@ The app is one window with tabs. Four things are always there: **tabs** at the t
 | Close, reopen closed tab | Ctrl+W, Ctrl+Shift+T |
 | Switch tabs | Ctrl+Tab, Ctrl+PgUp/PgDn, Ctrl+1…9 |
 | Find, find and replace, search in folder | Ctrl+F, Ctrl+H, Ctrl+Shift+F |
+| Move between tab bar, toolbar, document and status bar | F6 / Shift+F6 |
 | Sidebar, focus mode, settings | Ctrl+\, F11, Ctrl+, |
 | Zoom | Ctrl+= / Ctrl+- / Ctrl+0 |
 | Notes: bold, italic, link, headings | Ctrl+B, Ctrl+I, Ctrl+Shift+K, Ctrl+Alt+1…3 |
@@ -128,9 +133,9 @@ Note: a plain `cargo build --release` does not embed the interface (it points at
 
 | What | Command (in `apps/desktop`) | Count today |
 |---|---|---|
-| Unit tests | `pnpm test` | 112 |
+| Unit tests | `pnpm test` | 127 |
 | Rust tests | `cd src-tauri && cargo test --release` | 22 |
-| End-to-end flows (browser build) | `pnpm build && pnpm preview --port 1420 &` then `APP_URL=http://localhost:1420/ pnpm e2e` | 65 |
+| End-to-end flows (browser build) | `pnpm build && pnpm preview --port 1420 &` then `APP_URL=http://localhost:1420/ pnpm e2e` | 81 |
 | Office editing flows | `pnpm office-pack`, `node tests/office-server.mjs &`, then `OFFICE_URL=http://localhost:4180 pnpm e2e:office` (no trailing slash) | 15 |
 | Real-app self-test (Windows/Linux) | `PRODUCTIVITY_SELF_TEST=<folder with tests/corpus files> productivity.exe` → writes `selftest-report.json` there | 23 checks |
 | Real-app self-test (Android emulator) | `tests/android-smoke.sh <apk> <out-dir>` (needs USB debugging on) | 23 checks |

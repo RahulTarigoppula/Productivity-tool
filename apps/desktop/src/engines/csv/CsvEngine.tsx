@@ -126,12 +126,33 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
   commitPendingRef.current = commitPendingEdit;
   const term = docRef.current.eol;
 
+  // Renaming a column (header row): its own small editor in the header.
+  const [headEdit, setHeadEdit] = useState<{ c: number; value: string } | null>(null);
+  const headDone = useRef(false);
+  const editDone = useRef(true);
+  const renameColumn = (c: number, value: string) => {
+    // Enter and then the input losing focus must rename only once.
+    if (headDone.current) return;
+    headDone.current = true;
+    setHeadEdit(null);
+    if (rows[0] && (rows[0].cells[c] ?? "") !== value) {
+      const next = rows.slice();
+      next[0] = setCell(next[0], c, value);
+      setRows(next);
+    }
+    scrollRef.current?.focus();
+  };
   const startEdit = (r: number, c: number, initial?: string) => {
     const di = view[r];
     if (di === undefined) return;
+    editDone.current = false;
     setEditing({ r, c, value: initial ?? rows[di]?.cells[c] ?? "" });
   };
+  // Moving focus back to the grid blurs the cell editor, and its blur handler
+  // would save again with the old closure; only the first finish counts.
   const finishEdit = (save: boolean, move?: [number, number]) => {
+    if (editDone.current) return;
+    editDone.current = true;
     if (editing && save) {
       const di = view[editing.r];
       if ((rows[di]?.cells[editing.c] ?? "") !== editing.value) {
@@ -501,8 +522,37 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
           <div className="csv-head" style={{ width: totalW }}>
             <div className="csv-corner" style={{ width: NUM_W }} onClick={() => setSel({ r: 0, c: 0, r2: view.length - 1, c2: cols - 1 })} />
             {visibleCols.map((c) => (
-              <div key={c} className={`csv-hcell ${c >= c1 && c <= c2 ? "sel" : ""}`} style={{ left: left(c), width: widths[c] }} onClick={(e) => setSel(e.shiftKey ? { ...sel, r2: view.length - 1, c2: c } : { r: 0, c, r2: view.length - 1, c2: c })} title={header ? rows[0]?.cells[c] : colName(c)}>
-                <span className="t">{header ? rows[0]?.cells[c] || colName(c) : colName(c)}</span>
+              <div
+                key={c}
+                className={`csv-hcell ${c >= c1 && c <= c2 ? "sel" : ""}`}
+                style={{ left: left(c), width: widths[c] }}
+                onClick={(e) => setSel(e.shiftKey ? { ...sel, r2: view.length - 1, c2: c } : { r: 0, c, r2: view.length - 1, c2: c })}
+                // With a header row, double-click a column name to rename it.
+                onDoubleClick={() => {
+                  if (!header || !rows[0]) return;
+                  headDone.current = false;
+                  setHeadEdit({ c, value: rows[0].cells[c] ?? "" });
+                }}
+                title={header ? `${rows[0]?.cells[c] ?? ""} (double-click to rename)` : colName(c)}
+              >
+                {headEdit?.c === c ? (
+                  <input
+                    className="csv-head-input"
+                    autoFocus
+                    value={headEdit.value}
+                    aria-label="Column name"
+                    onChange={(e) => setHeadEdit({ c, value: e.target.value })}
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === "Enter") renameColumn(c, headEdit.value);
+                      if (e.key === "Escape") { headDone.current = true; setHeadEdit(null); scrollRef.current?.focus(); }
+                    }}
+                    onBlur={() => renameColumn(c, headEdit.value)}
+                  />
+                ) : (
+                  <span className="t">{header ? rows[0]?.cells[c] || colName(c) : colName(c)}</span>
+                )}
                 <span className="grip" onMouseDown={(e) => resize(c, e)} />
               </div>
             ))}

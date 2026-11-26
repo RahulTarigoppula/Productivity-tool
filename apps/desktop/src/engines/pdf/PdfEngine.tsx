@@ -154,9 +154,13 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
   const setMode = (m: Mode) => {
     const v = viewer.current;
     if (!v) return;
+    // Text already selected when Highlight is chosen gets highlighted straight away.
+    const sel = window.getSelection();
+    const hadSelection = m === "highlight" && !!sel && !sel.isCollapsed && !!(sel.anchorNode as HTMLElement | null)?.parentElement?.closest(".textLayer");
     try {
       v.annotationEditorMode = { mode: MODE[m] };
       setModeState(m);
+      if (hadSelection) setTimeout(() => bus.current?.dispatch("editingaction", { source: null, name: "highlightSelection" }), 60);
     } catch (e) {
       host.toast(`That tool is not available for this PDF: ${e instanceof Error ? e.message : e}`, "error");
     }

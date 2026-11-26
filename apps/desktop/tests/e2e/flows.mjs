@@ -634,6 +634,28 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     await page.keyboard.press("Escape");
   });
 
+  await check("U-5", "double-clicking a column name renames it; Escape discards a name or cell edit", async () => {
+    await page.evaluate(() => window.__fs.write("/work/rename.csv", new TextEncoder().encode("name,age\nLee,5\n")));
+    await open("/work/rename.csv");
+    const head = page.locator("section.doc-pane:not([hidden]) .csv-hcell").first();
+    await waitFor(() => head.isVisible(), 5000, "grid");
+    await head.dblclick();
+    await page.locator("section.doc-pane:not([hidden]) .csv-head-input").fill("Full name");
+    await page.keyboard.press("Enter");
+    await head.dblclick();
+    await page.locator("section.doc-pane:not([hidden]) .csv-head-input").fill("oops");
+    await page.keyboard.press("Escape");
+    await page.locator("section.doc-pane:not([hidden]) .csv-cell", { hasText: "Lee" }).dblclick();
+    await page.keyboard.press("Control+a");
+    await page.keyboard.type("WRONG");
+    await page.keyboard.press("Escape");
+    const text = await page.evaluate(async () => { const s = window.__app.getState(); return new TextDecoder().decode(await window.__app.handles.get(s.activeId).serialize()); });
+    assert(text === "Full name,age\nLee,5\n", `document reads ${JSON.stringify(text)}`);
+    assert((await activeTab()).dirty, "rename did not mark the tab unsaved");
+    const focused = await page.evaluate(() => !!document.activeElement?.closest("section.doc-pane:not([hidden])"));
+    assert(focused, "focus left the grid after renaming");
+  });
+
   await check("F-34", "dark theme applies", async () => {
     await page.evaluate(() => window.__app.updateSettings({ theme: "dark" }));
     await waitFor(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", 2000, "dark");

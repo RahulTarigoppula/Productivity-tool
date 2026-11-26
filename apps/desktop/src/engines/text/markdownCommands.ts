@@ -50,7 +50,10 @@ export function setHeading(view: EditorView, level: number): boolean {
     const m = /^(#{1,6})\s+/.exec(line.text);
     const current = m ? m[1].length : 0;
     const target = current === level ? 0 : level;
-    changes.push({ from: line.from, to: line.from + (m ? m[0].length : 0), insert: target ? "#".repeat(target) + " " : "" });
+    // A heading replaces a list, task or quote marker on the line (never "# > text").
+    const other = m ? null : /^\s*(?:[-*+] \[[ xX]\] |[-*+] |\d+[.)] |> ?)/.exec(line.text);
+    const prefixLen = m ? m[0].length : other ? other[0].length : 0;
+    changes.push({ from: line.from, to: line.from + prefixLen, insert: target ? "#".repeat(target) + " " : "" });
   }
   // The cursor moves past the inserted marker, so typing continues after "- [ ] ", "# " etc.
   const cs = view.state.changes(changes);

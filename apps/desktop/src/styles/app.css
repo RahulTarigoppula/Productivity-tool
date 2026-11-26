@@ -510,3 +510,5 @@ a { color: var(--accent); }
 .hit .t, .hit-text { text-decoration: none; }
 
 .dialog .acts, .dialog .dialog-foot { background: inherit; }
+
+.csv-head-input { width: 100%; height: 22px; border: 1.5px solid var(--accent); border-radius: 4px; padding: 0 5px; font: inherit; font-weight: 600; background: var(--surface); color: var(--text); outline: none; }

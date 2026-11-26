@@ -101,6 +101,8 @@ export function updateTitle() {
   void platform.setTitle(t ? `${t.dirty ? "● " : ""}${t.name} — Productivity` : "Productivity");
 }
 
+const VIEW_ONLY = new Set<Kind>(["binary", "image", "media", "archive"]);
+
 const MODERN_LABEL = { docx: "Word document", xlsx: "Excel workbook", pptx: "PowerPoint presentation" } as const;
 
 /** A new note's first save is named after its first heading or line ("Biology – Cell structure.md")
@@ -215,8 +217,8 @@ export async function openPath(path: string, opts: OpenOptions = {}): Promise<st
       baselineUnsaved: !!opts.dirty,
       damaged,
       saveAsModern: modern ?? undefined,
-      // Raw data is only shown, never saved back, so it reads as read-only rather than "Saved".
-      saveState: opts.dirty ? "recovered" : meta.readonly || kind === "binary" ? "readonly" : "saved",
+      // Pictures, audio, video, archives and raw data are only shown, never saved back: read-only, not "Saved".
+      saveState: opts.dirty ? "recovered" : meta.readonly || VIEW_ONLY.has(kind) ? "readonly" : "saved",
       notice:
         opts.notice ??
         (mismatch && !damaged

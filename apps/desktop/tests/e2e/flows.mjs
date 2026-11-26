@@ -793,6 +793,19 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     assert((await read()).includes("but not this"), `after Redo: ${JSON.stringify(await read())}`);
   });
 
+  await check("U-13", "a ZIP archive lists its files and opens one in its own tab; a damaged one explains itself", async () => {
+    const pane = "section.doc-pane:not([hidden])";
+    await open("/work/bundle.zip");
+    await waitFor(() => page.locator(`${pane} .archive-open`, { hasText: "plan.md" }).isVisible(), 5000, "file list");
+    assert(await page.locator(`${pane} .archive-open .folder`, { hasText: "docs/" }).isVisible(), "folder not shown");
+    await page.locator(`${pane} .archive-open`, { hasText: "plan.md" }).click();
+    await waitFor(async () => (await activeTab())?.name === "plan.md", 5000, "plan.md opened");
+    await page.waitForSelector(`${pane} .cm-content`);
+    await page.evaluate(() => window.__fs.write("/work/broken.zip", new TextEncoder().encode("PK not really an archive")));
+    await open("/work/broken.zip");
+    await waitFor(() => page.locator(pane, { hasText: "broken.zip can't be opened" }).isVisible(), 5000, "explanation");
+  });
+
   await check("F-34", "dark theme applies", async () => {
     await page.evaluate(() => window.__app.updateSettings({ theme: "dark" }));
     await waitFor(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", 2000, "dark");

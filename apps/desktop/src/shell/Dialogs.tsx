@@ -263,7 +263,7 @@ function Export() {
       setBusy(null);
     }
   };
-  const printable = tab.kind !== "binary" && tab.kind !== "media";
+  const printable = tab.kind !== "binary" && tab.kind !== "media" && tab.kind !== "archive";
   const row = (key: string, ext: string, title: string, sub: string | null, quality: keyof typeof QUALITY_LABEL, onRun: () => void) => (
     <button key={key} type="button" className={`export-row ${busy && busy !== key ? "unavailable" : ""}`} disabled={!!busy && busy !== key} onClick={() => !busy && onRun()}>
       <span className={`fmt-badge fmt-${ext}`}>{ext}</span>

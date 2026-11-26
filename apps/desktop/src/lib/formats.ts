@@ -1,7 +1,7 @@
 /** Which engine handles a file, decided by extension and confirmed by sniffing the first bytes. */
 import { extname } from "./paths";
 
-export type Kind = "text" | "markdown" | "csv" | "pdf" | "docx" | "xlsx" | "pptx" | "image" | "media" | "binary";
+export type Kind = "text" | "markdown" | "csv" | "pdf" | "docx" | "xlsx" | "pptx" | "image" | "media" | "archive" | "binary";
 
 const MARKDOWN = new Set(["md", "markdown", "mdown", "mkd", "mdx"]);
 const CSV = new Set(["csv", "tsv", "tab"]);
@@ -10,7 +10,7 @@ const IMAGE = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif"
 export const AUDIO = new Set(["mp3", "wav", "ogg", "oga", "opus", "m4a", "aac", "flac"]);
 export const VIDEO = new Set(["mp4", "m4v", "webm", "ogv", "mov"]);
 const BINARY = new Set([
-  "exe", "dll", "so", "dylib", "bin", "o", "obj", "class", "jar", "zip", "7z", "rar", "gz", "tgz", "bz2", "xz",
+  "exe", "dll", "so", "dylib", "bin", "o", "obj", "class", "jar", "7z", "rar", "gz", "tgz", "bz2", "xz",
   "avi", "mkv", "wmv", "woff", "woff2", "ttf", "otf", "eot", "sqlite", "db",
   "psd", "iso", "msi", "pdb", "wasm",
 ]);
@@ -49,6 +49,7 @@ export function kindFromName(path: string): Kind {
   if (OTHER_OFFICE[e]) return OTHER_OFFICE[e];
   if (IMAGE.has(e)) return "image";
   if (AUDIO.has(e) || VIDEO.has(e)) return "media";
+  if (e === "zip") return "archive";
   if (BINARY.has(e)) return "binary";
   return "text";
 }
@@ -73,6 +74,7 @@ export function detectKind(path: string, bytes: Uint8Array): Kind {
     return ok ? k : looksBinary(bytes) ? "binary" : "text";
   }
   if (k === "pdf") return looksBinary(bytes) ? "binary" : "text";
+  if (k === "archive") return head.startsWith("PK") ? k : "binary";
   if (k === "image") return extname(path) === "svg" ? "image" : k;
   if (k === "text" || k === "markdown" || k === "csv") return looksBinary(bytes) ? "binary" : k;
   return k;
@@ -88,6 +90,7 @@ export const KIND_LABEL: Record<Kind, string> = {
   pptx: "Presentation",
   image: "Image",
   media: "Audio or video",
+  archive: "ZIP archive",
   binary: "Binary",
 };
 

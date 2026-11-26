@@ -45,8 +45,9 @@ export interface Command {
 export interface EngineHandle {
   /** Current content as bytes, for save, export and recovery. With forSave, the engine
    *  remembers this exact content as what markSaved() will treat as being on disk,
-   *  and may ask the user about lossy choices. Other callers must not change engine state. */
-  serialize(opts?: { forSave?: boolean; fresh?: boolean }): Promise<Uint8Array>;
+   *  and may ask the user about lossy choices. Other callers must not change engine state.
+   *  targetExt is the extension of the file being written, for engines that can write several formats. */
+  serialize(opts?: { forSave?: boolean; fresh?: boolean; targetExt?: string }): Promise<Uint8Array>;
   /** A save that was prepared stopped before writing (cancelled, or nothing to write). */
   // (markSaved receives { stillDirty } when the content changed after it was taken for the save.)
   cancelSave?(): void;

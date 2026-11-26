@@ -29,6 +29,9 @@ export interface Tab {
   /** The file is named as this kind of document (for example "PDF") but its content is not one:
    *  the tab shows a short explanation until the person asks to see the raw data. */
   damaged?: string;
+  /** An older Office file (.doc, .xls, .ppt) the editor reads but cannot write: its changes are
+   *  saved as a new file in this modern format, and the original stays as it is. */
+  saveAsModern?: "docx" | "xlsx" | "pptx";
 }
 
 export interface RecentItem {

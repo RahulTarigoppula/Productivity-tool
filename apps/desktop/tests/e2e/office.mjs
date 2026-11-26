@@ -38,7 +38,7 @@ const frameBox = async () => page.locator("section.doc-pane:not([hidden]) .offic
   page.on("request", (r) => { const u = new URL(r.url()); if (!["localhost", "127.0.0.1"].includes(u.hostname) && !u.hostname.endsWith(".localhost") && !/^(data|blob):/.test(r.url())) errors.push("Outbound request: " + r.url()); });
   await page.goto(APP);
   await page.waitForFunction(() => window.__app && window.__fs);
-  for (const f of ["report.docx", "budget.xlsx", "deck.pptx"]) await page.evaluate(([p, b]) => window.__fs.write(p, new Uint8Array(b)), [`/work/${f}`, Array.from(readFileSync(join(corpus, f)))]);
+  for (const f of ["report.docx", "budget.xlsx", "deck.pptx", "older.doc", "older.odt"]) await page.evaluate(([p, b]) => window.__fs.write(p, new Uint8Array(b)), [`/work/${f}`, Array.from(readFileSync(join(corpus, f)))]);
   console.log("Office flows:");
 
   await check("O-1", "a Word file opens in the full editor", async () => {
@@ -225,6 +225,39 @@ const frameBox = async () => page.locator("section.doc-pane:not([hidden]) .offic
     await page.waitForTimeout(300);
     const text = await page.evaluate(async () => { const s = window.__app.getState(); return new TextDecoder().decode(await window.__app.handles.get(s.activeId).serialize()); });
     assert(text.includes("typed here"), `typing went elsewhere; the note reads ${JSON.stringify(text)}`);
+  });
+
+  await check("O-14", "an older .doc opens in the editor; its changes are saved as a new .docx and the original stays", async () => {
+    const before = await fsRead("/work/older.doc");
+    await page.evaluate(() => window.__app.openPath("/work/older.doc"));
+    await waitFor(editorReady, 90000, "editor ready");
+    assert(await page.locator("section.doc-pane:not([hidden]) .banner", { hasText: "older format" }).isVisible(), "no note about the older format");
+    const b = await frameBox();
+    await page.mouse.click(b.x + b.width / 2, b.y + b.height * 0.6);
+    await page.keyboard.type("LegacyEdit");
+    await waitFor(async () => (await activeTab()).dirty, 8000, "unsaved");
+    await page.keyboard.press("Control+s");
+    await waitFor(async () => { const t = await activeTab(); return t.name === "older.docx" && !t.dirty; }, 30000, "saved as older.docx");
+    const xml = await zipText(await fsRead("/work/older.docx"));
+    assert(xml.includes("LegacyEdit"), "the edit is not in the new file");
+    const after = await fsRead("/work/older.doc");
+    assert(after.length === before.length && after.every((x, i) => x === before[i]), "the original .doc changed");
+  });
+
+  await check("O-15", "an OpenDocument text file saves back as OpenDocument", async () => {
+    await page.evaluate(() => window.__app.openPath("/work/older.odt"));
+    await waitFor(editorReady, 90000, "editor ready");
+    const b = await frameBox();
+    await page.mouse.click(b.x + b.width / 2, b.y + b.height * 0.6);
+    await page.keyboard.type("OdtEdit");
+    await waitFor(async () => (await activeTab()).dirty, 8000, "unsaved");
+    await page.keyboard.press("Control+s");
+    await waitFor(async () => !(await activeTab()).dirty, 30000, "saved");
+    assert((await activeTab()).name === "older.odt", "the file was renamed");
+    const zip = await JSZip.loadAsync(Buffer.from(await fsRead("/work/older.odt")));
+    const mime = await zip.file("mimetype")?.async("string");
+    assert(mime === "application/vnd.oasis.opendocument.text", `saved as ${mime}`);
+    assert((await zip.file("content.xml").async("string")).includes("OdtEdit"), "the edit is not in the file");
   });
 
   await page.screenshot({ path: join(shots, "office-final.png") });

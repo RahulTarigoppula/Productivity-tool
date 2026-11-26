@@ -49,11 +49,14 @@ The app is one window with tabs. Four things are always there: **tabs** at the t
 - Toolbar: headings, bold, italic, code, lists, task list, quote, link, table, divider, side-by-side preview.
 - Tables show as real tables; click one to edit its text. Code blocks show a small language label.
 - **Ctrl+click** a link to another file to open it (at a heading with `file.md#heading`). The sidebar's **Outline** lists headings.
+- Lists: **Enter** on an empty item ends the list (with a blank line, so the next text is its own paragraph). Tables: **Tab** / **Shift+Tab** move between cells and add a row at the end; **Enter** at the end of a row adds a row.
+- **Bold**/**Italic** with nothing selected format the word at the cursor. **Ctrl+F** finds, **Ctrl+H** finds and replaces.
 
 ### Tables (CSV)
-- Double-click or **F2**/**Enter** to edit a cell; arrows move; **Ctrl+C/V** copies to and from spreadsheets.
-- Toolbar or **right-click**: insert/delete rows and columns, sort A–Z/Z–A (blanks last), filter (**Ctrl+F**), **Header row** on/off. **Ctrl+Z/Y** undo/redo.
-- Select cells to see sum, average and count in the status bar.
+- Double-click or **F2**/**Enter** to edit a cell; arrows move; **Tab** across a row then **Enter** goes to the next row's first column, as in a spreadsheet; **Ctrl+C/V** copies to and from spreadsheets.
+- Toolbar or **right-click**: insert/delete rows and columns (a new row is selected, ready for typing), sort A–Z/Z–A (blanks last), filter (**Ctrl+F**), **Header row** on/off. **Ctrl+Z/Y** undo/redo.
+- Double-click a column name to rename it (or *Rename column* in Ctrl+K); double-click a column border to fit it.
+- Select cells to see sum, average and count in the status bar (IDs with leading zeros are not added up).
 
 ### PDFs
 - Scroll, zoom, **Ctrl+F** find, page thumbnails (drag to reorder).
@@ -63,25 +66,26 @@ The app is one window with tabs. Four things are always there: **tabs** at the t
 
 ### Word, Excel, PowerPoint
 - Installed app: full editing inside the tab (ribbon, styles, formulas, charts, slides, comments, track changes). **Ctrl+S** inside the editor saves through the app (versions and recovery included).
+- Older and OpenDocument files open in the same editor: **.doc, .xls, .ppt** (their changes are saved as a new .docx/.xlsx/.pptx next to them; the original stays as it is) and **.odt, .ods, .odp, .rtf** (saved back in their own format).
 - Portable exe and Android: read-only preview with zoom and Export. The banner says how to edit.
 - **New** Document/Spreadsheet/Presentation from the home screen or Ctrl+K (installed app only).
 
 ### Export and print
-- **Ctrl+E** lists every format the file can become, with a **Text only** label where formatting is lost (for example Markdown → plain text). Notes become **Word documents** and tables become **Excel workbooks** (numbers stay numbers; IDs with leading zeros, barcodes and values like 1.10 stay exactly as typed), all offline. The original file is never changed.
+- **Ctrl+E** lists what people usually want first (a note: Word, then a formatted PDF; a table: Excel) and the rest under **More formats**, with a **Text only** label where formatting is lost. Notes become **Word documents** and tables become **Excel workbooks**: numbers, prices like 1.10, percentages and dates stay numbers that look exactly as typed; IDs with leading zeros and barcodes stay text. **Word → Markdown** keeps headings, bold/italic, links, numbered and nested lists, tables, quotes, code and footnotes. All offline; the original file is never changed, and the message says where the new file went.
 - **Print or save as a formatted PDF** opens the print window (choose *Save as PDF*).
 
 ### Safety nets
 - **Version history**: click *Saved* in the status bar to see earlier versions of a file and restore one.
 - **Crash recovery**: unsaved changes are copied in the background; after a crash or power cut they come back on the next start with *Save them / Discard them*.
 - **Changed by another program**: if a file changes on disk while you have unsaved edits, a banner offers **Keep my version**, **Use the other version** or **Compare** (opens the other version read-only).
-- A file whose content does not match its name (a damaged PDF, for example) opens as text with a note saying so.
+- A file whose content does not match its name says so: a damaged PDF or Office file shows *can't be opened* with **Show raw data**; one that is really text opens as text with a note.
 
 ### Find anything (command palette, Ctrl+K)
 - Type a file name, or start with `>` for commands, `#` to search inside the open folder's files, `:` to go to a line/page/row, `@` for headings, `?` for shortcuts.
 
 ### Look and comfort
 - **Settings** (Ctrl+, or the ⋯ menu): theme (System/Light/Dark), auto-save, format notes as I type, text size, line numbers and wrapping for code.
-- **Focus mode** (F11): just the document; F11 or Esc to leave.
+- **Focus mode** (F11): just the document; F11 or Esc to leave, or move the pointer to the top edge for an *Exit focus mode* button.
 - The status bar's **Details** shows a file's language, text format, line endings and indentation.
 
 ### Keyboard summary
@@ -93,7 +97,7 @@ The app is one window with tabs. Four things are always there: **tabs** at the t
 | Export | Ctrl+E |
 | Close, reopen closed tab | Ctrl+W, Ctrl+Shift+T |
 | Switch tabs | Ctrl+Tab, Ctrl+PgUp/PgDn, Ctrl+1…9 |
-| Find, search in folder | Ctrl+F, Ctrl+Shift+F |
+| Find, find and replace, search in folder | Ctrl+F, Ctrl+H, Ctrl+Shift+F |
 | Sidebar, focus mode, settings | Ctrl+\, F11, Ctrl+, |
 | Zoom | Ctrl+= / Ctrl+- / Ctrl+0 |
 | Notes: bold, italic, link, headings | Ctrl+B, Ctrl+I, Ctrl+Shift+K, Ctrl+Alt+1…3 |
@@ -123,10 +127,10 @@ Note: a plain `cargo build --release` does not embed the interface (it points at
 
 | What | Command (in `apps/desktop`) | Count today |
 |---|---|---|
-| Unit tests | `pnpm test` | 81 |
+| Unit tests | `pnpm test` | 109 |
 | Rust tests | `cd src-tauri && cargo test --release` | 22 |
-| End-to-end flows (browser build) | `pnpm build && pnpm preview --port 1420 &` then `APP_URL=http://localhost:1420/ pnpm e2e` | 47 |
-| Office editing flows | `pnpm office-pack`, `node tests/office-server.mjs &`, then `OFFICE_URL=http://localhost:4180 pnpm e2e:office` (no trailing slash) | 13 |
+| End-to-end flows (browser build) | `pnpm build && pnpm preview --port 1420 &` then `APP_URL=http://localhost:1420/ pnpm e2e` | 52 |
+| Office editing flows | `pnpm office-pack`, `node tests/office-server.mjs &`, then `OFFICE_URL=http://localhost:4180 pnpm e2e:office` (no trailing slash) | 15 |
 | Real-app self-test (Windows/Linux) | `PRODUCTIVITY_SELF_TEST=<folder with tests/corpus files> productivity.exe` → writes `selftest-report.json` there | 23 checks |
 | Real-app self-test (Android emulator) | `tests/android-smoke.sh <apk> <out-dir>` (needs USB debugging on) | 23 checks |
 
@@ -186,7 +190,7 @@ Design and decisions: `docs/plans/` (vision, architecture, UX, roadmap), `docs/f
 | Area | Gap | Where planned |
 |---|---|---|
 | All | Not yet used on real hardware | Section 4 checklist |
-| Windows | Exe not code-signed; native Mica title bar; richer Word → Markdown and PDF → Word conversion; language servers/terminal (light workbench) | W5–W6, convert pack |
+| Windows | Exe not code-signed; native Mica title bar; PDF → Word conversion; language servers/terminal (light workbench) | W5–W6, convert pack |
 | Android | Office files are previews only; no folders; very old system WebViews may not draw PDF pages; files shared once cannot be reopened after a restart | `docs/decisions/0003-android.md` |
 | Office | Non-Latin scripts use a fallback font in the core pack (`--fonts=all` adds them); release-candidate editors pinned | `docs/decisions/0002-office-engine.md` |
 | Next phase | Phase 3: macOS and iOS; Release 4: sync across devices | `docs/plans/03-roadmap.md`, `12-platforms-and-mobile.md`, `11-sync-and-continuity.md` |

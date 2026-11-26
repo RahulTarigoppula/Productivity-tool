@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Info, ExternalLink, ZoomIn, ZoomOut } from "lucide-react";
+import { Info, ExternalLink, ZoomIn, ZoomOut, FileWarning } from "lucide-react";
+import { isOtherOffice } from "../../lib/formats";
 import type { EngineHost } from "../../app/editor-api";
 import { readXlsx, readPptx, colName, type SheetData, type SlideText } from "./ooxml";
 import { platform } from "../../platform";
@@ -190,6 +191,30 @@ function OfficePreview({ host }: { host: EngineHost }) {
   );
 }
 
+/** Older (.doc, .xls, .ppt) and OpenDocument files need the full editor; without it, say so plainly. */
+function NeedsEditor({ host }: { host: EngineHost }) {
+  useEffect(() => {
+    host.register({ canSave: false, serialize: async () => host.bytes, focus: () => {} });
+    updateTab(host.tabId, { readonly: true, saveState: "readonly", saveAsModern: undefined, notice: undefined });
+  }, [host]);
+  return (
+    <div className="center-note">
+      <FileWarning size={28} />
+      <h3>{host.name} needs the Office editor</h3>
+      <div>
+        {platform.folders
+          ? "Older Word, Excel and PowerPoint files and OpenDocument files open in the Office editor, which comes with the installer version of the app."
+          : "Older Word, Excel and PowerPoint files and OpenDocument files can't be opened on this device yet."}
+      </div>
+      {host.path && platform.folders && (
+        <div className="acts">
+          <button className="btn" onClick={() => void platform.openExternal(host.path!)}><ExternalLink size={14} /> Open in default app</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Office files open in the full editor when the Office pack is installed, otherwise as a preview. */
 export default function OfficeEngine({ host }: { host: EngineHost }) {
   const [mode, setMode] = useState<"checking" | "editor" | "preview">("checking");
@@ -205,6 +230,7 @@ export default function OfficeEngine({ host }: { host: EngineHost }) {
     };
   }, []);
   if (mode === "checking") return <div className="center-note"><div className="spinner" /></div>;
+  if ((mode === "preview" || failure) && isOtherOffice(host.name)) return <NeedsEditor host={host} />;
   if (mode === "editor" && !failure)
     return (
       <OfficeEditor

@@ -758,6 +758,24 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     assert((await activeTab()).saveState === "readonly", "raw data reads as saved");
   });
 
+  await check("U-10", "without the Office editor, an older .doc explains what it needs instead of showing bytes", async () => {
+    await open("/work/older.doc");
+    const pane = "section.doc-pane:not([hidden])";
+    await waitFor(() => page.locator(pane, { hasText: "older.doc needs the Office editor" }).isVisible(), 5000, "explanation");
+    assert(!(await page.locator(`${pane} .hex`).count()), "raw bytes shown");
+  });
+
+  await check("U-11", "audio and video play in the app; a file that cannot be played says so", async () => {
+    const pane = "section.doc-pane:not([hidden])";
+    await open("/work/clip.webm");
+    await waitFor(() => page.locator(`${pane} video`).evaluate((v) => v.readyState >= 1 && v.videoWidth === 320).catch(() => false), 8000, "video ready");
+    await open("/work/tone.mp3");
+    await waitFor(() => page.locator(`${pane} audio`).evaluate((a) => a.readyState >= 1 && a.duration > 0.5).catch(() => false), 8000, "audio ready");
+    await page.evaluate(() => { const b = new Uint8Array(2048); for (let i = 0; i < b.length; i++) b[i] = (i * 2654435761) >>> 24; window.__fs.write("/work/noise.mp4", b); });
+    await open("/work/noise.mp4");
+    await waitFor(() => page.locator(pane, { hasText: "can't be played here" }).isVisible(), 8000, "explanation");
+  });
+
   await check("F-34", "dark theme applies", async () => {
     await page.evaluate(() => window.__app.updateSettings({ theme: "dark" }));
     await waitFor(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", 2000, "dark");

@@ -2,6 +2,7 @@
  *  (Euro-Office / ONLYOFFICE, running offline from the Office pack on its own origin).
  *  The editor never touches the disk: the app sends it bytes and asks for bytes back. */
 import { useEffect, useRef, useState } from "react";
+import { extname } from "../../lib/paths";
 import type { EngineHost, Command } from "../../app/editor-api";
 import { platform } from "../../platform";
 import { useStore, getState } from "../../app/store";
@@ -108,6 +109,12 @@ export function OfficeEditor({ host, onFailed }: { host: EngineHost; onFailed: (
       win.postMessage({ id, type, payload }, officeOrigin, transfer);
     });
 
+  /** The format to write: the file's own when the editor can write it (an OpenDocument or RTF file
+   *  stays one), otherwise the main format (an older .doc becomes a .docx, chosen in the save step). */
+  const writeFormat = (targetExt?: string) => {
+    const ext = (targetExt ?? extname(host.name)).toLowerCase();
+    return ext === kind || OFFICE_EXPORTS[kind].some((f) => f.ext === ext && f.ext !== "pdf" && f.ext !== "txt" && f.ext !== "csv") ? ext.toUpperCase() : SAVE_EXT[kind];
+  };
   const saveAs = async (ext: string): Promise<Uint8Array> => {
     await loadedRef.current!.promise;
     const r = (await post("document:save", { targetExt: ext.toUpperCase() })) as { file?: unknown };
@@ -167,7 +174,10 @@ export function OfficeEditor({ host, onFailed }: { host: EngineHost; onFailed: (
         opened.current = true;
         applyTheme();
         const buffer = host.bytes.slice().buffer;
-        void post("document:open-buffer", { fileName: host.name, buffer, mimeType: MIME[kind], readonly: false }, 120000, [buffer])
+        // A copy restored after a crash of an older .doc/.xls/.ppt holds the modern format: name it so.
+        const zip = host.bytes[0] === 0x50 && host.bytes[1] === 0x4b;
+        const fileName = zip && /\.(doc|dot|xls|xlt|ppt|pot|pps|rtf)$/i.test(host.name) ? host.name.replace(/\.[^.]+$/, `.${kind}`) : host.name;
+        void post("document:open-buffer", { fileName, buffer, mimeType: MIME[kind], readonly: false }, 120000, [buffer])
           // The bridge reports when loading completes; this is a fallback if it cannot.
           .then(() => window.setTimeout(markLoaded, 20000))
           .catch((err) => {
@@ -223,17 +233,18 @@ export function OfficeEditor({ host, onFailed }: { host: EngineHost; onFailed: (
     host.register({
       async serialize(opts) {
         if (opts?.forSave) {
-          // Use the editor's own Ctrl+S file only for the save it started, moments ago.
+          const target = writeFormat(opts.targetExt);
+          // Use the editor's own Ctrl+S file only for the save it started, moments ago (it is in the main format).
           const u = userSaved.current;
           userSaved.current = null;
-          if (u && Date.now() - u.at < 5000) return u.bytes;
-          return saveAs(SAVE_EXT[kind]);
+          if (u && Date.now() - u.at < 5000 && target === SAVE_EXT[kind]) return u.bytes;
+          return saveAs(target);
         }
         // Recovery copies: converting the document has a cost, so reuse a recent copy
         // (except when quitting, which takes a fresh one).
         const c = recoveryCache.current;
         if (!opts?.fresh && c && Date.now() - c.at < 20000) return c.bytes;
-        const bytes = await saveAs(SAVE_EXT[kind]);
+        const bytes = await saveAs(writeFormat());
         recoveryCache.current = { at: Date.now(), bytes };
         return bytes;
       },
@@ -246,7 +257,12 @@ export function OfficeEditor({ host, onFailed }: { host: EngineHost; onFailed: (
         userSaved.current = null;
       },
       convert: (ext: string) => saveAs(ext),
-      exportFormats: () => OFFICE_EXPORTS[kind],
+      // Other formats than the file's own; an older or OpenDocument file can also become the main format.
+      exportFormats: () => {
+        const own = extname(host.name).toLowerCase();
+        const main = { docx: "Word document", xlsx: "Excel workbook", pptx: "PowerPoint presentation" }[kind];
+        return [...(own !== kind ? [{ ext: kind, label: main }] : []), ...OFFICE_EXPORTS[kind].filter((f) => f.ext !== own)];
+      },
       focus: () => frameRef.current?.focus(),
       commands: () => commands,
     });

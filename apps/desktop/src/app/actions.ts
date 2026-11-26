@@ -1,7 +1,7 @@
 /** File actions: open, create, save, close, auto-save, recovery, session restore and external changes. */
 import { platform } from "../platform";
 import { basename, dirname, extname, join, samePath, withExtension, resolveDocumentRef } from "../lib/paths";
-import { detectKind, kindFromName, KIND_LABEL, type Kind } from "../lib/formats";
+import { detectKind, kindFromName, KIND_LABEL, modernSaveFormat, type Kind } from "../lib/formats";
 import {
   getState, setState, updateTab, handles, tabBytes, knownMeta, toast, newId,
   DEFAULT_SETTINGS, type Tab, type Settings, type RecentItem,
@@ -100,6 +100,8 @@ export function updateTitle() {
   const t = s.tabs.find((x) => x.id === s.activeId);
   void platform.setTitle(t ? `${t.dirty ? "● " : ""}${t.name} — Productivity` : "Productivity");
 }
+
+const MODERN_LABEL = { docx: "Word document", xlsx: "Excel workbook", pptx: "PowerPoint presentation" } as const;
 
 /** A new note's first save is named after its first heading or line ("Biology – Cell structure.md")
  *  rather than "Untitled-1.md". Tables and other files keep their name. */
@@ -202,6 +204,8 @@ export async function openPath(path: string, opts: OpenOptions = {}): Promise<st
     const mismatch = !opts.kind && named !== kind && ["pdf", "docx", "xlsx", "pptx"].includes(named) && bytes.length > 0;
     // Not really the document its name says, and not readable as text either: explain, don't show bytes.
     const damaged = mismatch && kind === "binary" ? KIND_LABEL[named] : undefined;
+    // An older .doc, .xls or .ppt opens in the editor, and its changes go to a new modern file.
+    const modern = (kind === "docx" || kind === "xlsx" || kind === "pptx") && !opts.kind ? modernSaveFormat(path) : null;
     tabBytes.set(id, bytes);
     updateTab(id, {
       kind,
@@ -210,13 +214,16 @@ export async function openPath(path: string, opts: OpenOptions = {}): Promise<st
       readonly: meta.readonly,
       baselineUnsaved: !!opts.dirty,
       damaged,
+      saveAsModern: modern ?? undefined,
       // Raw data is only shown, never saved back, so it reads as read-only rather than "Saved".
       saveState: opts.dirty ? "recovered" : meta.readonly || kind === "binary" ? "readonly" : "saved",
       notice:
         opts.notice ??
         (mismatch && !damaged
           ? { text: `${basename(path)} does not contain a valid ${KIND_LABEL[named]} file (it may be damaged or misnamed), so it is shown as text.`, tone: "warn" }
-          : meta.readonly
+          : modern
+            ? { text: `${basename(path)} is in an older format. Your changes are saved as a new ${MODERN_LABEL[modern]} (.${modern}); the original stays as it is.`, tone: "info" }
+            : meta.readonly
             ? { text: "This file is read-only. Use Save As to keep your changes elsewhere.", tone: "info" }
             : undefined),
     });
@@ -395,9 +402,10 @@ async function saveTabNow(id: string, opts: { as?: boolean; explicit?: boolean }
     return true;
   }
   let path = tab.path;
-  if (!path || opts.as || tab.readonly) {
-    const def = tab.path ?? join(getState().workspace ?? "", firstSaveName(tab, handle));
-    path = await platform.pickSave({ defaultPath: def, filters: filtersFor(tab.kind, tab.name) });
+  if (!path || opts.as || tab.readonly || tab.saveAsModern) {
+    const modern = tab.saveAsModern;
+    const def = modern && tab.path ? withExtension(tab.path, modern) : tab.path ?? join(getState().workspace ?? "", firstSaveName(tab, handle));
+    path = await platform.pickSave({ defaultPath: def, filters: modern ? filtersFor(tab.kind, `x.${modern}`) : filtersFor(tab.kind, tab.name) });
     if (!path) return cancelSave(handle);
     const other = getState().tabs.find((t) => t.id !== id && t.path && samePath(t.path, path!));
     if (other) {
@@ -409,7 +417,7 @@ async function saveTabNow(id: string, opts: { as?: boolean; explicit?: boolean }
   updateTab(id, { saveState: "saving" });
   try {
     const genAtSerialize = editGen.get(id) ?? 0;
-    let bytes = await handle.serialize({ forSave: true });
+    let bytes = await handle.serialize({ forSave: true, targetExt: extname(path) });
     // Save As between .csv and .tsv changes the delimiter so the new file reads correctly.
     const fromTab = tab.kind === "csv" && tab.path ? isTsv(tab.path) : isTsv(tab.name);
     let remountBytes: Uint8Array | null = null;
@@ -435,11 +443,13 @@ async function saveTabNow(id: string, opts: { as?: boolean; explicit?: boolean }
       path,
       name: basename(path),
       readonly: false,
+      saveAsModern: undefined,
       baselineUnsaved: false,
       dirty: stillDirty,
       saveState: stillDirty ? "edited" : "saved",
       conflict: undefined,
-      notice: current?.notice?.tone === "warn" ? undefined : current?.notice?.text.startsWith("Recovered") ? undefined : current?.notice,
+      // Notes about the old file (an older format, a damaged one, recovered work) are done with now.
+      notice: tab.saveAsModern || current?.notice?.tone === "warn" ? undefined : current?.notice?.text.startsWith("Recovered") ? undefined : current?.notice,
       error: undefined,
     });
     if (remountBytes || (pathChanged && newKind !== tab.kind && isTextual(newKind) && isTextual(tab.kind))) {

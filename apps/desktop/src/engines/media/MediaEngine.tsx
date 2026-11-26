@@ -3,8 +3,13 @@ import { ExternalLink, ZoomIn, ZoomOut, Maximize } from "lucide-react";
 import type { EngineHost } from "../../app/editor-api";
 import { platform } from "../../platform";
 import { extname } from "../../lib/paths";
+import { VIDEO } from "../../lib/formats";
 
-const MIME: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp", ico: "image/x-icon", avif: "image/avif", svg: "image/svg+xml" };
+const MIME: Record<string, string> = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp", ico: "image/x-icon", avif: "image/avif", svg: "image/svg+xml",
+  mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", oga: "audio/ogg", opus: "audio/ogg", m4a: "audio/mp4", aac: "audio/aac", flac: "audio/flac",
+  mp4: "video/mp4", m4v: "video/mp4", webm: "video/webm", ogv: "video/ogg", mov: "video/quicktime",
+};
 
 function hexDump(bytes: Uint8Array, limit = 64 * 1024): string {
   const lines: string[] = [];
@@ -20,7 +25,9 @@ function hexDump(bytes: Uint8Array, limit = 64 * 1024): string {
 
 export default function MediaEngine({ host }: { host: EngineHost }) {
   const isImage = host.kind === "image";
-  const url = useMemo(() => (isImage ? URL.createObjectURL(new Blob([host.bytes.slice()], { type: MIME[extname(host.name)] ?? "application/octet-stream" })) : ""), [host, isImage]);
+  const isMedia = host.kind === "media";
+  const url = useMemo(() => (isImage || isMedia ? URL.createObjectURL(new Blob([host.bytes.slice()], { type: MIME[extname(host.name)] ?? "application/octet-stream" })) : ""), [host, isImage, isMedia]);
+  const [unplayable, setUnplayable] = useState(false);
   const [zoom, setZoom] = useState<number | "fit">("fit");
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   useEffect(() => () => URL.revokeObjectURL(url), [url]);
@@ -47,6 +54,34 @@ export default function MediaEngine({ host }: { host: EngineHost }) {
       ...(isImage ? [{ id: "zoom", text: zoom === "fit" ? "Fit" : `${Math.round(zoom * 100)}%`, align: "right" as const }] : []),
     ]);
   }, [host, isImage, zoom, size]);
+
+  if (isMedia) {
+    const video = VIDEO.has(extname(host.name));
+    if (unplayable)
+      return (
+        <div className="center-note">
+          <h3>{host.name} can't be played here</h3>
+          <div>Its sound or picture is stored in a way this player doesn't support.</div>
+          {host.path && platform.folders && (
+            <div className="acts">
+              <button className="btn" onClick={() => void platform.openExternal(host.path!)}><ExternalLink size={14} /> Open in default app</button>
+            </div>
+          )}
+        </div>
+      );
+    return (
+      <div className="media-view">
+        {video ? (
+          <video src={url} controls preload="metadata" aria-label={host.name} onError={() => setUnplayable(true)} onLoadedMetadata={(e) => setSize({ w: e.currentTarget.videoWidth, h: e.currentTarget.videoHeight })} />
+        ) : (
+          <div className="audio-card">
+            <div className="t">{host.name}</div>
+            <audio src={url} controls preload="metadata" aria-label={host.name} onError={() => setUnplayable(true)} />
+          </div>
+        )}
+      </div>
+    );
+  }
 
   if (isImage)
     return (

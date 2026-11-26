@@ -96,7 +96,14 @@
         "ext": [
           "docx",
           "xlsx",
-          "pptx"
+          "pptx",
+          "doc",
+          "rtf",
+          "odt",
+          "xls",
+          "ods",
+          "ppt",
+          "odp"
         ],
         "name": "Office",
         "description": "Office document (preview)",

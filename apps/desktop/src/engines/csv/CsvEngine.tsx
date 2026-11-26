@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ArrowUpNarrowWide, ArrowDownWideNarrow, Trash2, Filter, Heading, FileText, X, BetweenHorizontalStart, BetweenHorizontalEnd, BetweenVerticalStart, BetweenVerticalEnd } from "lucide-react";
 import type { EngineHost, Command } from "../../app/editor-api";
 import { loadCsv, saveCsv, serializeCsv, columnCount, setCell, emptyRow, insertColumn, deleteColumn, compareCells, looksLikeHeader, type CsvDoc, type CsvRow } from "../../lib/csv";
@@ -36,6 +36,69 @@ function measure(rows: CsvRow[], cols: number, header: boolean): number[] {
   if (header && rows[0]) for (let c = 0; c < cols; c++) w[c] = Math.max(w[c], Math.min(320, ctx.measureText(rows[0].cells[c] ?? "").width + 30));
   return w;
 }
+
+interface CellEvents {
+  down(r: number, c: number, e: React.MouseEvent): void;
+  enter(r: number, c: number, e: React.MouseEvent): void;
+  dbl(r: number, c: number): void;
+  menu(r: number, c: number, e: React.MouseEvent): void;
+  num(r: number, e: React.MouseEvent): void;
+}
+
+interface GridRowProps {
+  r: number;
+  label: number;
+  row: CsvRow | undefined;
+  colStart: number;
+  colEnd: number;
+  offsets: Float64Array;
+  widths: number[];
+  totalW: number;
+  /** Selected columns in this row (selC1 > selC2 when none) and the current cell's column (-1: not here). */
+  selC1: number;
+  selC2: number;
+  curC: number;
+  numSel: boolean;
+  gridId: string;
+  events: React.MutableRefObject<CellEvents>;
+}
+
+/** One table row. Memoised: scrolling draws only the rows that come into view, and a selection
+ *  change redraws only the rows it touches. */
+const GridRow = memo(function GridRow(p: GridRowProps) {
+  const { r, row, events } = p;
+  const cells: React.ReactNode[] = [];
+  for (let c = p.colStart; c < p.colEnd; c++) {
+    const inSel = c >= p.selC1 && c <= p.selC2;
+    const v = row?.cells[c] ?? "";
+    cells.push(
+      <div
+        key={c}
+        id={`${p.gridId}-${r}-${c}`}
+        role="gridcell"
+        aria-colindex={c + 2}
+        aria-selected={inSel}
+        className={`csv-cell ${inSel ? "sel" : ""} ${c === p.curC ? "cur" : ""} ${v && !isNaN(Number(v)) ? "num" : ""}`}
+        style={{ left: p.offsets[Math.min(c, p.offsets.length - 1)], width: p.widths[c] }}
+        onMouseDown={(e) => events.current.down(r, c, e)}
+        onMouseEnter={(e) => events.current.enter(r, c, e)}
+        onDoubleClick={() => events.current.dbl(r, c)}
+        onContextMenu={(e) => events.current.menu(r, c, e)}
+        title={v.length > 40 ? v : undefined}
+      >
+        {v}
+      </div>,
+    );
+  }
+  return (
+    <div className="csv-row" style={{ top: (r + 1) * ROW_H, width: p.totalW }} role="row" aria-rowindex={r + 2}>
+      <div className={`csv-num ${p.numSel ? "sel" : ""}`} style={{ width: NUM_W }} role="rowheader" aria-colindex={1} onClick={(e) => events.current.num(r, e)}>
+        {p.label}
+      </div>
+      {cells}
+    </div>
+  );
+});
 
 const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
 
@@ -589,6 +652,44 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
   const gridId = useId();
   const cellId = (r: number, c: number) => `${gridId}-${r}-${c}`;
   const curDrawn = sel.r >= start && sel.r < end && sel.c >= colStart && sel.c < colEnd;
+  // Cell events go through one object that is replaced on every render, so the rows themselves
+  // (which are memoised) always call the current handlers.
+  const cellEvents = useRef<CellEvents>(null as unknown as CellEvents);
+  cellEvents.current = {
+    down: (r, c, e) => {
+      if (editing) finishEdit(true);
+      tabAnchor.current = null;
+      dragFrom.current = { r, c };
+      setSel(e.shiftKey ? { ...sel, r2: r, c2: c } : { r, c, r2: r, c2: c });
+      scrollRef.current?.focus();
+    },
+    enter: (r, c, e) => {
+      if (e.buttons === 1 && dragFrom.current) setSel({ r: dragFrom.current.r, c: dragFrom.current.c, r2: r, c2: c });
+    },
+    dbl: (r, c) => startEdit(r, c),
+    num: (r, e) => setSel(e.shiftKey ? { ...sel, r2: r, c2: cols - 1 } : { r, c: 0, r2: r, c2: cols - 1 }),
+    menu: (r, c, e) => {
+      e.preventDefault();
+      if (!(r >= r1 && r <= r2 && c >= c1 && c <= c2)) setSel({ r, c, r2: r, c2: c });
+      openMenu(e.clientX, e.clientY, [
+        { label: "Edit cell", shortcut: "F2", run: () => startEdit(r, c) },
+        { divider: true },
+        { label: "Insert row above", run: () => opsRef.current.insertRow(false) },
+        { label: "Insert row below", run: () => opsRef.current.insertRow(true) },
+        { label: "Insert column left", run: () => opsRef.current.insertCol(false) },
+        { label: "Insert column right", run: () => opsRef.current.insertCol(true) },
+        ...(header ? [{ label: "Rename column…", run: () => beginRename(c) }] : []),
+        { label: "Fit column width", run: () => opsRef.current.fitColumns(false) },
+        { divider: true },
+        { label: "Sort A to Z", run: () => opsRef.current.sort(1) },
+        { label: "Sort Z to A", run: () => opsRef.current.sort(-1) },
+        { divider: true },
+        { label: "Clear cells", shortcut: "Delete", run: () => opsRef.current.clear() },
+        { label: "Delete rows", run: () => opsRef.current.deleteRows() },
+        { label: "Delete columns", run: () => opsRef.current.deleteCol(), disabled: cols <= 1 },
+      ]);
+    },
+  };
 
   return (
     <div className="csv">
@@ -663,60 +764,26 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
           {Array.from({ length: end - start }, (_, i) => {
             const r = start + i;
             const di = view[r];
-            const row = rows[di];
+            const inRows = r >= r1 && r <= r2;
+            // Rows outside the selection get the same values every time, so they are not redrawn.
             return (
-              <div key={di} className="csv-row" style={{ top: (r + 1) * ROW_H, width: totalW }} role="row" aria-rowindex={r + 2}>
-                <div className={`csv-num ${r >= r1 && r <= r2 ? "sel" : ""}`} style={{ width: NUM_W }} role="rowheader" aria-colindex={1} onClick={(e) => setSel(e.shiftKey ? { ...sel, r2: r, c2: cols - 1 } : { r, c: 0, r2: r, c2: cols - 1 })}>{di - first + 1}</div>
-                {visibleCols.map((c) => {
-                  const inSel = r >= r1 && r <= r2 && c >= c1 && c <= c2;
-                  const isCur = r === sel.r && c === sel.c;
-                  const v = row?.cells[c] ?? "";
-                  return (
-                    <div
-                      key={c}
-                      id={cellId(r, c)}
-                      role="gridcell"
-                      aria-colindex={c + 2}
-                      aria-selected={inSel}
-                      className={`csv-cell ${inSel ? "sel" : ""} ${isCur ? "cur" : ""} ${v && !isNaN(Number(v)) ? "num" : ""}`}
-                      style={{ left: left(c), width: widths[c] }}
-                      onMouseDown={(e) => {
-                        if (editing) finishEdit(true);
-                        tabAnchor.current = null;
-                        dragFrom.current = { r, c };
-                        setSel(e.shiftKey ? { ...sel, r2: r, c2: c } : { r, c, r2: r, c2: c });
-                        scrollRef.current?.focus();
-                      }}
-                      onMouseEnter={(e) => { if (e.buttons === 1 && dragFrom.current) setSel({ r: dragFrom.current.r, c: dragFrom.current.c, r2: r, c2: c }); }}
-                      onDoubleClick={() => startEdit(r, c)}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        if (!(r >= r1 && r <= r2 && c >= c1 && c <= c2)) setSel({ r, c, r2: r, c2: c });
-                        openMenu(e.clientX, e.clientY, [
-                          { label: "Edit cell", shortcut: "F2", run: () => startEdit(r, c) },
-                          { divider: true },
-                          { label: "Insert row above", run: () => opsRef.current.insertRow(false) },
-                          { label: "Insert row below", run: () => opsRef.current.insertRow(true) },
-                          { label: "Insert column left", run: () => opsRef.current.insertCol(false) },
-                          { label: "Insert column right", run: () => opsRef.current.insertCol(true) },
-                          ...(header ? [{ label: "Rename column…", run: () => beginRename(c) }] : []),
-                          { label: "Fit column width", run: () => opsRef.current.fitColumns(false) },
-                          { divider: true },
-                          { label: "Sort A to Z", run: () => opsRef.current.sort(1) },
-                          { label: "Sort Z to A", run: () => opsRef.current.sort(-1) },
-                          { divider: true },
-                          { label: "Clear cells", shortcut: "Delete", run: () => opsRef.current.clear() },
-                          { label: "Delete rows", run: () => opsRef.current.deleteRows() },
-                          { label: "Delete columns", run: () => opsRef.current.deleteCol(), disabled: cols <= 1 },
-                        ]);
-                      }}
-                      title={v.length > 40 ? v : undefined}
-                    >
-                      {v}
-                    </div>
-                  );
-                })}
-              </div>
+              <GridRow
+                key={di}
+                r={r}
+                label={di - first + 1}
+                row={rows[di]}
+                colStart={colStart}
+                colEnd={colEnd}
+                offsets={offsets}
+                widths={widths}
+                totalW={totalW}
+                selC1={inRows ? c1 : 1}
+                selC2={inRows ? c2 : 0}
+                curC={r === sel.r ? sel.c : -1}
+                numSel={inRows}
+                gridId={gridId}
+                events={cellEvents}
+              />
             );
           })}
           {editing && (

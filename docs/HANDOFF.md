@@ -60,9 +60,10 @@ The app is one window with tabs. Four things are always there: **tabs** at the t
 
 ### PDFs
 - Scroll, zoom, **Ctrl+F** find, page thumbnails (drag to reorder).
-- **Highlight**, **Text** (text boxes), **Draw**, **Sign** (draw or type a signature, then click where it goes).
-- **Rotate**, delete, extract or insert pages; *Undo page change* in the toolbar's More menu.
-- **Ctrl+S** saves. Password-protected PDFs ask for the password.
+- **Highlight** (select text first, or after), **Text** (text boxes), **Draw**, **Sign**: draw or type a signature, then place it (a preview follows the pointer; from the keyboard, arrows move it and Enter places it; Escape cancels).
+- **Rotate**, delete, extract or insert pages; reorder thumbnails by dragging or **Alt+Up/Down**. The view stays on your page after page changes.
+- **Ctrl+Z / Ctrl+Y** undo and redo annotations, signatures and page changes. Pinch to zoom on phones.
+- **Ctrl+S** saves. Password-protected PDFs ask for the password (Cancel leaves an *Enter password…* button).
 
 ### Word, Excel, PowerPoint
 - Installed app: full editing inside the tab (ribbon, styles, formulas, charts, slides, comments, track changes). **Ctrl+S** inside the editor saves through the app (versions and recovery included).
@@ -127,9 +128,9 @@ Note: a plain `cargo build --release` does not embed the interface (it points at
 
 | What | Command (in `apps/desktop`) | Count today |
 |---|---|---|
-| Unit tests | `pnpm test` | 109 |
+| Unit tests | `pnpm test` | 112 |
 | Rust tests | `cd src-tauri && cargo test --release` | 22 |
-| End-to-end flows (browser build) | `pnpm build && pnpm preview --port 1420 &` then `APP_URL=http://localhost:1420/ pnpm e2e` | 52 |
+| End-to-end flows (browser build) | `pnpm build && pnpm preview --port 1420 &` then `APP_URL=http://localhost:1420/ pnpm e2e` | 65 |
 | Office editing flows | `pnpm office-pack`, `node tests/office-server.mjs &`, then `OFFICE_URL=http://localhost:4180 pnpm e2e:office` (no trailing slash) | 15 |
 | Real-app self-test (Windows/Linux) | `PRODUCTIVITY_SELF_TEST=<folder with tests/corpus files> productivity.exe` → writes `selftest-report.json` there | 23 checks |
 | Real-app self-test (Android emulator) | `tests/android-smoke.sh <apk> <out-dir>` (needs USB debugging on) | 23 checks |

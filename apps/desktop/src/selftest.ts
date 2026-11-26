@@ -156,7 +156,15 @@ export async function runSelfTest(dir: string) {
 
   if (office.available) {
     await t("Office editor frame cannot use the app's file commands", async () => {
-      const frame = document.querySelector("section.doc-pane:not([hidden]) .office-frame, .office-frame") as HTMLIFrameElement | null;
+      // Probe an Office document that is in front and awake: with several Office files open, ones in
+      // the background may be put to sleep (their editors unloaded) while the probe runs.
+      const officeSample = samples.find((f) => ["docx", "xlsx", "pptx"].includes(f.name.split(".").pop()!.toLowerCase()));
+      if (officeSample) await openPath(officeSample.path);
+      let frame: HTMLIFrameElement | null = null;
+      for (let i = 0; i < 600 && !frame; i++) {
+        frame = document.querySelector("section.doc-pane:not([hidden]) .office-frame[style*='visible']") as HTMLIFrameElement | null;
+        if (!frame) await new Promise((r) => setTimeout(r, 100));
+      }
       assert(frame?.contentWindow, "no editor frame");
       const { officeOriginOf } = await import("./engines/office/OfficeEditor");
       const origin = officeOriginOf(frame!.src);

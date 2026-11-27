@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, ChevronDown, Folder, FolderOpen, RefreshCw, X, FolderSearch, ListTree, Files, CaseSensitive, Regex, WholeWord } from "lucide-react";
 import { useStore, setState, handles, type LeftView } from "../app/store";
 import { openPath, openFolder, closeFolder } from "../app/actions";
@@ -8,45 +8,177 @@ import { kindFromName } from "../lib/formats";
 import { KindIcon } from "./icons";
 import { invalidateWorkspaceFiles } from "./Palette";
 
-function TreeNode({ entry, depth, activePath, refreshKey }: { entry: DirEntry; depth: number; activePath: string | null; refreshKey: number }) {
-  const [open, setOpen] = useState(false);
-  const [children, setChildren] = useState<DirEntry[] | null>(null);
-  const load = useCallback(() => {
-    void platform.listDir(entry.path).then(setChildren).catch(() => setChildren([]));
-  }, [entry.path]);
+const ROW_H = 26;
+
+interface Row {
+  entry: DirEntry;
+  depth: number;
+  parent: string | null;
+}
+
+/** The folder's files as one list that only draws the rows in view, so a folder with tens of
+ *  thousands of files opens at once. It follows the usual tree keys: one Tab stop; Up and Down
+ *  move, Right opens a folder (or goes into it), Left closes it (or goes to its parent), Home and
+ *  End jump, Enter or Space opens a file or folder. */
+function FileTree({ workspace, refreshKey }: { workspace: string; refreshKey: number }) {
+  const activePath = useStore((s) => s.tabs.find((t) => t.id === s.activeId)?.path ?? null);
+  const [root, setRoot] = useState<DirEntry[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [kids, setKids] = useState<Map<string, DirEntry[]>>(() => new Map());
+  const [cur, setCur] = useState(0);
+  const [win, setWin] = useState({ top: 0, height: 600 });
+  const treeRef = useRef<HTMLDivElement>(null);
+  const focusAfter = useRef(false);
+
+  // The folder and every open subfolder are listed again on refresh (after saves, on focus).
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
   useEffect(() => {
-    if (open) load();
-  }, [open, load, refreshKey]);
-  const pad = { paddingLeft: 6 + depth * 14 };
-  if (entry.isDir) {
-    return (
-      <>
-        <div className="tree-row" style={pad} role="treeitem" aria-expanded={open} tabIndex={0} onClick={() => setOpen(!open)} onKeyDown={(e) => e.key === "Enter" && setOpen(!open)}>
-          {open ? <ChevronDown /> : <ChevronRight />}
-          {open ? <FolderOpen style={{ color: "var(--text-3)" }} /> : <Folder style={{ color: "var(--text-3)" }} />}
-          <span className="name">{entry.name}</span>
-        </div>
-        {open && children?.map((c) => <TreeNode key={c.path} entry={c} depth={depth + 1} activePath={activePath} refreshKey={refreshKey} />)}
-      </>
-    );
-  }
-  const active = activePath ? samePath(activePath, entry.path) : false;
+    let live = true;
+    void platform.listDir(workspace).then((e) => live && setRoot(e)).catch(() => live && setRoot([]));
+    for (const dir of expandedRef.current)
+      void platform
+        .listDir(dir)
+        .then((e) => live && setKids((m) => new Map(m).set(dir, e)))
+        .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [workspace, refreshKey]);
+  useEffect(() => {
+    setExpanded(new Set());
+    setKids(new Map());
+    setCur(0);
+  }, [workspace]);
+
+  const rows = useMemo(() => {
+    const out: Row[] = [];
+    const walk = (list: DirEntry[], depth: number, parent: string | null) => {
+      for (const entry of list) {
+        out.push({ entry, depth, parent });
+        if (entry.isDir && expanded.has(entry.path)) walk(kids.get(entry.path) ?? [], depth + 1, entry.path);
+      }
+    };
+    walk(root, 0, null);
+    return out;
+  }, [root, expanded, kids]);
+  const at = Math.min(cur, Math.max(0, rows.length - 1));
+
+  const toggle = (dir: string, open?: boolean) => {
+    const willOpen = open ?? !expanded.has(dir);
+    setExpanded((s) => {
+      const n = new Set(s);
+      if (willOpen) n.add(dir);
+      else n.delete(dir);
+      return n;
+    });
+    if (willOpen && !kids.has(dir))
+      void platform
+        .listDir(dir)
+        .then((e) => setKids((m) => new Map(m).set(dir, e)))
+        .catch(() => setKids((m) => new Map(m).set(dir, [])));
+  };
+  const activateRow = (r: Row) => (r.entry.isDir ? toggle(r.entry.path) : void openPath(r.entry.path));
+
+  // The list scrolls with the sidebar; only the rows in view (and a few around them) are drawn.
+  useEffect(() => {
+    const tree = treeRef.current;
+    const scroller = tree?.closest<HTMLElement>(".side-body");
+    if (!tree || !scroller) return;
+    const update = () => setWin({ top: scroller.getBoundingClientRect().top - tree.getBoundingClientRect().top, height: scroller.clientHeight });
+    update();
+    scroller.addEventListener("scroll", update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(scroller);
+    return () => {
+      scroller.removeEventListener("scroll", update);
+      ro.disconnect();
+    };
+  }, []);
+  const first = Math.max(0, Math.floor(win.top / ROW_H) - 15);
+  const last = Math.min(rows.length, Math.ceil((win.top + win.height) / ROW_H) + 15);
+
+  const moveTo = (i: number) => {
+    const n = Math.max(0, Math.min(rows.length - 1, i));
+    setCur(n);
+    focusAfter.current = true;
+    const tree = treeRef.current;
+    const scroller = tree?.closest<HTMLElement>(".side-body");
+    if (tree && scroller) {
+      const y = tree.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop + n * ROW_H;
+      if (y < scroller.scrollTop) scroller.scrollTop = y;
+      else if (y + ROW_H > scroller.scrollTop + scroller.clientHeight) scroller.scrollTop = y + ROW_H - scroller.clientHeight;
+    }
+  };
+  useEffect(() => {
+    if (!focusAfter.current) return;
+    focusAfter.current = false;
+    treeRef.current?.querySelector<HTMLElement>(`[data-row="${at}"]`)?.focus();
+  });
+  const onKey = (e: React.KeyboardEvent) => {
+    const r = rows[at];
+    if (!r || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === "ArrowDown") moveTo(at + 1);
+    else if (e.key === "ArrowUp") moveTo(at - 1);
+    else if (e.key === "Home") moveTo(0);
+    else if (e.key === "End") moveTo(rows.length - 1);
+    else if (e.key === "PageDown") moveTo(at + Math.max(1, Math.floor(win.height / ROW_H) - 1));
+    else if (e.key === "PageUp") moveTo(at - Math.max(1, Math.floor(win.height / ROW_H) - 1));
+    else if (e.key === "ArrowRight" && r.entry.isDir) {
+      if (!expanded.has(r.entry.path)) toggle(r.entry.path, true);
+      else if (rows[at + 1]?.parent === r.entry.path) moveTo(at + 1);
+    } else if (e.key === "ArrowLeft") {
+      if (r.entry.isDir && expanded.has(r.entry.path)) toggle(r.entry.path, false);
+      else if (r.parent) moveTo(rows.findIndex((x) => x.entry.path === r.parent));
+    } else if (e.key === "Enter" || e.key === " ") activateRow(r);
+    else return;
+    e.preventDefault();
+  };
+
   return (
-    <div className={`tree-row ${active ? "active" : ""}`} style={{ paddingLeft: 26 + depth * 14 }} role="treeitem" tabIndex={0} title={entry.path} onClick={() => void openPath(entry.path)} onKeyDown={(e) => e.key === "Enter" && void openPath(entry.path)}>
-      <KindIcon kind={kindFromName(entry.name)} name={entry.name} className="" />
-      <span className="name">{entry.name}</span>
+    <div role="tree" aria-label={`Files in ${basename(workspace)}`} ref={treeRef} onKeyDown={onKey} style={{ position: "relative", height: rows.length * ROW_H }}>
+      {rows.slice(first, last).map((r, k) => {
+        const i = first + k;
+        const { entry, depth } = r;
+        const open = entry.isDir && expanded.has(entry.path);
+        const active = !entry.isDir && !!activePath && samePath(activePath, entry.path);
+        return (
+          <div
+            key={entry.path}
+            data-row={i}
+            className={`tree-row ${active ? "active" : ""}`}
+            style={{ position: "absolute", top: i * ROW_H, left: 0, right: 0, paddingLeft: (entry.isDir ? 6 : 26) + depth * 14 }}
+            role="treeitem"
+            aria-level={depth + 1}
+            aria-expanded={entry.isDir ? open : undefined}
+            aria-selected={entry.isDir ? undefined : active}
+            tabIndex={i === at ? 0 : -1}
+            title={entry.isDir ? undefined : entry.path}
+            onFocus={() => i !== at && setCur(i)}
+            onClick={() => {
+              setCur(i);
+              activateRow(r);
+            }}
+          >
+            {entry.isDir ? (
+              <>
+                {open ? <ChevronDown /> : <ChevronRight />}
+                {open ? <FolderOpen style={{ color: "var(--text-3)" }} /> : <Folder style={{ color: "var(--text-3)" }} />}
+              </>
+            ) : (
+              <KindIcon kind={kindFromName(entry.name)} name={entry.name} className="" />
+            )}
+            <span className="name">{entry.name}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
 function FilesView() {
   const workspace = useStore((s) => s.workspace);
-  const activePath = useStore((s) => s.tabs.find((t) => t.id === s.activeId)?.path ?? null);
-  const [entries, setEntries] = useState<DirEntry[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
-  useEffect(() => {
-    if (workspace) void platform.listDir(workspace).then(setEntries).catch(() => setEntries([]));
-  }, [workspace, refreshKey]);
   // Refresh when the window regains focus (files may have changed elsewhere) and after saves.
   const savedCount = useStore((s) => s.tabs.filter((t) => t.saveState === "saved").length + s.recent.length);
   useEffect(() => {
@@ -77,12 +209,10 @@ function FilesView() {
     <>
       <div className="side-title">
         <span className="grow" title={workspace}>{basename(workspace)}</span>
-        <button className="icon-btn" title="Refresh" onClick={() => { invalidateWorkspaceFiles(); setRefreshKey((k) => k + 1); }}><RefreshCw /></button>
-        <button className="icon-btn" title="Close folder" onClick={closeFolder}><X /></button>
+        <button className="icon-btn" title="Refresh" aria-label="Refresh" onClick={() => { invalidateWorkspaceFiles(); setRefreshKey((k) => k + 1); }}><RefreshCw /></button>
+        <button className="icon-btn" title="Close folder" aria-label="Close folder" onClick={closeFolder}><X /></button>
       </div>
-      <div role="tree">
-        {entries.map((e) => <TreeNode key={e.path} entry={e} depth={0} activePath={activePath} refreshKey={refreshKey} />)}
-      </div>
+      <FileTree workspace={workspace} refreshKey={refreshKey} />
     </>
   );
 }
@@ -168,7 +298,7 @@ export function Sidebar() {
   return (
     <aside className="side" aria-label="Sidebar">
       <div className="side-head">
-        <div className="seg" role="tablist">
+        <div className="seg" role="tablist" aria-label="Sidebar views">
           {views.map(([v, label, icon]) => (
             <button key={v} role="tab" aria-selected={view === v} className={`icon-btn ${view === v ? "active" : ""}`} onClick={() => setState({ leftView: v })}>
               {icon}

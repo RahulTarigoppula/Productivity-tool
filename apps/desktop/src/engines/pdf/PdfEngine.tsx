@@ -51,6 +51,7 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
   const viewerDivRef = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | null>(null);
   const bus = useRef<Bus | null>(null);
+  const uiManager = useRef<{ unselectAll(): void } | null>(null);
   const docRef = useRef<PDFDocumentProxy | null>(null);
   const bytesRef = useRef<Uint8Array>(host.bytes);
   /** What is on disk: undoing back to exactly these bytes reads as saved again. */
@@ -127,6 +128,10 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
       const onCount = (e: { matchesCount: { current: number; total: number } }) => setFind((f) => ({ ...f, current: e.matchesCount.current, total: e.matchesCount.total }));
       eventBus.on("updatefindmatchescount", onCount);
       eventBus.on("updatefindcontrolstate", (e: { matchesCount?: { current: number; total: number } }) => e.matchesCount && onCount(e as never));
+      // The editors' manager commits a text box still being typed or a drawing still in progress.
+      eventBus.on("annotationeditoruimanager", (e: { uiManager?: { unselectAll(): void } }) => {
+        uiManager.current = e.uiManager ?? null;
+      });
       eventBus.on("annotationeditormodechanged", (e: { mode: number }) => {
         const m = (Object.keys(MODE) as Mode[]).find((k) => MODE[k] === e.mode) ?? "none";
         setModeState(m);
@@ -341,16 +346,23 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
     if (!el) return;
     const hasAnnotations = () => ((docRef.current?.annotationStorage as unknown as { size?: number })?.size ?? 0) > 0;
     const inEditor = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.(".annotationEditorLayer");
+    // Typing into a text box counts at once, even a new one that is not in the document's storage
+    // until it is committed (otherwise Ctrl+S or Ctrl+W right after typing would lose it).
     const onEdit = (e: Event) => {
-      if (inEditor(e.target) && hasAnnotations()) markAnnotEdited();
+      if (inEditor(e.target)) markAnnotEdited();
     };
     const onKey = (e: KeyboardEvent) => {
       // Shortcuts (Ctrl+S and others) and lone modifier keys are not edits.
-      if (!hasAnnotations() || e.ctrlKey || e.metaKey || e.altKey || ["Control", "Shift", "Alt", "Meta", "Escape", "Tab"].includes(e.key)) return;
-      if (inEditor(e.target) || ["Delete", "Backspace", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key) && el.querySelector(".annotationEditorLayer .selectedEditor")) markAnnotEdited();
+      if (e.ctrlKey || e.metaKey || e.altKey || ["Control", "Shift", "Alt", "Meta", "Escape", "Tab"].includes(e.key)) return;
+      if ((inEditor(e.target) && (e.target as HTMLElement).isContentEditable) || (hasAnnotations() && ["Delete", "Backspace", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key) && el.querySelector(".annotationEditorLayer .selectedEditor"))) markAnnotEdited();
+    };
+    // A stroke drawn with the pen is an edit when it ends, before it is committed.
+    const onStroke = (e: PointerEvent) => {
+      if (modeRef.current === "ink" && inEditor(e.target)) markAnnotEdited();
     };
     el.addEventListener("input", onEdit, true);
     el.addEventListener("keyup", onKey, true);
+    el.addEventListener("pointerup", onStroke, true);
     // The editors' undo history changing means an annotation changed (selection alone does not).
     // PDF.js 6 calls this event "editingstateschanged" (it was "annotationeditorstateschanged").
     let lastHistory = "";
@@ -365,6 +377,7 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
     return () => {
       el.removeEventListener("input", onEdit, true);
       el.removeEventListener("keyup", onKey, true);
+      el.removeEventListener("pointerup", onStroke, true);
       bus.current?.off("editingstateschanged", onState);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -620,6 +633,15 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
       { id: "pdf.fitPage", title: "Fit whole page", group: "View", run: () => viewer.current && (viewer.current.currentScaleValue = "page-fit") },
     ];
     host.register({
+      // Before a save or close: a text box still being typed or a drawing still open becomes part
+      // of the document, so it is saved (or asked about) like any other change.
+      flush() {
+        try {
+          uiManager.current?.unselectAll();
+        } catch {
+          // Nothing being edited.
+        }
+      },
       async serialize(opts) {
         if (opts?.forSave) await pageOpDone.current;
         const base = bytesRef.current;

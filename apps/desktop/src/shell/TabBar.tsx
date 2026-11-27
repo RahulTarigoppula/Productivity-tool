@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { X, Plus, PanelLeft, Search, Ellipsis, Layers } from "lucide-react";
-import { useStore, setState, type Tab } from "../app/store";
+import { useStore, setState, getState, type Tab } from "../app/store";
 import { activate, closeTab, moveTab, newFile, renameTab, saveTab } from "../app/actions";
 import { platform } from "../platform";
 import { toast } from "../app/store";
@@ -25,6 +25,15 @@ export function TabBar() {
   // The tab whose name is being edited in place (Rename… in its menu, or F2).
   const [renaming, setRenaming] = useState<string | null>(null);
   const canRename = (t: Tab) => (t.path ? platform.folders : true);
+  // F2 anywhere in the window (see app/keys.ts) renames the open file here, in its tab.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const t = getState().tabs.find((x) => x.id === (e as CustomEvent<string>).detail);
+      if (t && canRename(t)) setRenaming(t.id);
+    };
+    window.addEventListener("app:rename-tab", on);
+    return () => window.removeEventListener("app:rename-tab", on);
+  }, []);
   const finishRename = (t: Tab, value: string | null) => {
     setRenaming(null);
     window.setTimeout(() => tabElement(t.id)?.focus(), 0);
@@ -166,6 +175,14 @@ export function TabBar() {
               tabMenu(t, i, atPointer ? e.clientX : r.left, atPointer ? e.clientY : r.bottom);
             }}
           >
+            {renaming === t.id ? (
+              // While renaming, the text box stands in for the tab (a text box inside a tab would
+              // be hidden from screen readers, which treat a tab's contents as its name).
+              <div className="tab-main">
+                <KindIcon kind={t.kind} name={t.name} />
+                <RenameInput name={t.name} onDone={(v) => finishRename(t, v)} />
+              </div>
+            ) : (
             <div
               role="tab"
               id={`tab-${t.id}`}
@@ -178,13 +195,10 @@ export function TabBar() {
               onKeyDown={(e) => onTabKey(e, t, i)}
             >
               <KindIcon kind={t.kind} name={t.name} />
-              {renaming === t.id ? (
-                <RenameInput name={t.name} onDone={(v) => finishRename(t, v)} />
-              ) : (
-                <span className="name">{t.name}</span>
-              )}
+              <span className="name">{t.name}</span>
               {t.dirty && <span className="sr-only">, unsaved changes</span>}
             </div>
+            )}
             {/* For the mouse and touch (a dot while there are unsaved changes); the keyboard closes
                 the tab with Delete or Ctrl+W, so this is not a second stop inside the tab. */}
             <button type="button" className="close" tabIndex={-1} aria-hidden="true" title="Close" onMouseDown={(e) => e.preventDefault()} onClick={() => void closeTab(t.id)}>

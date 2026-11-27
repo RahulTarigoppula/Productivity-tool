@@ -4,7 +4,7 @@ import { pushLayer, popLayer, focusMain } from "./modalFocus";
 import { Zap, Hash, CornerDownRight, FolderSearch, Keyboard } from "lucide-react";
 import { useStore, setState, getState, handles } from "../app/store";
 import { allCommands } from "../app/commands";
-import { activate, openPath } from "../app/actions";
+import { activate, openPath, focusIfStranded, expectDocumentFocus } from "../app/actions";
 import type { Command } from "../app/editor-api";
 import { rank, type Match } from "../lib/fuzzy";
 import { basename, dirname } from "../lib/paths";
@@ -101,6 +101,7 @@ export function Palette() {
   // does not move focus itself).
   const overlayRef = useRef<HTMLDivElement>(null);
   const focusBefore = useRef<HTMLElement | null>(null);
+  const openingFile = useRef(false);
   useLayoutEffect(() => {
     if (open) {
       // Noted before the search box takes the keyboard (which is why it has no autoFocus).
@@ -122,7 +123,25 @@ export function Palette() {
         }
       };
       window.addEventListener("keydown", onKey, true);
+      // Screen readers follow the highlighted result through aria-activedescendant. The list
+      // library sets it only when its own value changes, but results are replaced as one types, so
+      // it is kept in step with whichever item is highlighted now.
+      const box = overlayRef.current;
+      const sync = () => {
+        const input = box?.querySelector<HTMLElement>("[cmdk-input]");
+        const item = box?.querySelector<HTMLElement>('[cmdk-item][aria-selected="true"]');
+        if (!input) return;
+        const want = item?.id ?? null;
+        if (input.getAttribute("aria-activedescendant") !== want) {
+          if (want) input.setAttribute("aria-activedescendant", want);
+          else input.removeAttribute("aria-activedescendant");
+        }
+      };
+      const mo = new MutationObserver(sync);
+      if (box) mo.observe(box, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-selected"] });
+      sync();
       return () => {
+        mo.disconnect();
         window.removeEventListener("keydown", onKey, true);
         popLayer(layer);
       };
@@ -131,6 +150,16 @@ export function Palette() {
     // Not opened yet (the first render).
     if (!prev) return;
     focusBefore.current = null;
+    // A file was chosen: the keyboard goes to it once it is shown, not back where it was.
+    if (openingFile.current) {
+      openingFile.current = false;
+      window.setTimeout(() => {
+        const id = getState().activeId;
+        if (id) focusIfStranded(id);
+        if (!document.activeElement || document.activeElement === document.body) focusMain();
+      }, 0);
+      return;
+    }
     window.setTimeout(() => {
       if (document.activeElement && document.activeElement !== document.body) return;
       if (prev.isConnected && prev !== document.body) prev.focus();
@@ -143,6 +172,13 @@ export function Palette() {
   const run = (f: () => void) => {
     close();
     setTimeout(f, 0);
+  };
+  const runOpen = (f: () => void) => {
+    openingFile.current = true;
+    expectDocumentFocus();
+    // The keyboard is parked on the tab strip meanwhile, never left in the old document.
+    (document.activeElement as HTMLElement | null)?.blur();
+    run(f);
   };
 
   let body: React.ReactNode;
@@ -195,7 +231,7 @@ export function Palette() {
       [...byFile.entries()].slice(0, 40).map(([path, hs]) => (
         <Cmdk.Group key={path} heading={basename(path)}>
           {hs.slice(0, 8).map((h) => (
-            <Cmdk.Item key={`${path}:${h.line}`} value={`${path}:${h.line}`} onSelect={() => run(() => void openPath(path, { goTo: String(h.line) }))}>
+            <Cmdk.Item key={`${path}:${h.line}`} value={`${path}:${h.line}`} onSelect={() => runOpen(() => void openPath(path, { goTo: String(h.line) }))}>
               <FolderSearch />
               <span className="label">{h.text.trim()}</span>
               <span className="hint">line {h.line}</span>
@@ -246,7 +282,7 @@ export function Palette() {
         {tabs.length > 0 && (
           <Cmdk.Group heading="Open files">
             {tabs.map(({ item, match }) => (
-              <Cmdk.Item key={item.id} value={`tab-${item.id}`} onSelect={() => run(() => activate(item.id))}>
+              <Cmdk.Item key={item.id} value={`tab-${item.id}`} onSelect={() => runOpen(() => activate(item.id))}>
                 <KindIcon kind={item.kind} name={item.name} className="" />
                 <span className="label"><Hl text={item.name} match={match} />{item.dirty ? " ●" : ""}</span>
                 <span className="hint">{item.path ? dirname(item.path) : "Unsaved"}</span>
@@ -257,7 +293,7 @@ export function Palette() {
         {recent.length > 0 && (
           <Cmdk.Group heading="Recent">
             {recent.map(({ item, match }) => (
-              <Cmdk.Item key={item.path} value={`r-${item.path}`} onSelect={() => run(() => void openPath(item.path))}>
+              <Cmdk.Item key={item.path} value={`r-${item.path}`} onSelect={() => runOpen(() => void openPath(item.path))}>
                 <KindIcon kind={item.kind} name={item.path} className="" />
                 <span className="label"><Hl text={basename(item.path)} match={match} /></span>
                 <span className="hint">{dirname(item.path)}</span>
@@ -268,7 +304,7 @@ export function Palette() {
         {ws.length > 0 && (
           <Cmdk.Group heading="In this folder">
             {ws.map(({ item, match }) => (
-              <Cmdk.Item key={item} value={`f-${item}`} onSelect={() => run(() => void openPath(item))}>
+              <Cmdk.Item key={item} value={`f-${item}`} onSelect={() => runOpen(() => void openPath(item))}>
                 <KindIcon kind={kindFromName(item)} name={item} className="" />
                 <span className="label"><Hl text={basename(item)} match={match} /></span>
                 <span className="hint">{workspace ? dirname(item).slice(workspace.length).replace(/^[\\/]/, "") || basename(workspace) : dirname(item)}</span>

@@ -257,23 +257,31 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
   const finishEdit = (save: boolean, move?: [number, number]) => {
     if (editDone.current) return;
     editDone.current = true;
+    let next: typeof rows | null = null;
     if (editing && save) {
       const di = view[editing.r];
       if ((rows[di]?.cells[editing.c] ?? "") !== editing.value) {
-        const next = rows.slice();
+        next = rows.slice();
         next[di] = setCell(next[di], editing.c, editing.value);
-        setRows(next);
       }
     }
     const from = editing;
     setEditing(null);
+    // Enter in the last row starts a new row below, as spreadsheets do (not while filtered).
+    const grow = !!move && !!from && move[0] === 1 && from.r === view.length - 1 && !filter;
+    if (grow) (next ??= rows.slice()).push(emptyRow(cols, term));
+    if (next) setRows(next);
     if (move && from) {
       if (move[1] !== 0 && tabAnchor.current === null) tabAnchor.current = from.c;
       if (move[0] !== 0 && tabAnchor.current !== null) {
         move = [move[0], tabAnchor.current - from.c];
         tabAnchor.current = null;
       }
-      moveSel(move[0], move[1], false);
+      if (grow) {
+        const r = from.r + 1, c = Math.max(0, Math.min(cols - 1, from.c + move[1]));
+        setSel({ r, c, r2: r, c2: c });
+        requestAnimationFrame(() => ensureVisible(r, c));
+      } else moveSel(move[0], move[1], false);
     }
     scrollRef.current?.focus();
   };
@@ -757,6 +765,7 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
                 <span
                   className="grip"
                   title="Drag to resize; double-click to fit"
+                  aria-hidden="true"
                   onMouseDown={(e) => resize(c, e)}
                   onClick={(e) => e.stopPropagation()}
                   onDoubleClick={(e) => {
@@ -805,6 +814,14 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
               onKeyDown={(e) => {
                 if (e.nativeEvent.isComposing) return;
                 if (e.key === "Enter" && !e.altKey && !e.shiftKey) { e.preventDefault(); finishEdit(true, [1, 0]); }
+                else if (e.key === "Enter" && e.altKey) {
+                  // Alt+Enter: a line break inside the cell, as in Excel (Shift+Enter does the same).
+                  e.preventDefault();
+                  const t = e.currentTarget, a = t.selectionStart, z = t.selectionEnd;
+                  const value = t.value.slice(0, a) + "\n" + t.value.slice(z);
+                  setEditing({ ...editing, value });
+                  requestAnimationFrame(() => t.setSelectionRange(a + 1, a + 1));
+                }
                 else if (e.key === "Tab") { e.preventDefault(); finishEdit(true, [0, e.shiftKey ? -1 : 1]); }
                 else if (e.key === "Escape") { e.preventDefault(); finishEdit(false); }
               }}

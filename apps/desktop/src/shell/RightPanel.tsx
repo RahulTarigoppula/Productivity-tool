@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { useStore, setState, getState, type RightView } from "../app/store";
+import { useStore, setState, getState, handles, toast, type RightView } from "../app/store";
 import { openBytes, replaceContent } from "../app/actions";
 import { platform, type SnapshotInfo, type FileMeta } from "../platform";
 import { basename, dirname, extname, stem } from "../lib/paths";
@@ -23,6 +23,17 @@ function History() {
   if (!list.length) return <div className="empty-note">No earlier versions yet. Each time you save, the previous content is kept here — at most every few minutes while auto-saving.</div>;
   const restore = async (s: SnapshotInfo) => {
     const bytes = await platform.snapshotRead(tab.path!, s.id);
+    // What is there now is kept first, so restoring never loses it: the file as saved and, if
+    // there are unsaved edits, those too.
+    try {
+      const onDisk = await platform.readFile(tab.path!).catch(() => null);
+      if (onDisk?.length) await platform.snapshotWrite(tab.path!, onDisk, "before restoring an earlier version");
+      const h = handles.get(tab.id);
+      if (tab.dirty && h) await platform.snapshotWrite(tab.path!, await h.serialize(), "unsaved changes, before restoring");
+    } catch (e) {
+      toast(`Not restored: the current content could not be kept first (${e instanceof Error ? e.message : String(e)}).`, "error");
+      return;
+    }
     replaceContent(tab.id, bytes, `Restored the version from ${new Date(s.created).toLocaleString()}. Save to keep it; the current content stays in history.`);
   };
   const openCopy = async (s: SnapshotInfo) => {
@@ -82,7 +93,7 @@ export function RightPanel() {
   return (
     <aside className="side right" aria-label="Details">
       <div className="side-head">
-        <div className="seg" role="tablist">
+        <div className="seg" role="tablist" aria-label="Detail views">
           {views.map(([v, label]) => (
             <button key={v} role="tab" aria-selected={view === v} className={`icon-btn ${view === v ? "active" : ""}`} onClick={() => setState({ rightView: v })}>
               {label}

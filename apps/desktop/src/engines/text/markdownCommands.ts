@@ -19,6 +19,9 @@ export function toggleWrap(view: EditorView, mark: string): boolean {
         range: EditorSelection.range(range.from - mark.length, range.to - mark.length),
       };
     }
+    // Ctrl+B again at the end of bold text typed after Ctrl+B: step out past the closing marks
+    // rather than starting a new pair.
+    if (range.empty && after === mark) return { range: EditorSelection.cursor(range.to + mark.length) };
     const text = state.sliceDoc(range.from, range.to);
     if (text.startsWith(mark) && text.endsWith(mark) && text.length >= mark.length * 2) {
       return {
@@ -173,6 +176,15 @@ export function tableCells(text: string): { from: number; to: number }[] {
 }
 
 const isRow = (t: string) => TABLE_ROW.test(t) && !DELIMITER_ROW.test(t);
+
+/** Whether a row belongs to a real table: one with a delimiter row (| --- |) among its lines. A
+ *  line someone is still typing ("| Owner | Task |" before its delimiter) is left alone. */
+function inTable(doc: { lines: number; line(n: number): { text: string } }, n: number): boolean {
+  for (const dir of [-1, 1]) {
+    for (let k = n; k >= 1 && k <= doc.lines && TABLE_ROW.test(doc.line(k).text); k += dir) if (DELIMITER_ROW.test(doc.line(k).text)) return true;
+  }
+  return false;
+}
 const emptyRowFor = (t: string) => "|" + "  |".repeat(Math.max(1, tableCells(t).length));
 
 /** Tab and Shift+Tab move between table cells (selecting the cell's text); Tab after the last cell
@@ -181,7 +193,7 @@ export function tableNextCell(view: EditorView, dir: 1 | -1): boolean {
   const { state } = view;
   const sel = state.selection.main;
   const line = state.doc.lineAt(sel.head);
-  if (!isRow(line.text) || state.selection.ranges.length > 1) return false;
+  if (!isRow(line.text) || state.selection.ranges.length > 1 || !inTable(state.doc, line.number)) return false;
   const cells = tableCells(line.text);
   // The cell the cursor is in: one less than the number of cell borders before it.
   const at = sel.head - line.from;
@@ -224,7 +236,10 @@ export function tableEnter(view: EditorView): boolean {
   const sel = state.selection.main;
   if (state.selection.ranges.length > 1 || !sel.empty) return false;
   const line = state.doc.lineAt(sel.head);
-  if (!isRow(line.text) || sel.head < line.from + line.text.trimEnd().length - 1) return false;
+  if (!isRow(line.text) || !inTable(state.doc, line.number)) return false;
+  // At the end of the row: anywhere after the last cell's text (just before " |" included).
+  const last = tableCells(line.text).at(-1);
+  if (!last || sel.head < line.from + last.to) return false;
   const nextIsRow = line.number < state.doc.lines && TABLE_ROW.test(state.doc.line(line.number + 1).text);
   if (!nextIsRow && tableCells(line.text).every((c) => c.from === c.to)) {
     view.dispatch({ changes: { from: line.from, to: line.to, insert: "\n" }, selection: { anchor: line.from + 1 }, scrollIntoView: true, userEvent: "input" });

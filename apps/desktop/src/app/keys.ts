@@ -2,7 +2,7 @@
  *  They are handled before any engine sees them; everything else belongs to the focused format. */
 import { getState, setState, activeTab, handles } from "./store";
 import { newFile, pickAndOpen, saveTab, closeTab, reopenClosed, switchTab, switchToRecentTab, activate } from "./actions";
-import { openPalette, toggleFocusMode } from "./commands";
+import { openPalette, toggleFocusMode, runCommand } from "./commands";
 import { firstFocusable } from "../shell/modalFocus";
 
 /** The window's parts in F6 order. Only those on screen with something to focus are visited. */
@@ -47,6 +47,13 @@ export function handleShortcut(e: KeyLike): boolean {
     let handled = true;
 
     if (e.key === "F11") toggleFocusMode();
+    // F2 renames the open file wherever the keyboard is (not while typing in a box of the app's own).
+    else if (e.key === "F2" && !mod && !e.altKey && !e.shiftKey && tab && !s.dialog && !s.palette.open) {
+      // (In a table, F2 edits the cell, as in Excel; in the app's own text boxes it does nothing.)
+      const t = (e as { target?: EventTarget | null }).target as HTMLElement | null;
+      if (t?.closest?.('input, textarea, [role="grid"], .tab-rename')) handled = false;
+      else window.dispatchEvent(new CustomEvent("app:rename-tab", { detail: tab.id }));
+    }
     else if (e.key === "F6" && !mod && !e.altKey) {
       // A dialog or the palette keeps the keyboard while it is open.
       if (!document.querySelector('[aria-modal="true"]')) cycleRegions(e.shiftKey ? -1 : 1);
@@ -56,7 +63,12 @@ export function handleShortcut(e: KeyLike): boolean {
     else if (!mod) handled = false;
     else if (k === "k" && !e.shiftKey && !e.altKey) openPalette("");
     else if (k === "p" && e.shiftKey) openPalette(">");
-    else if (k === "p" && !e.shiftKey && (!tab || tab.kind === "text" || tab.kind === "markdown" || tab.kind === "csv")) openPalette("");
+    // Ctrl+P prints, as everywhere else (Ctrl+K finds files); with nothing open it finds files. It
+    // never prints the app window itself.
+    else if (k === "p" && !e.shiftKey) {
+      if (!tab) openPalette("");
+      else if (!["binary", "media", "archive"].includes(tab.kind) && !tab.error) void runCommand("file.print");
+    }
     else if (k === "n" && !e.shiftKey) newFile("markdown");
     else if (k === "o" && !e.shiftKey) void pickAndOpen();
     else if (k === "s" && tab) {
@@ -79,7 +91,7 @@ export function handleShortcut(e: KeyLike): boolean {
     else if (e.key === "-" && tab) handles.get(tab.id)?.zoom?.(-1);
     else if (e.key === "0" && tab) handles.get(tab.id)?.zoom?.(0);
     else if (k === "f" && !e.shiftKey && !e.altKey && tab && tab.kind !== "text" && tab.kind !== "markdown") handles.get(tab.id)?.find?.();
-    else if (k === "g" && !e.shiftKey && tab && tab.kind !== "text" && tab.kind !== "markdown") openPalette(":");
+    else if (k === "g" && !e.shiftKey && tab) openPalette(":");
     else handled = false;
     return handled;
 }

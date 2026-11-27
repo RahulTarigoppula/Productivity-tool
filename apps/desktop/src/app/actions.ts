@@ -91,8 +91,19 @@ export function activate(id: string | null) {
 export function focusIfStranded(id: string) {
   if (getState().activeId !== id) return;
   const a = document.activeElement as HTMLElement | null;
-  const stranded = !a || a === document.body || !!a.closest("section.doc-pane[hidden]");
-  if (stranded) handles.get(id)?.focus();
+  // After a choice in the palette the keyboard is only parked (on a tab or the home screen).
+  const parked = Date.now() < docFocusUntil && !!a?.closest?.(".tabrow, .home");
+  const stranded = !a || a === document.body || !!a.closest("section.doc-pane[hidden]") || parked;
+  if (stranded) {
+    docFocusUntil = 0;
+    handles.get(id)?.focus();
+  }
+}
+
+let docFocusUntil = 0;
+/** A file chosen in the palette takes the keyboard once it is shown (within a few seconds). */
+export function expectDocumentFocus() {
+  docFocusUntil = Date.now() + 8000;
 }
 
 export function updateTitle() {
@@ -419,6 +430,13 @@ async function saveTabNow(id: string, opts: { as?: boolean; explicit?: boolean }
     const def = modern && tab.path ? withExtension(tab.path, modern) : tab.path ?? join(getState().workspace ?? "", firstSaveName(tab, handle));
     path = await platform.pickSave({ defaultPath: def, filters: modern ? filtersFor(tab.kind, `x.${modern}`) : filtersFor(tab.kind, tab.name) });
     if (!path) return cancelSave(handle);
+    // Saving keeps the file's own kind of content: a note named .docx would still be plain text,
+    // which Word cannot open. Making another format is what Export does.
+    const targetKind = kindFromName(path);
+    if (!isTextual(targetKind) && targetKind !== tab.kind && targetKind !== "binary") {
+      toast(`To make a ${KIND_LABEL[targetKind]} (.${extname(path)}) from ${tab.name}, use Export.`, "error", { label: "Export…", run: () => setState({ dialog: { kind: "export" } }) });
+      return cancelSave(handle);
+    }
     const other = getState().tabs.find((t) => t.id !== id && t.path && samePath(t.path, path!));
     if (other) {
       toast(`${basename(path)} is open in another tab. Close it first, or choose another name.`, "error");
@@ -600,6 +618,15 @@ export async function renameTab(id: string, typed: string): Promise<boolean> {
     return true;
   }
   const from = tab.path;
+  // As File Explorer does: a different extension can make the file unusable, so it is asked about.
+  if (extname(name) !== ext) {
+    const choice = await ask(
+      `Change the extension to .${extname(name) || "(none)"}?`,
+      `${tab.name} is a ${KIND_LABEL[tab.kind]} file. With another extension it may not open correctly. To make a different kind of file from it, use Export.`,
+      ["Change it", "Cancel"],
+    );
+    if (choice !== "Change it") return false;
+  }
   let to: string;
   try {
     to = await platform.rename(from, name);

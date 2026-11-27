@@ -137,4 +137,27 @@ describe("Markdown commands", () => {
     expect(v.state.doc.toString()).toBe("| a | b |\n| --- | --- |\n| 1 | 2 |\n\nAfter");
     expect(tableEnter(view("| a | b |", 3))).toBe(false);
   });
+
+  it("Enter just after the last cell's text (before \" |\") adds a row instead of splitting it", () => {
+    const doc = "| a | b |\n| --- | --- |\n| Alice | Notes |";
+    const v = view(doc, doc.length - 2);
+    expect(tableEnter(v)).toBe(true);
+    expect(v.state.doc.toString()).toBe(doc + "\n|  |  |");
+  });
+
+  it("a header row still being typed (no | --- | row yet) is left to plain Enter and Tab", () => {
+    expect(tableEnter(view("| Owner | Task | Due |"))).toBe(false);
+    expect(tableNextCell(view("| Owner | Task | Due |", 3), 1)).toBe(false);
+    // Once the delimiter row is there, it is a table.
+    expect(tableEnter(view("| Owner | Task |\n|---|---|\n| Alice | Notes |"))).toBe(true);
+  });
+
+  it("Bold pressed again at the end of bold text steps out of it", () => {
+    const v = view("");
+    toggleWrap(v, "**");
+    v.dispatch(v.state.replaceSelection("bold"));
+    toggleWrap(v, "**");
+    v.dispatch(v.state.replaceSelection(" normal"));
+    expect(v.state.doc.toString()).toBe("**bold** normal");
+  });
 });

@@ -251,7 +251,10 @@ async function markdownToDocxOffThread(md: string, title: string): Promise<Uint8
 export function buildRegistry(): ConversionRegistry {
   const r = new ConversionRegistry();
   // Markdown and text
-  r.register(c("md", "html", "good", async ({ bytes, name }) => one(enc(htmlDocument(stem(name), await markdownToHtml(textOf(bytes), { forExport: true }))))));
+  // In the exported page, pictures point where the note points (it is saved beside the note, so
+  // relative paths keep working); only the app's own preview withholds them.
+  const withImages = (html: string) => html.replace(/<img([^>]*?) data-src="([^"]*)"/g, (_m, pre: string, src: string) => (/^\s*javascript:/i.test(src) ? `<img${pre}` : `<img${pre} src="${src}"`));
+  r.register(c("md", "html", "good", async ({ bytes, name }) => one(enc(htmlDocument(stem(name), withImages(await markdownToHtml(textOf(bytes), { forExport: true })))))));
   r.register(c("md", "txt", "text", async ({ bytes }) => {
     const html = await markdownToHtml(textOf(bytes), { forExport: true });
     const div = document.createElement("div");

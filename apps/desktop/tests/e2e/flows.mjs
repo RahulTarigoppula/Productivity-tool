@@ -844,6 +844,56 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     await page.locator(".toast", { hasText: "Exported sample-from-pdf.docx" }).getByRole("button", { name: /close|dismiss/i }).click().catch(() => {});
   });
 
+  await check("U-16", "a tab is renamed from its menu: the file, the tab, its history and Recent follow", async () => {
+    await page.evaluate(() => { window.__fs.write("/work/rename-me.md", "# Draft\n\nfirst"); window.__fs.write("/work/taken.md", "x"); });
+    await open("/work/rename-me.md");
+    const tab = page.locator(".tab.active");
+    await tab.click({ button: "right" });
+    for (const item of ["Rename…", "Save as…", "Show in folder", "Copy file path", "Close all"]) assert(await page.locator(".menu-item", { hasText: item }).count(), `tab menu has no ${item}`);
+    await page.locator(".menu-item", { hasText: "Rename…" }).click();
+    const box = page.locator(".tab-rename");
+    await waitFor(() => box.isVisible(), 2000, "rename box");
+    // The name before the extension is selected, so typing replaces just that.
+    await page.keyboard.type("taken");
+    await page.keyboard.press("Enter");
+    await waitFor(() => page.locator(".toast", { hasText: "already a file named taken.md" }).isVisible(), 3000, "refusal of an existing name");
+    assert((await activeTab()).name === "rename-me.md", "the tab was renamed although the name is taken");
+    assert(await page.evaluate(() => window.__fs.readText("/work/taken.md")) === "x", "the other file was touched");
+    await page.locator(".tab.active .tab-main").focus();
+    await page.keyboard.press("F2");
+    await waitFor(() => box.isVisible(), 2000, "rename box from F2");
+    await page.keyboard.type("Final plan");
+    await page.keyboard.press("Enter");
+    await waitFor(async () => (await activeTab()).name === "Final plan.md", 3000, "renamed tab");
+    assert(await page.evaluate(() => window.__fs.readText("/work/Final plan.md")) === "# Draft\n\nfirst", "renamed file content");
+    assert(await page.evaluate(() => window.__fs.read("/work/rename-me.md")) === null, "the old file is still there");
+    assert(await page.evaluate(() => window.__app.getState().recent.some((r) => r.path === "/work/Final plan.md")), "Recent still lists the old name");
+    // Saving goes to the new name.
+    await page.locator("section.doc-pane:not([hidden]) .cm-content").click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.type(" more");
+    await page.keyboard.press("Control+s");
+    await waitFor(async () => (await page.evaluate(() => window.__fs.readText("/work/Final plan.md"))).includes("first more"), 4000, "save to the new name");
+    // Escape keeps the name.
+    await page.locator(".tab.active .tab-main").focus();
+    await page.keyboard.press("F2");
+    await page.keyboard.type("nope");
+    await page.keyboard.press("Escape");
+    assert((await activeTab()).name === "Final plan.md", "Escape renamed the tab");
+  });
+
+  await check("U-17", "a file only opened says No changes; after a save it says Saved", async () => {
+    await page.evaluate(() => window.__fs.write("/work/just-read.md", "# Read me"));
+    await open("/work/just-read.md");
+    const state = page.locator(".save-state");
+    await waitFor(async () => (await state.textContent()).includes("No changes"), 3000, '"No changes"');
+    await page.locator("section.doc-pane:not([hidden]) .cm-content").click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.type("!");
+    await page.keyboard.press("Control+s");
+    await waitFor(async () => (await state.textContent()).includes("Saved"), 4000, '"Saved" after a save');
+  });
+
   await check("F-34", "dark theme applies", async () => {
     await page.evaluate(() => window.__app.updateSettings({ theme: "dark" }));
     await waitFor(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", 2000, "dark");

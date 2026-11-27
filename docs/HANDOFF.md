@@ -43,7 +43,8 @@ The app is one window with tabs. Four things are always there: **tabs** at the t
 ### Work with tabs
 - Click a tab, **Ctrl+Tab** (last used), **Ctrl+PgUp/PgDn**, **Ctrl+1…9**. Drag tabs to reorder; middle-click closes.
 - **Ctrl+W** closes; if there are unsaved changes it asks *Save / Don't save / Cancel*. **Ctrl+Shift+T** reopens the last closed tab in its old place.
-- Right-click a tab for *Close*, *Close others*, *Close tabs to the right* (Cancel on a save question stops). *Show in folder* and *Copy file path* are in Ctrl+K.
+- Right-click a tab for *Rename…* (or F2 on a tab: the name becomes editable in place; the file's version history, Recent and Pinned follow it, and an existing file is never replaced), *Save as…*, *Show in folder*, *Copy file path*, *Close*, *Close others*, *Close tabs to the right*, *Close all* (Cancel on a save question stops).
+- The status bar says *No changes* for a file that was only opened, and *Saved* once it has been saved.
 
 ### Notes (Markdown)
 - Toolbar: headings, bold, italic, code, lists, task list, quote, link, table, divider, side-by-side preview.
@@ -135,7 +136,7 @@ Note: a plain `cargo build --release` does not embed the interface (it points at
 |---|---|---|
 | Unit tests | `pnpm test` | 134 |
 | Rust tests | `cd src-tauri && cargo test --release` | 22 |
-| End-to-end flows (browser build) | `pnpm build && pnpm preview --port 1420 &` then `APP_URL=http://localhost:1420/ pnpm e2e` | 82 |
+| End-to-end flows (browser build) | `pnpm build && pnpm preview --port 1420 &` then `APP_URL=http://localhost:1420/ pnpm e2e` | 84 |
 | Office editing flows | `pnpm office-pack`, `node tests/office-server.mjs &`, then `OFFICE_URL=http://localhost:4180 pnpm e2e:office` (no trailing slash) | 15 |
 | Real-app self-test (Windows/Linux) | `PRODUCTIVITY_SELF_TEST=<folder with tests/corpus files> productivity.exe` → writes `selftest-report.json` there | 23 checks |
 | Real-app self-test (Android emulator) | `tests/android-smoke.sh <apk> <out-dir>` (needs USB debugging on) | 23 checks |

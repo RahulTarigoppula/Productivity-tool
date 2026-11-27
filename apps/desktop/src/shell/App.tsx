@@ -105,8 +105,11 @@ export function App() {
       onDragLeave={(e) => e.currentTarget === e.target && setDragOver(false)}
       onDrop={onDrop}
     >
-      <Boundary name="tab bar"><TabBar /></Boundary>
-      {tabs.length ? <Boundary name="toolbar"><Toolbar /></Boundary> : <div className="toolbar empty" aria-hidden />}
+      {/* The tab bar and toolbar are the window's header (a landmark that screen readers can jump to). */}
+      <header className="app-head">
+        <Boundary name="tab bar"><TabBar /></Boundary>
+        {tabs.length ? <Boundary name="toolbar"><Toolbar /></Boundary> : <div className="toolbar empty" aria-hidden />}
+      </header>
       <div className="main">
         {leftOpen && !focusMode && <Boundary name="sidebar"><Sidebar /></Boundary>}
         {/* On narrow screens the side panels float over the document; tapping beside them closes them. */}

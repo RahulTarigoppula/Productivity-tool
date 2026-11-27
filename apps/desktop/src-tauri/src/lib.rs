@@ -332,6 +332,42 @@ fn check_openable_file(path: &str) -> Result<PathBuf, String> {
     Ok(p)
 }
 
+/// Renames a file in its own folder (the new name has no folder part) and returns the new path.
+/// An existing file is never replaced, and a document cannot be turned into a program file.
+#[tauri::command(async)]
+fn rename_file(path: String, name: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
+    if is_network_path(&path) || uri::is_content_uri(&path) {
+        return Err("This file cannot be renamed from here.".into());
+    }
+    let name = name.trim();
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.ends_with('.')
+        || name.chars().any(|c| c.is_control() || "/\\:*?\"<>|".contains(c))
+    {
+        return Err("A file name cannot contain / \\ : * ? \" < > | or end with a dot.".into());
+    }
+    let ext = Path::new(name).extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    if RUNNABLE.contains(&ext.as_str()) {
+        return Err(format!("For safety, files are not renamed to .{ext}."));
+    }
+    let from = PathBuf::from(&path);
+    if !from.is_file() {
+        return Err("The file was not found. It may have been moved or deleted.".into());
+    }
+    let to = from.with_file_name(name);
+    // Changing only the case of letters is the same file on Windows.
+    let same_file = to.to_string_lossy().to_lowercase() == from.to_string_lossy().to_lowercase();
+    if to.exists() && !same_file {
+        return Err(format!("There is already a file named {name} in this folder."));
+    }
+    std::fs::rename(&from, &to).map_err(|e| format!("The file could not be renamed: {e}"))?;
+    let to = to.to_string_lossy().to_string();
+    state.store.move_history(&path, &to);
+    Ok(to)
+}
+
 #[tauri::command(async)]
 fn reveal_in_folder(path: String) -> Result<(), String> {
     if is_network_path(&path) || path.contains('"') || !Path::new(&path).exists() {
@@ -542,6 +578,7 @@ pub fn run() {
             self_test_dir,
             office_pack_info,
             reveal_in_folder,
+            rename_file,
             open_external,
             log_event,
             android::android_pick,

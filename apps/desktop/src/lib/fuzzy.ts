@@ -7,8 +7,10 @@ export interface Match {
   positions: number[];
 }
 
+const SEPARATORS = new Set([..." \t\n-_./\\:()[]"]);
+/** A word start: after a separator, or an upper-case letter after a lower-case one ("camelCase"). */
 const isBoundary = (prev: string, cur: string) =>
-  prev === "" || /[\s\-_./\\:()[\]]/.test(prev) || (prev === prev.toLowerCase() && cur !== cur.toLowerCase());
+  prev === "" || SEPARATORS.has(prev) || (cur !== cur.toLowerCase() && prev === prev.toLowerCase() && prev !== prev.toUpperCase());
 
 export function fuzzyMatch(query: string, target: string): Match | null {
   const q = query.trim().toLowerCase();
@@ -20,19 +22,14 @@ export function fuzzyMatch(query: string, target: string): Match | null {
     const boundary = isBoundary(target[idx - 1] ?? "", target[idx]);
     return { score: 1000 - idx + (boundary ? 200 : 0) + (idx === 0 ? 300 : 0) - target.length * 0.5, positions: [...Array(q.length)].map((_, i) => idx + i) };
   }
+  // Most targets do not contain the letters in order: find that out with the native search first.
+  let at = -1;
+  for (const qc of q) if (qc !== " " && (at = t.indexOf(qc, at + 1)) < 0) return null;
   const positions: number[] = [];
   let score = 0, ti = 0, prevMatch = -2;
   for (const qc of q) {
     if (qc === " ") continue;
-    let found = -1;
-    while (ti < t.length) {
-      if (t[ti] === qc) {
-        found = ti;
-        break;
-      }
-      ti++;
-    }
-    if (found < 0) return null;
+    const found = t.indexOf(qc, ti);
     positions.push(found);
     score += 10;
     if (found === prevMatch + 1) score += 15;

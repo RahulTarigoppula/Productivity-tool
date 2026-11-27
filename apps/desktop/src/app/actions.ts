@@ -3,7 +3,7 @@ import { platform } from "../platform";
 import { basename, dirname, extname, join, samePath, withExtension, resolveDocumentRef } from "../lib/paths";
 import { detectKind, kindFromName, KIND_LABEL, modernSaveFormat, type Kind } from "../lib/formats";
 import {
-  getState, setState, updateTab, handles, tabBytes, knownMeta, toast, newId,
+  getState, setState, updateTab, handles, tabBytes, knownMeta, toast, newId, savedTabs,
   DEFAULT_SETTINGS, type Tab, type Settings, type RecentItem,
 } from "./store";
 import { ask } from "./dialogs";
@@ -438,6 +438,7 @@ async function saveTabNow(id: string, opts: { as?: boolean; explicit?: boolean }
       if (tab.path && !getState().tabs.some((t) => t.id !== id && t.path && samePath(t.path, tab.path!))) void platform.unwatch(tab.path);
       void platform.watch(path).catch(() => {});
     }
+    savedTabs.add(id);
     const newKind = pathChanged ? kindFromName(path) : tab.kind;
     // Still dirty if the user kept typing after the content was taken for this save.
     const stillDirty = (editGen.get(id) ?? 0) !== genAtSerialize;
@@ -565,6 +566,61 @@ export async function flushAll() {
 // ---------- close ----------
 
 /** Closes a tab, asking about unsaved changes unless the person already chose to discard them. */
+/** Gives the tab's file a new name in its folder (an unsaved tab, the name its first save suggests).
+ *  Typed without an extension, the old one is kept.
+ *  Tabs on the same file, the recent and pinned lists, and the file's version history follow it. */
+export async function renameTab(id: string, typed: string): Promise<boolean> {
+  const tab = getState().tabs.find((t) => t.id === id);
+  if (!tab) return false;
+  let name = typed.trim();
+  const ext = extname(tab.name);
+  if (name && ext && !extname(name)) name = `${name}.${ext}`;
+  if (!name || name === tab.name) return true;
+  if (!tab.path) {
+    // Not saved yet: the name is what the first save suggests.
+    if (/[\\/:*?"<>|\u0000-\u001f]|\.$/.test(name)) {
+      toast("A file name cannot contain / \\ : * ? \" < > | or end with a dot.", "error");
+      return false;
+    }
+    updateTab(id, { name });
+    updateTitle();
+    return true;
+  }
+  const from = tab.path;
+  let to: string;
+  try {
+    to = await platform.rename(from, name);
+  } catch (e) {
+    toast(`Could not rename ${tab.name}: ${explainError(e instanceof Error ? e.message : String(e))}`, "error");
+    return false;
+  }
+  const known = knownMeta.get(metaKey(from));
+  if (known) knownMeta.set(metaKey(to), known);
+  void platform.unwatch(from).catch(() => {});
+  void platform.watch(to).catch(() => {});
+  const kind = kindFromName(to);
+  for (const t of getState().tabs) {
+    if (!t.path || !samePath(t.path, from)) continue;
+    updateTab(t.id, { path: to, name: basename(to) });
+    // A text file renamed to another text kind (notes.txt → notes.md) is shown as its new kind.
+    if (!t.dirty && kind !== t.kind && isTextual(kind) && isTextual(t.kind)) {
+      const bytes = await platform.readFile(to).catch(() => null);
+      if (bytes) {
+        tabBytes.set(t.id, bytes);
+        updateTab(t.id, (x) => ({ kind, version: x.version + 1 }));
+      }
+    }
+  }
+  const recent = getState().recent.map((r) => (samePath(r.path, from) ? { ...r, path: to, kind } : r));
+  const pinned = getState().pinned.map((p) => (samePath(p, from) ? to : p));
+  setState({ recent, pinned });
+  void platform.stateSet("recent", JSON.stringify(recent)).catch(() => {});
+  void platform.stateSet("pinned", JSON.stringify(pinned)).catch(() => {});
+  updateTitle();
+  toast(`Renamed to ${basename(to)}`);
+  return true;
+}
+
 export async function closeTab(id: string, opts: { discard?: boolean } = {}): Promise<boolean> {
   handles.get(id)?.flush?.();
   const tab = getState().tabs.find((t) => t.id === id);
@@ -584,6 +640,7 @@ export async function closeTab(id: string, opts: { discard?: boolean } = {}): Pr
   editGen.delete(id);
   handles.delete(id);
   tabBytes.delete(id);
+  savedTabs.delete(id);
   mru = mru.filter((x) => x !== id);
   setState((s) => {
     const idx = s.tabs.findIndex((t) => t.id === id);

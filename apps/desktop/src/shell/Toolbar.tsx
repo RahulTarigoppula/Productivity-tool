@@ -1,5 +1,5 @@
 import { Share, MoreHorizontal } from "lucide-react";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import { useStore, setState, getState } from "../app/store";
 import type { ToolbarItem } from "../app/editor-api";
 import { openMenu, useMenuOpenerId } from "./Menu";
@@ -30,20 +30,49 @@ export function Toolbar() {
   // Export stay in place at the end, so they can always be reached.
   const toolsRef = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
+  // Tools marked "overflow" move into the More menu when the full set does not fit. The width the
+  // full set needs is measured while it is shown, so the toolbar does not flip back and forth.
+  const [collapsed, setCollapsed] = useState(false);
+  const collapsedRef = useRef(false);
+  // When the tools were moved: the toolbar's width then, and how much wider it must get to fit them.
+  const need = useRef({ at: 0, more: 0 });
+  const hasOverflow = items.some((i) => i.overflow);
   const updateEdges = () => {
     const el = toolsRef.current;
-    if (!el) return;
+    const bar = el?.parentElement;
+    if (!el || !bar) return;
+    if (hasOverflow && !collapsedRef.current && el.scrollWidth > el.clientWidth + 2) {
+      need.current = { at: bar.clientWidth, more: el.scrollWidth - el.clientWidth };
+      collapsedRef.current = true;
+      setCollapsed(true);
+      return;
+    }
+    // Back when the toolbar has grown by what was missing (whatever the More button's own width).
+    if (collapsedRef.current && bar.clientWidth >= need.current.at + need.current.more + 1) {
+      collapsedRef.current = false;
+      setCollapsed(false);
+      return;
+    }
     const left = el.scrollLeft > 2, right = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
     setEdges((e) => (e.left === left && e.right === right ? e : { left, right }));
   };
-  useEffect(() => {
+  // Measured again when the set of tools changes (not when one is switched on or off, which happens
+  // as the cursor moves), before the toolbar is painted, so a squeezed row is never shown.
+  const toolSet = items.map((i) => `${i.id}:${i.text ?? ""}:${i.overflow ? 1 : 0}`).join();
+  useLayoutEffect(() => {
+    collapsedRef.current = false;
+    setCollapsed(false);
+  }, [activeId, toolSet]);
+  const update = useRef(updateEdges);
+  update.current = updateEdges;
+  useLayoutEffect(() => {
     const el = toolsRef.current;
     if (!el) return;
-    updateEdges();
-    const ro = new ResizeObserver(updateEdges);
+    update.current();
+    const ro = new ResizeObserver(() => update.current());
     ro.observe(el);
     return () => ro.disconnect();
-  }, [activeId, items, tab?.error, tab?.loading]);
+  }, [activeId, toolSet, collapsed, tab?.error, tab?.loading]);
 
   if (!activeId || !tab) return <div className="toolbar" />;
   // A file that could not be opened has nothing to edit or export.
@@ -60,7 +89,7 @@ export function Toolbar() {
   const overflow = items.filter((i) => i.overflow);
 
   return (
-    <div className="toolbar" role="toolbar" aria-label={`${tab.name} tools`}>
+    <div className={`toolbar ${collapsed ? "collapsed" : ""}`} role="toolbar" aria-label={`${tab.name} tools`}>
       <div
         className={`tools ${edges.left ? "fade-left" : ""} ${edges.right ? "fade-right" : ""}`}
         ref={toolsRef}

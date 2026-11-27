@@ -90,6 +90,8 @@ export interface Platform {
   recoveryRead(id: string): Promise<Uint8Array>;
   recoveryClear(id: string): Promise<void>;
   reveal(path: string): Promise<void>;
+  /** Gives a file a new name in its own folder; returns the new path. Never replaces another file. */
+  rename(path: string, name: string): Promise<string>;
   openExternal(target: string): Promise<void>;
   setTitle(title: string): Promise<void>;
   setFullscreen(on: boolean): Promise<void>;

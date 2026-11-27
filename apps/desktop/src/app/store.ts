@@ -153,6 +153,8 @@ export function activeTab(): Tab | null {
 /** Engine handles and initial bytes live outside React state (they are large or imperative). */
 export const handles = new Map<string, EngineHandle>();
 export const tabBytes = new Map<string, Uint8Array>();
+/** Tabs saved at least once since they were opened (the status bar says "Saved" only for these). */
+export const savedTabs = new Set<string>();
 /** Last metadata the app itself wrote or read, to tell its own writes apart from external changes. */
 export const knownMeta = new Map<string, { size: number; modified: number }>();
 

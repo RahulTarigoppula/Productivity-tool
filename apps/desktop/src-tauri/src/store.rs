@@ -157,6 +157,14 @@ impl Store {
         out
     }
 
+    /// A renamed file keeps its version history (unless the new name already has one).
+    pub fn move_history(&self, from: &str, to: &str) {
+        let (a, b) = (self.snapshot_dir(from), self.snapshot_dir(to));
+        if a != b && a.exists() && !b.exists() {
+            let _ = fs::rename(a, b);
+        }
+    }
+
     pub fn has_snapshots(&self, path: &str) -> bool {
         self.snapshot_dir(path).exists()
     }

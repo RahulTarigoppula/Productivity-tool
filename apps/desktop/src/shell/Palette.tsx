@@ -1,5 +1,5 @@
 import { Command as Cmdk } from "cmdk";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { pushLayer, popLayer, focusMain } from "./modalFocus";
 import { Zap, Hash, CornerDownRight, FolderSearch, Keyboard } from "lucide-react";
 import { useStore, setState, getState, handles } from "../app/store";
@@ -72,8 +72,11 @@ export function Palette() {
     });
   }, [open, workspace]);
 
-  const mode = q.startsWith(">") ? ">" : q.startsWith("@") ? "@" : q.startsWith(":") ? ":" : q.startsWith("#") ? "#" : q.startsWith("?") ? "?" : "";
-  const term = mode ? q.slice(1).trim() : q.trim();
+  // (Not deferred: Enter right after typing must choose from the list for what was typed.)
+  const shownQ = q;
+  const folderFiles = useMemo(() => files.map((path) => ({ path, name: basename(path) })), [files]);
+  const mode = shownQ.startsWith(">") ? ">" : shownQ.startsWith("@") ? "@" : shownQ.startsWith(":") ? ":" : shownQ.startsWith("#") ? "#" : shownQ.startsWith("?") ? "?" : "";
+  const term = mode ? shownQ.slice(1).trim() : shownQ.trim();
 
   useEffect(() => {
     if (mode !== "#" || !workspace || term.length < 2) {
@@ -228,8 +231,15 @@ export function Palette() {
       term ? 15 : 8,
     );
     // Open and recent files are listed above, so the folder's own list leaves them out.
-    const listed = pathMatcher([...openPaths, ...s.recent.map((r) => r.path)]);
-    const ws = term ? rank(files.filter((f) => !listed(f)), term, (f) => basename(f), undefined, 20) : [];
+    const listedPaths = [...openPaths, ...s.recent.map((r) => r.path)];
+    const listed = pathMatcher(listedPaths);
+    // Ranked first and filtered after: only the best few are checked, not every file in the folder.
+    const ws = term
+      ? rank(folderFiles, term, (f) => f.name, undefined, 20 + listedPaths.length)
+          .filter((r) => !listed(r.item.path))
+          .slice(0, 20)
+          .map(({ item, match }) => ({ item: item.path, match }))
+      : [];
     const cmds = term ? rank(commands, term, (c) => c.title, undefined, 8) : [];
     body = (
       <>

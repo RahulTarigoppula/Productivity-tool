@@ -198,7 +198,7 @@ function useHibernation(tab: Tab, active: boolean): { asleep: boolean; waking: b
 export function DocPane({ tab, active }: { tab: Tab; active: boolean }) {
   const { asleep } = useHibernation(tab, active);
   return (
-    <section className="doc-pane" hidden={!active} aria-label={tab.name}>
+    <section className="doc-pane" id={`panel-${tab.id}`} role="tabpanel" hidden={!active} aria-labelledby={`tab-${tab.id}`}>
       <Banner tab={tab} />
       <div className="engine">
         {tab.loading ? (

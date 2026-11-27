@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, CircleAlert, Pencil, History, Lock } from "lucide-react";
-import { useStore, setState, getState, type Tab } from "../app/store";
+import { useStore, setState, getState, savedTabs, type Tab } from "../app/store";
 import type { StatusItem } from "../app/editor-api";
 import { useMenuOpenerId } from "./Menu";
 
@@ -15,7 +15,9 @@ function SaveState({ tab }: { tab: Tab }) {
     recovered: { icon: <History />, text: "Recovered — not saved" },
     readonly: { icon: <Lock />, text: "Read-only" },
   };
-  const s = tab.dirty && tab.saveState === "saved" ? map.edited : map[tab.saveState];
+  // A file that was only opened says "No changes": "Saved" would claim a save that never happened.
+  const s =
+    tab.dirty && tab.saveState === "saved" ? map.edited : tab.saveState === "saved" && !savedTabs.has(tab.id) ? { icon: <Check />, text: "No changes" } : map[tab.saveState];
   return (
     <button
       className={`item save-state ${tab.saveState}`}

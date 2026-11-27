@@ -24,6 +24,8 @@ a { color: var(--accent); }
 /* ---------- layout ---------- */
 .app { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); height: 100%; }
 .app.focus { grid-template-rows: 0 0 1fr 0; }
+/* A landmark only: its children stay rows of the window's grid. */
+.app-head { display: contents; }
 .app.focus .tabrow, .app.focus .toolbar, .app.focus .statusbar { visibility: hidden; height: 0; overflow: hidden; border: 0; }
 /* A thin strip at the top centre reveals the button; until then the button takes no clicks. */
 .focus-exit-zone { position: fixed; top: 0; left: 50%; width: 240px; height: 12px; transform: translateX(-50%); z-index: 40; }
@@ -80,6 +82,7 @@ a { color: var(--accent); }
 .tab:has(> .tab-main:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
 .tab .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .tab .kind { width: 15px; height: 15px; flex: none; }
+.tab-rename { flex: 1; min-width: 0; width: 100%; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 4px; outline: none; }
 .tab .close { width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex: none; border: 0; background: transparent; color: var(--text-3); padding: 0; }
 .tab .close:hover { background: var(--press); color: var(--text); }
 .tab .close svg { width: 13px; height: 13px; }
@@ -291,6 +294,9 @@ a { color: var(--accent); }
 .menu-div { height: 1px; background: var(--border); margin: 4px 6px; }
 .more-btn { display: none; }
 @media (max-width: 839px) { .more-btn { display: inline-flex; } }
+/* Wider windows: the extra tools move into More only when they do not all fit (measured). */
+.toolbar.collapsed .overflow-item { display: none; }
+.toolbar.collapsed .more-btn { display: inline-flex; }
 .spin { animation: spin 0.9s linear infinite; }
 
 /* ---------- markdown preview ---------- */

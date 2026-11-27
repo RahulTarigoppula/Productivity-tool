@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { X, Plus, PanelLeft, Search, Ellipsis, Layers } from "lucide-react";
 import { useStore, setState, type Tab } from "../app/store";
-import { activate, closeTab, moveTab, newFile } from "../app/actions";
+import { activate, closeTab, moveTab, newFile, renameTab, saveTab } from "../app/actions";
+import { platform } from "../platform";
+import { toast } from "../app/store";
 import { KindIcon } from "./icons";
 import { openMenu, useMenuOpenerId } from "./Menu";
 import { appMenu } from "../app/commands";
@@ -20,6 +22,14 @@ export function TabBar() {
   const [keyId, setKeyId] = useState<string | null>(null);
   const stopId = keyId && tabs.some((t) => t.id === keyId) ? keyId : activeId;
   const tabsRef = useRef<HTMLDivElement>(null);
+  // The tab whose name is being edited in place (Rename… in its menu, or F2).
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const canRename = (t: Tab) => (t.path ? platform.folders : true);
+  const finishRename = (t: Tab, value: string | null) => {
+    setRenaming(null);
+    window.setTimeout(() => tabElement(t.id)?.focus(), 0);
+    if (value !== null && value.trim() && value.trim() !== t.name) void renameTab(t.id, value);
+  };
   // More tabs than fit: the active one is kept in view, soft edges show there are more, and the
   // all-tabs button appears.
   const [edges, setEdges] = useState({ left: false, right: false });
@@ -53,10 +63,20 @@ export function TabBar() {
 
   const tabMenu = (t: Tab, i: number, x: number, y: number) =>
     openMenu(x, y, [
-      { label: "Close", run: () => void closeTab(t.id) },
+      ...(canRename(t) ? [{ label: "Rename…", shortcut: "F2", run: () => setRenaming(t.id) }] : []),
+      { label: "Save as…", run: () => void saveTab(t.id, { as: true, explicit: true }) },
+      ...(t.path && platform.folders
+        ? [
+            { label: "Show in folder", run: () => void platform.reveal(t.path!).catch(() => toast("This file cannot be shown in its folder.", "error")) },
+            { label: "Copy file path", run: () => void navigator.clipboard.writeText(t.path!).then(() => toast("Path copied")) },
+          ]
+        : []),
+      { divider: true },
+      { label: "Close", shortcut: "Ctrl+W", run: () => void closeTab(t.id) },
       // Cancel on any "Save changes?" question stops closing the rest.
-      { label: "Close others", run: async () => { for (const o of tabs) if (o.id !== t.id && !(await closeTab(o.id))) break; } },
-      { label: "Close tabs to the right", run: async () => { for (const o of tabs.slice(i + 1)) if (!(await closeTab(o.id))) break; } },
+      { label: "Close others", disabled: tabs.length < 2, run: async () => { for (const o of tabs) if (o.id !== t.id && !(await closeTab(o.id))) break; } },
+      { label: "Close tabs to the right", disabled: i === tabs.length - 1, run: async () => { for (const o of tabs.slice(i + 1)) if (!(await closeTab(o.id))) break; } },
+      { label: "Close all", run: async () => { for (const o of tabs) if (!(await closeTab(o.id))) break; } },
     ], { label: t.name });
 
   const onTabKey = (e: React.KeyboardEvent<HTMLElement>, t: Tab, i: number) => {
@@ -66,6 +86,7 @@ export function TabBar() {
     else if (e.key === "Home") focusTab(tabs[0]);
     else if (e.key === "End") focusTab(tabs[tabs.length - 1]);
     else if (e.key === "Enter" || e.key === " ") activate(t.id);
+    else if (e.key === "F2" && canRename(t)) setRenaming(t.id);
     else if (e.key === "Delete") {
       // Closing sends the keyboard to the document; stay on the strip, next to the closed tab, so
       // several can be closed in a row. With none left, the home screen takes it.
@@ -108,7 +129,7 @@ export function TabBar() {
           <div
             key={t.id}
             className={`tab ${t.id === activeId ? "active" : ""} ${t.dirty ? "dirty" : ""} ${dragId === t.id ? "dragging" : ""}`}
-            draggable
+            draggable={renaming !== t.id}
             onDragStart={(e) => {
               setDragId(t.id);
               e.dataTransfer.effectAllowed = "move";
@@ -145,13 +166,18 @@ export function TabBar() {
               id={`tab-${t.id}`}
               className="tab-main"
               aria-selected={t.id === activeId}
-              aria-keyshortcuts="Delete"
+              aria-controls={`panel-${t.id}`}
+              aria-keyshortcuts={canRename(t) ? "Delete F2" : "Delete"}
               tabIndex={t.id === stopId ? 0 : -1}
               title={t.path ?? t.name}
               onKeyDown={(e) => onTabKey(e, t, i)}
             >
               <KindIcon kind={t.kind} name={t.name} />
-              <span className="name">{t.name}</span>
+              {renaming === t.id ? (
+                <RenameInput name={t.name} onDone={(v) => finishRename(t, v)} />
+              ) : (
+                <span className="name">{t.name}</span>
+              )}
               {t.dirty && <span className="sr-only">, unsaved changes</span>}
             </div>
             {/* For the mouse and touch (a dot while there are unsaved changes); the keyboard closes
@@ -185,5 +211,42 @@ export function TabBar() {
         </button>
       </div>
     </div>
+  );
+}
+
+/** The tab's name as a text box: the part before the extension is selected, Enter or leaving the box
+ *  renames, Escape keeps the old name. */
+function RenameInput({ name, onDone }: { name: string; onDone: (value: string | null) => void }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const done = useRef(false);
+  const finish = (v: string | null) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(v);
+  };
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    const dot = name.lastIndexOf(".");
+    el.setSelectionRange(0, dot > 0 ? dot : name.length);
+  }, [name]);
+  return (
+    <input
+      ref={ref}
+      className="tab-rename"
+      aria-label={`New name for ${name}`}
+      defaultValue={name}
+      spellCheck={false}
+      size={Math.max(8, name.length + 2)}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") finish(e.currentTarget.value);
+        else if (e.key === "Escape") finish(null);
+      }}
+      onBlur={(e) => finish(e.currentTarget.value)}
+      onMouseDown={(e) => e.stopPropagation()}
+      onDragStart={(e) => e.preventDefault()}
+    />
   );
 }

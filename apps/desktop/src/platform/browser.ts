@@ -175,6 +175,21 @@ export function createBrowserPlatform(): Platform {
       recovery.delete(id);
     },
     async reveal() {},
+    async rename(path, name) {
+      name = name.trim();
+      if (!name || /[\\/:*?"<>|\u0000-\u001f]/.test(name) || /\.$/.test(name)) throw new Error("A file name cannot contain / \\ : * ? \" < > | or end with a dot.");
+      const f = files.get(path);
+      if (!f) throw new Error("The file was not found. It may have been moved or deleted.");
+      const to = path.slice(0, path.lastIndexOf("/") + 1) + name;
+      if (files.has(to) && to.toLowerCase() !== path.toLowerCase()) throw new Error(`There is already a file named ${name} in this folder.`);
+      files.delete(path);
+      files.set(to, f);
+      if (snapshots.has(path) && !snapshots.has(to)) {
+        snapshots.set(to, snapshots.get(path)!);
+        snapshots.delete(path);
+      }
+      return to;
+    },
     async openExternal(target) {
       window.open(target, "_blank", "noopener");
     },

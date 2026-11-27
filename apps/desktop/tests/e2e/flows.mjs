@@ -825,6 +825,25 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     assert(Date.now() - t0 < 5000, `took ${Date.now() - t0} ms to open`);
   });
 
+  await check("U-15", "a PDF exports to a Word document with its text, offered first", async () => {
+    // A fresh copy: earlier flows edit sample.pdf.
+    await page.evaluate((b) => window.__fs.write("/work/u15.pdf", new Uint8Array(b)), Array.from(readFileSync(join(corpus, "sample.pdf"))));
+    await open("/work/u15.pdf");
+    await waitFor(async () => (await page.locator("section.doc-pane:not([hidden]) .pdfViewer .page canvas").count()) > 0, 8000, "pages");
+    await page.evaluate(() => window.__fs.queueSave("/work/sample-from-pdf.docx"));
+    await page.keyboard.press("Control+e");
+    const firstRow = await page.locator(".export-row").first().textContent();
+    assert(/Word document/.test(firstRow ?? ""), `first export choice is ${JSON.stringify(firstRow)}`);
+    await page.locator(".export-row", { hasText: "Word document" }).first().click();
+    await waitFor(async () => !!(await fsRead("/work/sample-from-pdf.docx")), 20000, "Word file written");
+    const JSZip = require("jszip");
+    const zip = await JSZip.loadAsync(Buffer.from(await fsRead("/work/sample-from-pdf.docx")));
+    const doc = await zip.file("word/document.xml").async("string");
+    assert(doc.includes("marigold1") && doc.includes("marigold3"), "the PDF's text is not in the Word file");
+    // The "Exported … Open" message waits to be used; close it so later flows start clean.
+    await page.locator(".toast", { hasText: "Exported sample-from-pdf.docx" }).getByRole("button", { name: /close|dismiss/i }).click().catch(() => {});
+  });
+
   await check("F-34", "dark theme applies", async () => {
     await page.evaluate(() => window.__app.updateSettings({ theme: "dark" }));
     await waitFor(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", 2000, "dark");

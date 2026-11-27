@@ -307,6 +307,18 @@ export function buildRegistry(): ConversionRegistry {
   // PDF
   r.register(c("pdf", "png", "exact", async ({ bytes }) => ({ files: await pdfToImages(bytes) })));
   r.register(c("pdf", "txt", "text", async ({ bytes }) => one(enc(await pdfToText(bytes))), "Only the text is kept; layout, images and fonts are not."));
+  // PDF → Markdown, and through it → Word: headings, paragraphs, lists, bold, italic and links rebuilt.
+  r.register(c("pdf", "md", "good", async ({ bytes }) => {
+    const [{ loadPdfjs }, { pdfToMarkdown }] = await Promise.all([import("../engines/pdf/pdfjs"), import("../lib/pdfToMarkdown")]);
+    const pdfjs = await loadPdfjs();
+    // Font names say which text is bold or italic; PDF.js keeps them only when asked.
+    const doc = await pdfjs.getDocument({ data: bytes.slice(), fontExtraProperties: true }).promise;
+    try {
+      return one(enc(await pdfToMarkdown(doc as unknown as import("../lib/pdfToMarkdown").PdfDoc)));
+    } finally {
+      await doc.loadingTask.destroy();
+    }
+  }, "Text, headings, lists, bold and links are kept; page layout, pictures and table lines are not."));
   // Images
   r.register(c("png", "pdf", "exact", async ({ bytes }) => one(await imageToPdf(bytes, true))));
   r.register(c("jpg", "pdf", "exact", async ({ bytes }) => one(await imageToPdf(bytes, false))));
@@ -365,7 +377,7 @@ export const PREFERRED_EXPORTS: Record<string, string[]> = {
   docx: ["md", "html", "print"],
   xlsx: ["csv", "print"],
   pptx: ["md", "print"],
-  pdf: ["png", "txt"],
+  pdf: ["docx", "txt", "png"],
 };
 
 export const FORMAT_LABEL: Record<string, string> = {

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, useCallback, useSyncExternalStore } from "react";
 import {
-  MousePointer2, Highlighter, Type, PenLine, Signature, ZoomIn, ZoomOut, MoveHorizontal, PanelLeft, RotateCw, RotateCcw,
+  MousePointer2, Highlighter, Type, PenLine, Signature, ZoomIn, ZoomOut, MoveHorizontal, GalleryVertical, RotateCw, RotateCcw,
   Trash2, FileOutput, FilePlus2, Search, ChevronUp, ChevronDown, X, Undo2, LockKeyhole,
 } from "lucide-react";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
+import { ErrorState } from "../../shell/ErrorState";
 import type { EngineHost, OutlineItem, Command, ToolbarItem } from "../../app/editor-api";
 import { loadPdfjs, loadViewer, type Viewer, type Bus } from "./pdfjs";
 import { rotatePages, deletePages, reorderPages, extractPages, insertPdf, placeImage, movedOrder, shiftedOrder } from "./pageTools";
@@ -562,7 +563,7 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
   useEffect(() => {
     const b = (id: string, label: string, icon: React.ReactNode, run: () => void, group: string, extra: Partial<ToolbarItem> = {}): ToolbarItem => ({ id, label, icon, run, group, ...extra });
     const items = [
-      b("thumbs", "Pages panel", <PanelLeft />, () => opsRef.current.toggleThumbs(), "a", { active: showThumbs }),
+      b("thumbs", "Pages panel", <GalleryVertical />, () => opsRef.current.toggleThumbs(), "a", { active: showThumbs }),
       b("select", "Select text", <MousePointer2 />, () => setMode("none"), "b", { active: mode === "none" }),
       // The everyday tools carry their names; page tools follow, with undo kept apart from rotate.
       b("highlight", "Highlight", <Highlighter />, () => setMode(mode === "highlight" ? "none" : "highlight"), "b", { active: mode === "highlight", text: "Highlight" }),
@@ -582,19 +583,20 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
       b("fit", "Fit width", <MoveHorizontal />, () => viewer.current && (viewer.current.currentScaleValue = "page-width"), "d", { overflow: true }),
       b("find", "Find", <Search />, () => setFind((f) => ({ ...f, open: true })), "e", { shortcut: "Ctrl+F" }),
     ];
-    // Nothing to work on while the PDF loads or waits for its password.
-    host.setToolbar(doc ? items : items.map((it) => ({ ...it, active: false, disabled: true })));
-  }, [host, showThumbs, mode, doc, canStep]);
+    // Nothing to work on while the PDF loads or waits for its password; nothing at all if it cannot be read.
+    host.setToolbar(error ? [] : doc ? items : items.map((it) => ({ ...it, active: false, disabled: true })));
+  }, [host, showThumbs, mode, doc, canStep, error]);
 
   // Status bar
   useEffect(() => {
+    if (error) return host.setStatus([]);
     host.setStatus([
       { id: "page", text: numPages ? `Page ${page} of ${numPages}` : locked ? "Protected" : "Loading…", onClick: () => void import("../../app/commands").then((m) => m.openPalette(":")) },
       ...(selected.length > 1 ? [{ id: "sel", text: `${selected.length} pages selected` }] : []),
       ...(mode !== "none" ? [{ id: "mode", text: { highlight: "Select text to highlight", freetext: "Click or press Enter to add text", ink: "Draw on the page", none: "" }[mode] }] : []),
       { id: "zoom", text: `${Math.round(scale * 100)}%`, align: "right" as const, onClick: () => viewer.current && (viewer.current.currentScaleValue = "page-width") },
     ]);
-  }, [host, page, numPages, scale, selected.length, mode, locked]);
+  }, [host, page, numPages, scale, selected.length, mode, locked, error]);
 
   // Engine handle
   useEffect(() => {
@@ -670,13 +672,7 @@ export default function PdfEngine({ host }: { host: EngineHost }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [host, openDoc]);
 
-  if (error)
-    return (
-      <div className="center-note">
-        <h3>This PDF could not be opened</h3>
-        <div>{error}</div>
-      </div>
-    );
+  if (error) return <ErrorState tabId={host.tabId} path={host.path} title={`${host.name} can't be opened`} message={error} />;
 
   return (
     <div className="pdf-engine" ref={rootRef}>

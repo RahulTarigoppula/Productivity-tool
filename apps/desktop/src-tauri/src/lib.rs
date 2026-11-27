@@ -332,6 +332,24 @@ fn check_openable_file(path: &str) -> Result<PathBuf, String> {
     Ok(p)
 }
 
+/// Creates a folder (and the folders above it) for files unpacked from an archive. Returns whether
+/// it was new, so callers can pick another name rather than mix files into an existing folder.
+#[tauri::command(async)]
+fn create_folder(path: String) -> Result<bool, String> {
+    if is_network_path(&path) || uri::is_content_uri(&path) {
+        return Err("Folders cannot be made here.".into());
+    }
+    let p = PathBuf::from(&path);
+    if !p.is_absolute() {
+        return Err("Folders cannot be made here.".into());
+    }
+    if p.exists() {
+        return if p.is_dir() { Ok(false) } else { Err("A file with that name is in the way.".into()) };
+    }
+    std::fs::create_dir_all(&p).map_err(|e| format!("The folder could not be made: {e}"))?;
+    Ok(true)
+}
+
 /// Renames a file in its own folder (the new name has no folder part) and returns the new path.
 /// An existing file is never replaced, and a document cannot be turned into a program file.
 #[tauri::command(async)]
@@ -579,6 +597,7 @@ pub fn run() {
             office_pack_info,
             reveal_in_folder,
             rename_file,
+            create_folder,
             open_external,
             log_event,
             android::android_pick,

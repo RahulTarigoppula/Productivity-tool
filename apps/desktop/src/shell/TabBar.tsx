@@ -50,7 +50,12 @@ export function TabBar() {
   useEffect(() => {
     const el = tabsRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(updateEdges);
+    // When the strip narrows (the open-files count appears as tabs start to overflow, or the window
+    // shrinks), the open tab is brought back into view, close button and all.
+    const ro = new ResizeObserver(() => {
+      el.querySelector<HTMLElement>(".tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      updateEdges();
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -68,7 +73,7 @@ export function TabBar() {
       ...(t.path && platform.folders
         ? [
             { label: "Show in folder", run: () => void platform.reveal(t.path!).catch(() => toast("This file cannot be shown in its folder.", "error")) },
-            { label: "Copy file path", run: () => void navigator.clipboard.writeText(t.path!).then(() => toast("Path copied")) },
+            { label: "Copy file path", run: () => void navigator.clipboard.writeText(t.path!).then(() => toast("Path copied"), () => toast("The path could not be copied.", "error")) },
           ]
         : []),
       { divider: true },
@@ -189,7 +194,7 @@ export function TabBar() {
         ))}
       </div>
       <div className="right">
-        <button className="icon-btn" title="New file (Ctrl+N)" aria-label="New file" onClick={() => setState({ dialog: { kind: "newFile" } })}>
+        <button className="icon-btn" title="New file…" aria-label="New file" onClick={() => setState({ dialog: { kind: "newFile" } })}>
           <Plus />
         </button>
         <button className="icon-btn" title="Search and commands (Ctrl+K)" aria-label="Search and commands" onClick={() => setState({ palette: { open: true, query: "" } })}>

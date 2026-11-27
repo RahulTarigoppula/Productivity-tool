@@ -89,7 +89,7 @@ export function shellCommands(): Command[] {
         cmds.push(
           { id: "file.reveal", title: "Show in folder", group: "File", run: () => void platform.reveal(p) },
           { id: "file.openExternal", title: "Open in default app", group: "File", run: () => void platform.openExternal(p).catch((e) => toast(String(e), "error")) },
-          { id: "file.copyPath", title: "Copy file path", group: "File", run: () => void navigator.clipboard.writeText(p).then(() => toast("Path copied")) },
+          { id: "file.copyPath", title: "Copy file path", group: "File", run: () => void navigator.clipboard.writeText(p).then(() => toast("Path copied"), () => toast("The path could not be copied.", "error")) },
         );
     }
     if (tab.kind === "csv") cmds.push({ id: "file.openAsText", title: "Open as plain text", group: "File", run: () => void reopenAs(tab.id, "text") });
@@ -131,7 +131,7 @@ export function appMenu(): MenuItem[] {
     item("file.open"),
     item("file.openFolder"),
     { divider: true },
-    ...(tab ? [item("file.save"), item("file.saveAs"), item("file.export"), item("file.print"), { divider: true } as MenuItem] : []),
+    ...(tab ? [item("file.save"), item("file.saveAs"), item("file.export"), item("file.print"), ...(tab.path ? [item("view.history")] : []), { divider: true } as MenuItem] : []),
     item("view.toggleSidebar"),
     item("view.focus"),
     item("view.theme"),

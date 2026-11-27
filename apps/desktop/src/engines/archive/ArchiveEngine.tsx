@@ -1,16 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
-import { FolderOpen, Download } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FolderOpen, Download, FolderOutput } from "lucide-react";
 import type JSZip from "jszip";
 import type { EngineHost } from "../../app/editor-api";
 import { openZip } from "../office/ooxml";
 import { openBytes } from "../../app/actions";
 import { platform } from "../../platform";
-import { basename } from "../../lib/paths";
+import { basename, join, stem } from "../../lib/paths";
 import { KindIcon } from "../../shell/icons";
+import { ErrorState } from "../../shell/ErrorState";
 import { kindFromName } from "../../lib/formats";
 
 /** Files larger than this are not opened from an archive (the same limit as opening from disk). */
 const MAX_ENTRY = 300 * 1024 * 1024;
+/** Archives that would unpack to more than this are not extracted in one go. */
+const MAX_TOTAL = 4 * 1024 * 1024 * 1024;
+const EXTRACT = "\u0000extract";
 
 interface Entry {
   path: string;
@@ -26,6 +30,7 @@ export default function ArchiveEngine({ host }: { host: EngineHost }) {
   const [zip, setZip] = useState<JSZip | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -52,9 +57,13 @@ export default function ArchiveEngine({ host }: { host: EngineHost }) {
 
   useEffect(() => {
     host.register({ canSave: false, serialize: async () => host.bytes, focus: () => document.querySelector<HTMLElement>(".archive-list button")?.focus() });
-    host.setToolbar([]);
-    host.setStatus(zip ? [{ id: "count", text: `${entries.length.toLocaleString()} ${entries.length === 1 ? "file" : "files"} · ${sizeText(total)} unpacked` }] : []);
-  }, [host, zip, entries.length, total]);
+    host.setToolbar(
+      zip && entries.length && platform.folders
+        ? [{ id: "extract", label: "Extract all files to a folder…", text: busy === EXTRACT ? "Extracting…" : "Extract all", icon: <FolderOutput />, group: "x", disabled: !!busy, run: () => void extractAllRef.current() }]
+        : [],
+    );
+    host.setStatus(zip ? [{ id: "count", text: progress ?? `${entries.length.toLocaleString()} ${entries.length === 1 ? "file" : "files"} · ${sizeText(total)} unpacked` }] : []);
+  }, [host, zip, entries.length, total, busy, progress]);
 
   const read = async (e: Entry): Promise<Uint8Array | null> => {
     if (e.size > MAX_ENTRY) {
@@ -72,6 +81,63 @@ export default function ArchiveEngine({ host }: { host: EngineHost }) {
       setBusy(null);
     }
   };
+  /** Every file, unpacked into a new folder named after the archive inside the folder chosen.
+   *  Paths that would leave that folder ("../", drive letters) are skipped, and names Windows
+   *  cannot use are made safe; nothing already on disk is replaced. */
+  const extractAll = async () => {
+    if (total > MAX_TOTAL) {
+      host.toast(`${host.name} unpacks to ${sizeText(total)}, more than can be extracted here.`, "error");
+      return;
+    }
+    const dest = (await platform.pickOpen({ directory: true }))[0];
+    if (!dest) return;
+    setBusy(EXTRACT);
+    let done = 0;
+    let skipped = 0;
+    try {
+      const base = stem(host.name) || "Extracted";
+      let root = "";
+      for (let i = 1; i < 100 && !root; i++) {
+        const candidate = join(dest, i === 1 ? base : `${base} (${i})`);
+        if (await platform.createFolder(candidate)) root = candidate;
+      }
+      if (!root) throw new Error("No free folder name was found.");
+      const made = new Set<string>();
+      for (const e of entries) {
+        const parts = e.path.split(/[\\/]+/).filter(Boolean);
+        if (!parts.length || parts.some((p) => p === "." || p === ".." || /^[a-zA-Z]:$/.test(p)) || e.size > MAX_ENTRY) {
+          skipped++;
+          continue;
+        }
+        const safe = parts.map((p) => p.replace(/[<>:"|?*\u0000-\u001f]/g, "_").replace(/[. ]+$/, (m) => "_".repeat(m.length)));
+        let dir = root;
+        for (const p of safe.slice(0, -1)) {
+          dir = join(dir, p);
+          if (!made.has(dir)) {
+            await platform.createFolder(dir);
+            made.add(dir);
+          }
+        }
+        setProgress(`Extracting ${done + skipped + 1} of ${entries.length}…`);
+        const bytes = await zip!.file(e.path)!.async("uint8array").catch(() => null);
+        if (!bytes) {
+          skipped++;
+          continue;
+        }
+        await platform.writeFile(join(dir, safe[safe.length - 1]), bytes);
+        done++;
+      }
+      host.toast(`Extracted ${done.toLocaleString()} ${done === 1 ? "file" : "files"} to the \u201c${basename(root)}\u201d folder${skipped ? `; ${skipped} could not be unpacked` : ""}`);
+      void platform.reveal(root).catch(() => {});
+    } catch (x) {
+      host.toast(`Extract stopped after ${done} ${done === 1 ? "file" : "files"}: ${x instanceof Error ? x.message : x}`, "error");
+    } finally {
+      setBusy(null);
+      setProgress(null);
+    }
+  };
+  const extractAllRef = useRef(extractAll);
+  extractAllRef.current = extractAll;
   const open = async (e: Entry) => {
     const bytes = await read(e);
     if (bytes) openBytes(basename(e.path), bytes, { notice: { text: `Opened from ${host.name}. Save it to keep a copy of your own.`, tone: "info" } });
@@ -85,7 +151,7 @@ export default function ArchiveEngine({ host }: { host: EngineHost }) {
     host.toast(`Saved ${basename(target)}`);
   };
 
-  if (err) return <div className="center-note"><h3>{host.name} can't be opened</h3><div>{err}</div></div>;
+  if (err) return <ErrorState tabId={host.tabId} path={host.path} title={`${host.name} can't be opened`} message={err} />;
   if (!zip) return <div className="center-note"><div className="spinner" /></div>;
   if (!entries.length) return <div className="center-note"><FolderOpen size={28} /><h3>This archive is empty</h3></div>;
   return (

@@ -92,6 +92,8 @@ export interface Platform {
   reveal(path: string): Promise<void>;
   /** Gives a file a new name in its own folder; returns the new path. Never replaces another file. */
   rename(path: string, name: string): Promise<string>;
+  /** Makes a folder and its parents; false if it was already there. */
+  createFolder(path: string): Promise<boolean>;
   openExternal(target: string): Promise<void>;
   setTitle(title: string): Promise<void>;
   setFullscreen(on: boolean): Promise<void>;

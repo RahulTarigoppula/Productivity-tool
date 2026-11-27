@@ -16,8 +16,10 @@ function SaveState({ tab }: { tab: Tab }) {
     readonly: { icon: <Lock />, text: "Read-only" },
   };
   // A file that was only opened says "No changes": "Saved" would claim a save that never happened.
-  const s =
-    tab.dirty && tab.saveState === "saved" ? map.edited : tab.saveState === "saved" && !savedTabs.has(tab.id) ? { icon: <Check />, text: "No changes" } : map[tab.saveState];
+  const viewOnly = tab.saveState === "readonly" && ["image", "media", "archive", "binary"].includes(tab.kind);
+  const s = viewOnly
+    ? { icon: <Lock />, text: "View only" }
+    : tab.dirty && tab.saveState === "saved" ? map.edited : tab.saveState === "saved" && !savedTabs.has(tab.id) ? { icon: <Check />, text: "No changes" } : map[tab.saveState];
   return (
     <button
       className={`item save-state ${tab.saveState}`}

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useModalFocus, focusMain } from "./modalFocus";
-import { NotebookText, FileText, Sheet, FileSearch, FileType, FileSpreadsheet, Presentation } from "lucide-react";
+import { NotebookText, FileText, Sheet, FileSearch, FileType, FileSpreadsheet, Presentation, Printer } from "lucide-react";
 import { useStore, setState, activeTab, handles, toast, dismissToast, holdToasts, type Toast } from "../app/store";
 import { useAsk } from "../app/dialogs";
 import { updateSettings, newFile, newOfficeFile, pickAndOpen, suggestExportPath, exportTargetOk, explainError, openPath, handleExternalChange, addRecent } from "../app/actions";
@@ -211,11 +211,11 @@ function Export() {
   const textCache = useRef<string | null>(null);
   if (!tab || tab.error) return null;
   const sourceText = () => (textCache.current ??= handles.get(tab.id)?.getText?.() ?? "");
-  /** "Exported plan.docx to Documents", and the file joins Recent so it is easy to find again. */
+  /** "Exported plan.docx to the “Documents” folder", and the file joins Recent so it is easy to find again. */
   const exported = (paths: string[], loss: string | null) => {
     for (const p of paths) void addRecent(p, kindFromName(p));
     const folder = basename(dirname(paths[0]));
-    const where = folder ? ` to ${folder}` : "";
+    const where = folder ? ` to the \u201c${folder}\u201d folder` : "";
     toast(paths.length > 1 ? `Exported ${paths.length} files${where}${loss ? " — " + loss : ""}` : `Exported ${basename(paths[0])}${where}`, "info", {
       label: paths.length > 1 && platform.folders ? "Show in folder" : "Open",
       run: () => (paths.length > 1 && platform.folders ? void platform.reveal(paths[0]) : void openPath(paths[0])),
@@ -268,7 +268,7 @@ function Export() {
   const printable = tab.kind !== "binary" && tab.kind !== "media" && tab.kind !== "archive";
   const row = (key: string, ext: string, title: string, sub: string | null, quality: keyof typeof QUALITY_LABEL, onRun: () => void) => (
     <button key={key} type="button" className={`export-row ${busy && busy !== key ? "unavailable" : ""}`} disabled={!!busy && busy !== key} onClick={() => !busy && onRun()}>
-      <span className={`fmt-badge fmt-${ext}`}>{ext}</span>
+      <span className={`fmt-badge fmt-${ext}`} aria-hidden={ext === "print" || undefined}>{ext === "print" ? <Printer size={15} /> : ext}</span>
       <span className="desc">
         <span className="t">{title}</span>
         {sub && <span className="help">{sub}</span>}
@@ -284,7 +284,7 @@ function Export() {
       ? [{
           key: "print",
           quality: "good" as const,
-          node: row("print", "print", "Print or save as a formatted PDF…", "Choose \u201cSave as PDF\u201d (or a PDF printer) in the print window", "good", () => {
+          node: row("print", "print", "Print, or save as a PDF just as printed…", "Opens the print window: choose \u201cSave as PDF\u201d there", "good", () => {
             closeDialog();
             void import("./print").then((m) => m.printActive());
           }),
@@ -294,7 +294,7 @@ function Export() {
   const preferred = PREFERRED_EXPORTS[sourceFormat(tab.name, tab.kind)];
   const top = preferred ? preferred.flatMap((k) => items.filter((x) => x.key === k)) : items;
   const more = preferred ? items.filter((x) => !preferred.includes(x.key)) : [];
-  const anyTextOnly = top.some((x) => x.quality === "text") || (more.length > 0 && more.some((x) => x.quality === "text"));
+  const anyTextOnly = top.some((x) => x.quality === "text") || more.some((x) => x.quality === "text") || engineFormats.some((f) => f.ext === "txt" || f.ext === "csv");
   return (
     <Overlay onClose={closeDialog}>
       <div className="dialog export-dialog" role="dialog" aria-label="Export">
@@ -304,7 +304,7 @@ function Export() {
         </p>
         <div className="export-list">
           {engineFormats.map((f) =>
-            row(f.ext, f.ext, f.label, "Full layout, made by the Office editor", f.ext === "txt" || f.ext === "csv" ? "text" : "exact", () => void runEngine(f.ext, f.label)),
+            row(f.ext, f.ext, f.label, ENGINE_NOTE[f.ext] ?? "Full layout, made by the Office editor", f.ext === "txt" || f.ext === "csv" ? "text" : "exact", () => void runEngine(f.ext, f.label)),
           )}
           {top.map((x) => x.node)}
           {more.length > 0 && (
@@ -323,6 +323,16 @@ function Export() {
     </Overlay>
   );
 }
+
+/** What each format made by the Office editor keeps, where "full layout" would not be true. */
+const ENGINE_NOTE: Record<string, string> = {
+  csv: "Values of the first sheet only",
+  txt: "The words only",
+  odt: "For LibreOffice and other OpenDocument programs",
+  ods: "For LibreOffice and other OpenDocument programs",
+  odp: "For LibreOffice and other OpenDocument programs",
+  pdf: "Pages exactly as laid out",
+};
 
 export function Dialogs() {
   const d = useStore((s) => s.dialog);

@@ -199,8 +199,14 @@ export async function openPath(path: string, opts: OpenOptions = {}): Promise<st
     if (!meta.exists && !opts.bytes) throw new Error("The file was not found. It may have been moved, renamed or deleted.");
     if (meta.size > MAX_OPEN_BYTES) throw new Error(`The file is ${(meta.size / 1048576).toFixed(0)} MB, larger than this version can open.`);
     const diskBytes = opts.bytes ? null : await platform.readFile(path);
-    const bytes = opts.bytes ?? diskBytes!;
+    let bytes = opts.bytes ?? diskBytes!;
     if (meta.exists) knownMeta.set(metaKey(path), { size: meta.size, modified: meta.modified });
+    const emptyNamed = !opts.kind && !bytes.length ? kindFromName(path) : null;
+    if (emptyNamed === "pdf") throw new Error("This PDF is empty (0 bytes), so there is nothing to show.");
+    // Windows' "New > Word Document" makes an empty file: it opens as a blank document, which is
+    // what Word does too, and the first save writes a real one.
+    const blank = emptyNamed && /^(docx|xlsx|pptx)$/.test(extname(path)) ? (emptyNamed as "docx" | "xlsx" | "pptx") : null;
+    if (blank) bytes = await blankOffice(blank);
     const kind = opts.kind ?? detectKind(path, bytes);
     const named = kindFromName(path);
     const mismatch = !opts.kind && named !== kind && ["pdf", "docx", "xlsx", "pptx"].includes(named) && bytes.length > 0;
@@ -292,10 +298,14 @@ const OFFICE_TEMPLATES = {
   pptx: () => import("../assets/templates/blank.pptx?url"),
 };
 
+async function blankOffice(kind: "docx" | "xlsx" | "pptx"): Promise<Uint8Array> {
+  const url = (await OFFICE_TEMPLATES[kind]()).default;
+  return new Uint8Array(await (await fetch(url)).arrayBuffer());
+}
+
 /** New blank Word, Excel or PowerPoint document (opens in the Office editor). */
 export async function newOfficeFile(kind: "docx" | "xlsx" | "pptx") {
-  const url = (await OFFICE_TEMPLATES[kind]()).default;
-  const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+  const bytes = await blankOffice(kind);
   const base = { docx: "Document", xlsx: "Workbook", pptx: "Presentation" }[kind];
   const used = new Set(getState().tabs.map((t) => t.name));
   let name = `${base}.${kind}`;
@@ -497,6 +507,9 @@ export function explainError(msg: string): string {
   if (/maximum call stack|too much recursion|excessive node nesting/.test(m)) return "This document is nested too deeply to read or convert.";
   if (/invalid string length|array buffer allocation|out of memory|allocation failed/.test(m)) return "This document is too large to convert here.";
   if (/uncompressed data size mismatch|invalid (length\/literal|distance|stored block|code lengths)|corrupted zip|end of central directory|crc32/.test(m)) return "This file is damaged: its packed contents cannot be read.";
+  if (/invalid pdf structure|invalid xref|no pdf header|missing pdf|bad xref|invalid root reference/.test(m)) return "This PDF is damaged and cannot be read.";
+  if (/is this a zip file|not a zip|invalid signature|unsupported (compression|encryption)/.test(m)) return "This file is damaged or is not really a ZIP archive.";
+  if (/encrypted zip|password/.test(m) && /zip/.test(m)) return "This archive is protected with a password, which is not supported here.";
   // Library messages sometimes ask to file a report with them; that is not for the person here.
   return msg.replace(/\s*please report this to \S+\.?/i, "").trim();
 }
@@ -659,9 +672,19 @@ export async function closeTab(id: string, opts: { discard?: boolean } = {}): Pr
     };
   });
   if (tab.path && !getState().tabs.some((t) => t.path && samePath(t.path, tab.path!))) void platform.unwatch(tab.path);
+  if (!getState().tabs.length) lastTabClosed = true;
   activate(getState().activeId);
   persistSession();
   return true;
+}
+
+let lastTabClosed = false;
+/** True once after the last tab was closed (the home screen then takes the keyboard; at startup it
+ *  does not, so nothing looks chosen before the person has done anything). */
+export function takeLastTabClosed(): boolean {
+  const v = lastTabClosed;
+  lastTabClosed = false;
+  return v;
 }
 
 export async function reopenClosed() {

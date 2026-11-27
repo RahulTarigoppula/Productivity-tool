@@ -7,6 +7,7 @@ import type { EngineHost, Command } from "../../app/editor-api";
 import { platform } from "../../platform";
 import { useStore, getState } from "../../app/store";
 import { handleShortcut } from "../../app/keys";
+import { closeTab } from "../../app/actions";
 
 const MIME: Record<string, string> = {
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -273,12 +274,7 @@ export function OfficeEditor({ host, onFailed }: { host: EngineHost; onFailed: (
 
   return (
     <div className="office-editor">
-      {status === "loading" && (
-        <div className="center-note office-loading">
-          <div className="spinner" />
-          <div>Opening {host.name}…</div>
-        </div>
-      )}
+      {status === "loading" && <OpeningNote name={host.name} tabId={host.tabId} />}
       <iframe
         ref={frameRef}
         src={src}
@@ -290,6 +286,32 @@ export function OfficeEditor({ host, onFailed }: { host: EngineHost; onFailed: (
         referrerPolicy="no-referrer"
         style={{ visibility: status === "ready" ? "visible" : "hidden" }}
       />
+    </div>
+  );
+}
+
+/** The wait while the editor starts: after a few seconds it says why it takes a while, and after
+ *  half a minute it offers a way out. */
+function OpeningNote({ name, tabId }: { name: string; tabId: string }) {
+  const [slow, setSlow] = useState(0);
+  useEffect(() => {
+    const a = window.setTimeout(() => setSlow(1), 4000);
+    const b = window.setTimeout(() => setSlow(2), 30000);
+    return () => {
+      window.clearTimeout(a);
+      window.clearTimeout(b);
+    };
+  }, []);
+  return (
+    <div className="center-note office-loading" role="status">
+      <div className="spinner" />
+      <div>Opening {name}…</div>
+      {slow > 0 && <div className="help">The editor is getting ready. Spreadsheets and large files take a little longer the first time.</div>}
+      {slow > 1 && (
+        <div className="acts">
+          <button className="btn subtle" onClick={() => void closeTab(tabId)}>Stop and close</button>
+        </div>
+      )}
     </div>
   );
 }

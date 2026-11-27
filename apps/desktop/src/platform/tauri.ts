@@ -199,6 +199,7 @@ export function createTauriPlatform(): Platform {
     recoveryClear: (id) => invoke("recovery_clear", { id }),
     reveal: (path) => invoke("reveal_in_folder", { path }),
     rename: (path, name) => invoke<string>("rename_file", { path, name }),
+    createFolder: (path) => invoke<boolean>("create_folder", { path }),
     openExternal: (target) => invoke("open_external", { target }),
     setTitle: (title) => win.setTitle(title),
     setFullscreen: (on) => win.setFullscreen(on),

@@ -1,4 +1,5 @@
-import { FileText, FileCode2, Sheet, FileType2, FileImage, File, Presentation, FileSpreadsheet, NotebookText, FileVideo, FileArchive } from "lucide-react";
+import { FileText, FileCode2, Sheet, FileType2, FileImage, File, Presentation, FileSpreadsheet, NotebookText, FileVideo, FileAudio, FileArchive } from "lucide-react";
+import { VIDEO } from "../lib/formats";
 import type { Kind } from "../lib/formats";
 import { extname } from "../lib/paths";
 
@@ -15,7 +16,7 @@ export function KindIcon({ kind, name, className }: { kind: Kind; name?: string;
     case "xlsx": return <FileSpreadsheet {...p} />;
     case "pptx": return <Presentation {...p} />;
     case "image": return <FileImage {...p} />;
-    case "media": return <FileVideo {...p} />;
+    case "media": return name && !VIDEO.has(extname(name)) ? <FileAudio {...p} /> : <FileVideo {...p} />;
     case "archive": return <FileArchive {...p} />;
     case "binary": return <File {...p} />;
     default:

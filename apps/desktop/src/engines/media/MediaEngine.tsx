@@ -4,6 +4,7 @@ import type { EngineHost } from "../../app/editor-api";
 import { platform } from "../../platform";
 import { extname } from "../../lib/paths";
 import { VIDEO } from "../../lib/formats";
+import { ErrorState } from "../../shell/ErrorState";
 
 const MIME: Record<string, string> = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp", ico: "image/x-icon", avif: "image/avif", svg: "image/svg+xml",
@@ -28,6 +29,7 @@ export default function MediaEngine({ host }: { host: EngineHost }) {
   const isMedia = host.kind === "media";
   const url = useMemo(() => (isImage || isMedia ? URL.createObjectURL(new Blob([host.bytes.slice()], { type: MIME[extname(host.name)] ?? "application/octet-stream" })) : ""), [host, isImage, isMedia]);
   const [unplayable, setUnplayable] = useState(false);
+  const [broken, setBroken] = useState(false);
   const [zoom, setZoom] = useState<number | "fit">("fit");
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   useEffect(() => () => URL.revokeObjectURL(url), [url]);
@@ -49,7 +51,7 @@ export default function MediaEngine({ host }: { host: EngineHost }) {
         : [],
     );
     host.setStatus([
-      { id: "size", text: `${(host.bytes.length / 1024).toFixed(1)} KB` },
+      { id: "size", text: host.bytes.length < 1024 ? `${host.bytes.length} bytes` : host.bytes.length < 1048576 ? `${(host.bytes.length / 1024).toFixed(1)} KB` : `${(host.bytes.length / 1048576).toFixed(1)} MB` },
       ...(size ? [{ id: "dim", text: `${size.w} × ${size.h} px` }] : []),
       ...(isImage ? [{ id: "zoom", text: zoom === "fit" ? "Fit" : `${Math.round(zoom * 100)}%`, align: "right" as const }] : []),
     ]);
@@ -83,6 +85,8 @@ export default function MediaEngine({ host }: { host: EngineHost }) {
     );
   }
 
+  if (isImage && broken)
+    return <ErrorState tabId={host.tabId} path={host.path} title={`${host.name} can't be shown`} message={host.bytes.length ? "The picture is damaged or stored in a format this viewer doesn't support." : "This file is empty."} />;
   if (isImage)
     return (
       <div className="image-view">
@@ -90,6 +94,7 @@ export default function MediaEngine({ host }: { host: EngineHost }) {
           src={url}
           alt={host.name}
           onLoad={(e) => setSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+          onError={() => setBroken(true)}
           style={zoom === "fit" ? { maxWidth: "100%", maxHeight: "100%" } : { width: (size?.w ?? 0) * zoom }}
         />
       </div>

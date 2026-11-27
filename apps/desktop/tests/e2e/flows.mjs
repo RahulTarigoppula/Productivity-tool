@@ -798,12 +798,34 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     await open("/work/bundle.zip");
     await waitFor(() => page.locator(`${pane} .archive-open`, { hasText: "plan.md" }).isVisible(), 5000, "file list");
     assert(await page.locator(`${pane} .archive-open .folder`, { hasText: "docs/" }).isVisible(), "folder not shown");
+    // Extract all: into a new folder named after the archive, never into an existing one.
+    for (const folder of ["bundle", "bundle (2)"]) {
+      await page.evaluate(() => window.__fs.queuePick(["/out"]));
+      await page.locator(".toolbar button", { hasText: "Extract all" }).click();
+      await waitFor(() => page.locator(".toast", { hasText: `Extracted 2 files to the \u201c${folder}\u201d folder` }).isVisible(), 5000, `extracted to ${folder}`);
+      assert(await page.evaluate((f) => window.__fs.readText(`/out/${f}/docs/plan.md`), folder), `docs/plan.md not in /out/${folder}`);
+      assert(await page.evaluate((f) => window.__fs.readText(`/out/${f}/data.csv`), folder), `data.csv not in /out/${folder}`);
+    }
     await page.locator(`${pane} .archive-open`, { hasText: "plan.md" }).click();
     await waitFor(async () => (await activeTab())?.name === "plan.md", 5000, "plan.md opened");
     await page.waitForSelector(`${pane} .cm-content`);
     await page.evaluate(() => window.__fs.write("/work/broken.zip", new TextEncoder().encode("PK not really an archive")));
     await open("/work/broken.zip");
     await waitFor(() => page.locator(pane, { hasText: "broken.zip can't be opened" }).isVisible(), 5000, "explanation");
+    assert(await page.locator(pane, { hasText: /This file is damaged/ }).isVisible(), "the reason is not in plain words");
+    assert(await page.locator(`${pane} button`, { hasText: "Close" }).isVisible(), "no way forward from the error");
+  });
+
+  await check("U-18", "empty and damaged files explain themselves: an empty Word file opens blank, an empty PDF and a broken picture say so", async () => {
+    const pane = "section.doc-pane:not([hidden])";
+    await page.evaluate(() => { window.__fs.write("/work/new.docx", new Uint8Array(0)); window.__fs.write("/work/nothing.pdf", new Uint8Array(0)); window.__fs.write("/work/broken.png", new TextEncoder().encode("not a picture")); });
+    await open("/work/new.docx");
+    await waitFor(async () => (await activeTab())?.kind === "docx", 5000, "an empty .docx opened as a Word document");
+    await open("/work/nothing.pdf");
+    await waitFor(() => page.locator(pane, { hasText: "This PDF is empty" }).isVisible(), 5000, "empty PDF explained");
+    await open("/work/broken.png");
+    await waitFor(() => page.locator(pane, { hasText: "broken.png can't be shown" }).isVisible(), 5000, "broken picture explained");
+    for (const n of ["new.docx", "nothing.pdf", "broken.png"]) await page.evaluate((n) => { const s = window.__app.getState(); const t = s.tabs.find((x) => x.name === n); if (t) window.__app.closeTab?.(t.id, { discard: true }); }, n);
   });
 
   await check("U-14", "export never replaces the file it comes from; a note full of unmatched marks opens quickly as plain text", async () => {
@@ -1359,7 +1381,7 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     await waitFor(() => page.locator(".home").isVisible(), 3000, "the home screen");
     await waitFor(() => page.evaluate(() => !!document.activeElement?.matches(".create-card")), 2000, "the keyboard on the first Create card");
     assert((await page.locator(".statusbar").innerText()).trim() === "", "the status bar has text with no file open");
-    assert((await page.locator(".search-kbd").getAttribute("aria-label")) === "Search files and commands, Ctrl K", "the home search button's name");
+    assert((await page.locator(".search-kbd").getAttribute("aria-label")) === "Search files and commands, Ctrl+K", "the home search button's name");
   });
 
   await check("A-5", "home: recent files are a list of real buttons; Pin and Remove show on focus; the time lines up at the right", async () => {

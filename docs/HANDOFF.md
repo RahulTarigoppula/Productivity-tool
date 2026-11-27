@@ -78,7 +78,7 @@ The app is one window with tabs. Four things are always there: **tabs** at the t
 
 ### Export and print
 - **Ctrl+E** lists what people usually want first (a note: Word, then a formatted PDF; a table: Excel) and the rest under **More formats**, with a **Text only** label where formatting is lost. Notes become **Word documents** and tables become **Excel workbooks**: numbers, prices like 1.10, percentages and dates stay numbers that look exactly as typed; IDs with leading zeros and barcodes stay text. **Word → Markdown** keeps headings, bold/italic, links, numbered and nested lists, tables, quotes, code and footnotes. **PDF → Word / Markdown** rebuilds paragraphs, headings, lists, bold, italic and links from the page (running headers and page numbers are dropped; scanned PDFs have no text to convert). All offline; the original file is never changed, and the message says where the new file went.
-- **Print or save as a formatted PDF** opens the print window (choose *Save as PDF*).
+- **Print, or save as a PDF just as printed** opens the print window (choose *Save as PDF*).
 
 ### Safety nets
 - **Version history**: click *Saved* in the status bar to see earlier versions of a file and restore one.

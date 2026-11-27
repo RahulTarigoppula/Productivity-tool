@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { NotebookText, FileCode2, Sheet, FolderOpen, FileSearch, Pin, PinOff, X, FileType, FileSpreadsheet, Presentation, Search, Clock, Sparkles } from "lucide-react";
 import { platform } from "../platform";
-import { useStore, getState } from "../app/store";
-import { newFile, newOfficeFile, pickAndOpen, openFolder, openPath, togglePin, removeRecent } from "../app/actions";
+import { useStore } from "../app/store";
+import { newFile, newOfficeFile, pickAndOpen, openFolder, openPath, togglePin, removeRecent, takeLastTabClosed } from "../app/actions";
 import { basename, dirname, samePath } from "../lib/paths";
 import { rank } from "../lib/fuzzy";
 import { KindIcon } from "./icons";
@@ -62,7 +62,7 @@ export function Home() {
   useEffect(() => {
     const t = window.setTimeout(() => {
       const a = document.activeElement;
-      if (getState().ready && (!a || a === document.body)) firstCard.current?.focus();
+      if (takeLastTabClosed() && (!a || a === document.body)) firstCard.current?.focus();
     }, 0);
     return () => window.clearTimeout(t);
   }, []);
@@ -105,7 +105,7 @@ export function Home() {
             }}
             aria-label="Find a recent file"
           />
-          <button className="kbd keys-only search-kbd" onClick={() => openPalette("")} title="Search files and commands" aria-label="Search files and commands, Ctrl K" aria-keyshortcuts="Control+K">Ctrl K</button>
+          <button className="kbd keys-only search-kbd" onClick={() => openPalette("")} title="Search files and commands" aria-label="Search files and commands, Ctrl+K" aria-keyshortcuts="Control+K">Ctrl+K</button>
         </div>
 
         <h2>Create</h2>
@@ -123,7 +123,7 @@ export function Home() {
           <button className="open-btn" onClick={() => void pickAndOpen()}>
             <FileSearch />
             <span className="t">Open a file</span>
-            <span className="kbd keys-only">Ctrl O</span>
+            <span className="kbd keys-only">Ctrl+O</span>
           </button>
           {platform.folders && (
             <button className="open-btn" onClick={() => void openFolder()}>

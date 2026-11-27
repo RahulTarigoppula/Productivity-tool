@@ -175,6 +175,11 @@ export function createBrowserPlatform(): Platform {
       recovery.delete(id);
     },
     async reveal() {},
+    async createFolder(path) {
+      // Folders are implied by file paths here; "new" unless some file already lives inside.
+      const prefix = path.replace(/\/+$/, "") + "/";
+      return ![...files.keys()].some((k) => k.startsWith(prefix));
+    },
     async rename(path, name) {
       name = name.trim();
       if (!name || /[\\/:*?"<>|\u0000-\u001f]/.test(name) || /\.$/.test(name)) throw new Error("A file name cannot contain / \\ : * ? \" < > | or end with a dot.");

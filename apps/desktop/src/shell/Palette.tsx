@@ -35,12 +35,15 @@ export function pathMatcher(paths: string[]): (p: string) => boolean {
 
 function Hl({ text, match }: { text: string; match?: Match }) {
   if (!match?.positions.length) return <>{text}</>;
+  // Positions count UTF-16 units; characters are walked whole (an emoji is two units).
   const set = new Set(match.positions);
-  return (
-    <>
-      {[...text].map((ch, i) => (set.has(i) ? <mark key={i}>{ch}</mark> : <span key={i}>{ch}</span>))}
-    </>
-  );
+  const parts: React.ReactNode[] = [];
+  let i = 0;
+  for (const ch of text) {
+    parts.push(set.has(i) ? <mark key={i}>{ch}</mark> : <span key={i}>{ch}</span>);
+    i += ch.length;
+  }
+  return <>{parts}</>;
 }
 
 let workspaceFiles: { root: string; files: string[] } | null = null;
@@ -368,3 +371,5 @@ export function Palette() {
 export function invalidateWorkspaceFiles() {
   workspaceFiles = null;
 }
+// A file renamed or saved under a new name: the folder's list is read again next time.
+window.addEventListener("app:files-changed", invalidateWorkspaceFiles);

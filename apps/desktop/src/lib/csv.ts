@@ -1,5 +1,6 @@
 /** CSV/TSV model that preserves the original file exactly.
  *  Every row keeps its original text; only rows that were edited are re-serialised. */
+import { parseAmount } from "./numfmt";
 import { decodeTextRaw, encodeText, type TextFormat } from "./textcodec";
 
 export interface CsvRow {
@@ -205,10 +206,11 @@ export function deleteColumn(rows: CsvRow[], at: number): CsvRow[] {
   });
 }
 
-/** Compare two cell values the way people expect: numbers numerically, otherwise naturally. */
-export function compareCells(a: string, b: string): number {
-  const na = Number(a.replace(/,/g, "")), nb = Number(b.replace(/,/g, ""));
-  const aNum = a.trim() !== "" && !isNaN(na), bNum = b.trim() !== "" && !isNaN(nb);
+/** Compare two cell values the way people expect: numbers and amounts ($1,200.50) numerically,
+ *  otherwise naturally. */
+export function compareCells(a: string, b: string, decimalComma = false): number {
+  const na = parseAmount(a, decimalComma), nb = parseAmount(b, decimalComma);
+  const aNum = na !== null, bNum = nb !== null;
   if (aNum && bNum) return na - nb;
   if (aNum !== bNum) return aNum ? -1 : 1;
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });

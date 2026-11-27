@@ -3,7 +3,7 @@
  *  blocks, tables, dividers and footnotes. Images become placeholders that keep their description.
  *  Page layout, fonts, colours, headers and footers, comments and tracked deletions are left out. */
 import { marked, type Token } from "marked";
-import { openZip } from "../engines/office/ooxml";
+import { openZip, readPart } from "../engines/office/ooxml";
 
 const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
@@ -16,6 +16,7 @@ const PKG = "http://schemas.openxmlformats.org/package/2006/relationships";
 // ---------- small XML helpers ----------
 
 const kids = (el: Element) => Array.from(el.children);
+const MAX_TABLE_COLS = 200;
 const isW = (el: Element, name: string) => el.namespaceURI === W && el.localName === name;
 const child = (el: Element | null | undefined, name: string): Element | null => (el ? kids(el).find((c) => isW(c, name)) ?? null : null);
 const wAttr = (el: Element | null | undefined, name: string): string | null => (el && el.hasAttributeNS(W, name) ? el.getAttributeNS(W, name) : null);
@@ -269,7 +270,7 @@ function escapeLineStart(line: string): string {
 }
 
 function codeSpan(t: string): string {
-  const longest = Math.max(0, ...(t.match(/`+/g) ?? []).map((r) => r.length));
+  const longest = (t.match(/`+/g) ?? []).reduce((n, r) => Math.max(n, r.length), 0);
   const fence = "`".repeat(longest + 1);
   const pad = /^`|`$/.test(t) || (/^ /.test(t) && / $/.test(t)) ? " " : "";
   return fence + pad + t + pad + fence;
@@ -562,7 +563,21 @@ class Converter {
 
   /** A picture becomes a placeholder with its description; a text box's text follows the paragraph. */
   private drawing(d: Element, out: Seg[], fmt: Fmt): void {
-    const boxes = Array.from(d.getElementsByTagNameNS(W, "txbxContent"));
+    // Only the outermost text boxes, and only one copy of each (Word stores a box twice, as a
+    // Choice and a Fallback): a box inside a box is reached when its outer box is read. Taking
+    // every nested box here repeated their text, doubling with each level.
+    const boxes: Element[] = [];
+    const find = (el: Element, depth: number) => {
+      if (depth > 64) return;
+      for (const c of kids(el)) {
+        if (c.localName === "AlternateContent") {
+          const pick = pickAlternate(c);
+          if (pick) find(pick, depth + 1);
+        } else if (c.localName === "txbxContent" && c.namespaceURI === W) boxes.push(c);
+        else find(c, depth + 1);
+      }
+    };
+    find(d, 0);
     this.extra.push(...boxes);
     const picture = d.getElementsByTagNameNS(A, "blip").length > 0 || d.getElementsByTagNameNS("urn:schemas-microsoft-com:vml", "imagedata").length > 0;
     const chart = Array.from(d.getElementsByTagNameNS(A, "graphicData")).some((g) => /chart/.test(g.getAttribute("uri") ?? ""));
@@ -680,6 +695,8 @@ class Converter {
     trs.forEach((tr, ri) => {
       const row: string[] = [];
       for (const tc of cellsOf(tr)) {
+        // A table wider than this is not readable as Markdown; the rest of the row is left out.
+        if (row.length >= MAX_TABLE_COLS) break;
         const tcPr = child(tc, "tcPr");
         const span = Math.max(1, Math.min(64, Number(wAttr(child(tcPr, "gridSpan"), "val") ?? 1) || 1));
         const vm = child(tcPr, "vMerge");
@@ -688,12 +705,13 @@ class Converter {
           const jc = wAttr(child(child(child(tc, "p"), "pPr"), "jc"), "val") ?? "";
           align[row.length] = /center/.test(jc) ? ":---:" : /right|end/.test(jc) ? "---:" : "---";
         }
-        row.push(merged ? "" : this.cell(tc, ri === 0), ...Array.from({ length: span - 1 }, () => ""));
+        row.push(merged ? "" : this.cell(tc, ri === 0));
+        for (let k = 1; k < span && row.length < MAX_TABLE_COLS; k++) row.push("");
       }
       rows.push(row);
     });
     if (!rows.length) return "";
-    const cols = Math.max(1, ...rows.map((r) => r.length));
+    const cols = rows.reduce((n, r) => Math.max(n, r.length), 1);
     const line = (r: string[]) => `| ${Array.from({ length: cols }, (_, i) => r[i] || " ").join(" | ")} |`;
     return [line(rows[0]), `| ${Array.from({ length: cols }, (_, i) => align[i] ?? "---").join(" | ")} |`, ...rows.slice(1).map(line)].join("\n");
   }
@@ -748,7 +766,7 @@ class Converter {
     const render = (b: Block): string => {
       if (b.kind === "code") {
         while (b.lines.length && !b.lines[b.lines.length - 1].trim()) b.lines.pop();
-        const longest = Math.max(0, ...b.lines.map((l) => /^\s*(`+)/.exec(l)?.[1].length ?? 0));
+        const longest = b.lines.reduce((n, l) => Math.max(n, /^\s*(`+)/.exec(l)?.[1].length ?? 0), 0);
         const fence = "`".repeat(Math.max(3, longest + 1));
         return `${fence}\n${b.lines.join("\n")}\n${fence}`;
       }
@@ -780,7 +798,7 @@ function stripLeading(segs: Seg[], count: number): void {
 
 async function relsOf(zip: Awaited<ReturnType<typeof openZip>>, file: string): Promise<Map<string, string>> {
   const out = new Map<string, string>();
-  const xml = await zip.file(file)?.async("string");
+  const xml = await readPart(zip, file);
   if (!xml) return out;
   for (const r of Array.from(parse(xml).getElementsByTagNameNS(PKG, "Relationship"))) out.set(r.getAttribute("Id") ?? "", r.getAttribute("Target") ?? "");
   return out;
@@ -788,12 +806,12 @@ async function relsOf(zip: Awaited<ReturnType<typeof openZip>>, file: string): P
 
 export async function docxToMarkdown(bytes: Uint8Array): Promise<string> {
   const zip = await openZip(bytes);
-  const xml = await zip.file("word/document.xml")?.async("string");
+  const xml = await readPart(zip, "word/document.xml");
   if (!xml) throw new Error("This does not look like a Word document.");
   const doc = parse(xml);
   if (doc.getElementsByTagName("parsererror").length) throw new Error("This Word document is damaged and could not be read.");
   const read = async (name: string) => {
-    const x = await zip.file(name)?.async("string");
+    const x = await readPart(zip, name);
     return x ? parse(x) : null;
   };
   const styles = new Styles(await read("word/styles.xml"));

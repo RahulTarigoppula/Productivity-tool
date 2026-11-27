@@ -47,6 +47,19 @@ export function App() {
   const focusMode = useStore((s) => s.focusMode);
   const [dragOver, setDragOver] = useState(false);
 
+  // When the window becomes narrow (a small window, or zoomed to 200%), the side panels close so
+  // the document keeps its room; they can be opened again, and then float over the document.
+  useEffect(() => {
+    let wide = window.innerWidth >= 800;
+    const onResize = () => {
+      const now = window.innerWidth >= 800;
+      if (wide && !now) setState({ leftOpen: false, rightOpen: false });
+      wide = now;
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   useEffect(() => {
     void startup();
     const offKeys = installKeys();
@@ -127,7 +140,7 @@ export function App() {
           <button className="btn sm focus-exit" onClick={toggleFocusMode}>Exit focus mode</button>
         </div>
       )}
-      <Boundary name="command palette" variant="silent"><Palette /></Boundary>
+      <Boundary name="command palette" variant="silent" onGiveUp={() => setState({ palette: { open: false, query: "" } })}><Palette /></Boundary>
       <Boundary name="dialog" variant="silent"><Dialogs /></Boundary>
       {/* Questions such as "Save changes?" have their own boundary: other dialogs failing never blocks them. */}
       <Boundary name="question" variant="silent"><ConfirmDialog /></Boundary>

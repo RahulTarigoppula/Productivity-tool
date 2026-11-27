@@ -1,6 +1,7 @@
 import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ArrowUpNarrowWide, ArrowDownWideNarrow, Trash2, Filter, Heading, FileText, X, BetweenHorizontalStart, BetweenHorizontalEnd, BetweenVerticalStart, BetweenVerticalEnd } from "lucide-react";
 import type { EngineHost, Command } from "../../app/editor-api";
+import { parseAmount } from "../../lib/numfmt";
 import { loadCsv, saveCsv, serializeCsv, columnCount, setCell, emptyRow, insertColumn, deleteColumn, compareCells, looksLikeHeader, type CsvDoc, type CsvRow } from "../../lib/csv";
 import { describeFormat, canEncode } from "../../lib/textcodec";
 import { extname } from "../../lib/paths";
@@ -376,7 +377,7 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
       body.sort((a, b) => {
         const x = (a.r.cells[c] ?? "").trim(), y = (b.r.cells[c] ?? "").trim();
         if (!x !== !y) return x ? -1 : 1;
-        return dir * compareCells(a.r.cells[c] ?? "", b.r.cells[c] ?? "") || a.i - b.i;
+        return dir * compareCells(a.r.cells[c] ?? "", b.r.cells[c] ?? "", decimalComma) || a.i - b.i;
       });
       setRows([...head, ...body.map((x) => x.r)]);
     },
@@ -468,6 +469,8 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
     e.preventDefault();
   };
 
+  // Files separated by ";" usually write decimals with a comma (1.234,50), as in much of Europe.
+  const decimalComma = docRef.current.delimiter === ";";
   // Selection statistics for the status bar.
   const stats = useMemo(() => {
     const { r1, r2, c1, c2 } = norm(sel);
@@ -481,8 +484,8 @@ export default function CsvEngine({ host }: { host: EngineHost }) {
         count++;
         // IDs with leading zeros (ZIP codes, item numbers) and long digit strings are labels, not amounts.
         if (/^0\d/.test(v) || /\d{16,}/.test(v)) continue;
-        const n = Number(v.replace(/,/g, ""));
-        if (!isNaN(n)) { nums++; sum += n; }
+        const n = parseAmount(v, decimalComma);
+        if (n !== null) { nums++; sum += n; }
       }
     }
     return { count, nums, sum, cells: (r2 - r1 + 1) * (c2 - c1 + 1) };

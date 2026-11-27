@@ -87,3 +87,10 @@ describe("CSV editing keeps untouched rows identical", () => {
     expect(again.rows[2].cells[1]).toBe("b\n");
   });
 });
+
+describe("sorting amounts", () => {
+  it("sorts money and grouped numbers by value", () => {
+    expect(["$1,200.50", "$300.00", "$45.10", "$12,000.00"].sort((a, b) => compareCells(a, b))).toEqual(["$45.10", "$300.00", "$1,200.50", "$12,000.00"]);
+    expect(["2,50", "10,5", "1.234,00"].sort((a, b) => compareCells(a, b, true))).toEqual(["2,50", "10,5", "1.234,00"]);
+  });
+});

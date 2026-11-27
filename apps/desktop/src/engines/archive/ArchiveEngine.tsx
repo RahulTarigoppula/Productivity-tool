@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FolderOpen, Download, FolderOutput } from "lucide-react";
-import type JSZip from "jszip";
+import JSZip from "jszip";
 import type { EngineHost } from "../../app/editor-api";
-import { openZip } from "../office/ooxml";
+import { readPartBytes } from "../office/ooxml";
 import { openBytes } from "../../app/actions";
 import { platform } from "../../platform";
 import { basename, join, stem } from "../../lib/paths";
@@ -15,6 +15,9 @@ const MAX_ENTRY = 300 * 1024 * 1024;
 /** Archives that would unpack to more than this are not extracted in one go. */
 const MAX_TOTAL = 4 * 1024 * 1024 * 1024;
 const EXTRACT = "\u0000extract";
+/** Each row's height, and where the list starts below the column names (see app.css). */
+const ROW_H = 38;
+const LIST_TOP = 46;
 
 interface Entry {
   path: string;
@@ -31,10 +34,21 @@ export default function ArchiveEngine({ host }: { host: EngineHost }) {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState({ top: 0, height: 800 });
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setView({ top: el.scrollTop - LIST_TOP, height: el.clientHeight }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [zip]);
 
   useEffect(() => {
     let live = true;
-    openZip(host.bytes)
+    // Only the list is read here; each file is unpacked (with a hard size limit) when asked for,
+    // so a large archive opens however much it would unpack to.
+    JSZip.loadAsync(host.bytes)
       .then((z) => live && setZip(z))
       .catch((e) => live && setErr(e instanceof Error ? e.message : String(e)));
     return () => {
@@ -72,7 +86,7 @@ export default function ArchiveEngine({ host }: { host: EngineHost }) {
     }
     setBusy(e.path);
     try {
-      return await zip!.file(e.path)!.async("uint8array");
+      return (await readPartBytes(zip!, e.path, MAX_ENTRY)) ?? new Uint8Array();
     } catch (x) {
       // Encrypted entries and damaged data end up here.
       host.toast(`${basename(e.path)} could not be unpacked: ${x instanceof Error ? x.message : x}`, "error");
@@ -119,7 +133,7 @@ export default function ArchiveEngine({ host }: { host: EngineHost }) {
           }
         }
         setProgress(`Extracting ${done + skipped + 1} of ${entries.length}…`);
-        const bytes = await zip!.file(e.path)!.async("uint8array").catch(() => null);
+        const bytes = await readPartBytes(zip!, e.path, MAX_ENTRY).catch(() => null);
         if (!bytes) {
           skipped++;
           continue;
@@ -154,14 +168,23 @@ export default function ArchiveEngine({ host }: { host: EngineHost }) {
   if (err) return <ErrorState tabId={host.tabId} path={host.path} title={`${host.name} can't be opened`} message={err} />;
   if (!zip) return <div className="center-note"><div className="spinner" /></div>;
   if (!entries.length) return <div className="center-note"><FolderOpen size={28} /><h3>This archive is empty</h3></div>;
+  // Only the rows in view are drawn: an archive can hold a hundred thousand files.
+  const firstRow = Math.max(0, Math.floor(view.top / ROW_H) - 20);
+  const lastRow = Math.min(entries.length, Math.ceil((view.top + view.height) / ROW_H) + 20);
   return (
-    <div className="archive">
-      <ul className="archive-list" aria-label={`Files in ${host.name}`}>
-        {entries.map((e) => {
+    <div className="archive" ref={scrollRef} onScroll={(e) => setView({ top: e.currentTarget.scrollTop - LIST_TOP, height: e.currentTarget.clientHeight })}>
+      <div className="archive-head" aria-hidden="true">
+        <span>Name</span>
+        <span>Size</span>
+        <span className="date">Modified</span>
+      </div>
+      <ul className="archive-list" aria-label={`Files in ${host.name}`} style={{ height: entries.length * ROW_H }}>
+        {entries.slice(firstRow, lastRow).map((e, k) => {
+          const i = firstRow + k;
           const slash = e.path.lastIndexOf("/");
           const folder = slash >= 0 ? e.path.slice(0, slash + 1) : "";
           return (
-            <li key={e.path} className="archive-row">
+            <li key={e.path} className="archive-row" style={{ top: i * ROW_H }} aria-setsize={entries.length} aria-posinset={i + 1}>
               <button className="archive-open" onClick={() => void open(e)} disabled={busy === e.path} title={`Open ${e.path}`}>
                 <KindIcon kind={kindFromName(e.path)} name={e.path} />
                 <span className="name">

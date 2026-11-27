@@ -375,10 +375,16 @@ fn rename_file(path: String, name: String, state: tauri::State<'_, AppState>) ->
         return Err("The file was not found. It may have been moved or deleted.".into());
     }
     let to = from.with_file_name(name);
-    // Changing only the case of letters is the same file on Windows.
-    let same_file = to.to_string_lossy().to_lowercase() == from.to_string_lossy().to_lowercase();
-    if to.exists() && !same_file {
-        return Err(format!("There is already a file named {name} in this folder."));
+    // Changing only the case of letters names the same file on Windows; on a case-sensitive disk
+    // the other name can be a different file, which is never replaced.
+    if to.exists() {
+        let same_file = match (std::fs::canonicalize(&from), std::fs::canonicalize(&to)) {
+            (Ok(a), Ok(b)) => a == b,
+            _ => false,
+        };
+        if !same_file {
+            return Err(format!("There is already a file named {name} in this folder."));
+        }
     }
     std::fs::rename(&from, &to).map_err(|e| format!("The file could not be renamed: {e}"))?;
     let to = to.to_string_lossy().to_string();

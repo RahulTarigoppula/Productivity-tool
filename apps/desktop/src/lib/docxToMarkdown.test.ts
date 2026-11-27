@@ -170,4 +170,31 @@ The end.
     zip.file("hello.txt", "hi");
     await expect(docxToMarkdown(await zip.generateAsync({ type: "uint8array" }))).rejects.toThrow(/Word document/);
   });
+
+  it("nested text boxes are read once each, however deep (Choice and Fallback copies too)", async () => {
+    // A text box as Word stores it: the same box as a Choice (DrawingML) and a Fallback copy.
+    const box = (inner: string) =>
+      `<w:r><mc:AlternateContent><mc:Choice Requires="wps"><w:drawing><wps:txbx><w:txbxContent>${inner}</w:txbxContent></wps:txbx></w:drawing></mc:Choice>` +
+      `<mc:Fallback><w:pict><w:txbxContent>${inner}</w:txbxContent></w:pict></mc:Fallback></mc:AlternateContent></w:r>`;
+    const twice = await docxToMarkdown(await docx(p(r("outer ") + box(p(r("mid ") + box(p(r("INNER"))))))));
+    expect(twice.match(/INNER/g)?.length).toBe(1);
+    // Twenty levels deep (one copy each): this used to repeat the inner text 2^20 times.
+    const one = (inner: string) => `<w:r><w:drawing><wps:txbx><w:txbxContent>${inner}</w:txbxContent></wps:txbx></w:drawing></w:r>`;
+    let inner = p(r("INNER"));
+    for (let i = 0; i < 20; i++) inner = p(r(`L${i} `) + one(inner));
+    const t0 = Date.now();
+    const md = await docxToMarkdown(await docx(inner));
+    expect(Date.now() - t0).toBeLessThan(3000);
+    expect(md.match(/INNER/g)?.length).toBe(1);
+  });
+
+  it("a very wide table is cut to a readable width instead of exhausting memory", async () => {
+    const wide = `<w:tc><w:tcPr><w:gridSpan w:val="64"/></w:tcPr>${p(r("x"))}</w:tc>`.repeat(2000);
+    const row = (c: string) => `<w:tr>${c}</w:tr>`;
+    const body = `<w:tbl>${row(wide)}${row(`<w:tc>${p(r("y"))}</w:tc>`).repeat(300)}</w:tbl>`;
+    const md = await docxToMarkdown(await docx(body));
+    const first = md.split("\n").find((l) => l.startsWith("|"))!;
+    expect(first.split("|").length - 2).toBeLessThanOrEqual(200);
+  });
 });
+

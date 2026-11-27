@@ -22,6 +22,12 @@ const parse = (xml: string) => new DOMParser().parseFromString(xml, "application
 /** A part's text, unpacked with a hard limit on what it really inflates to: a crafted file can
  *  declare small sizes and still unpack to gigabytes. */
 export async function readPart(zip: JSZip, path: string, maxBytes = 200 * 1024 * 1024): Promise<string | undefined> {
+  const bytes = await readPartBytes(zip, path, maxBytes);
+  return bytes && new TextDecoder().decode(bytes);
+}
+
+/** A part's bytes, with the same hard limit on what it really inflates to. */
+export async function readPartBytes(zip: JSZip, path: string, maxBytes = 200 * 1024 * 1024): Promise<Uint8Array | undefined> {
   const f = zip.file(path);
   if (!f) return undefined;
   const chunks: Uint8Array[] = [];
@@ -47,7 +53,7 @@ export async function readPart(zip: JSZip, path: string, maxBytes = 200 * 1024 *
   const all = new Uint8Array(total);
   let at = 0;
   for (const c of chunks) (all.set(c, at), (at += c.length));
-  return new TextDecoder().decode(all);
+  return all;
 }
 const byTag = (el: Document | Element, ns: string, tag: string) => Array.from(el.getElementsByTagNameNS(ns, tag));
 
@@ -63,7 +69,7 @@ const NS = {
 async function rels(zip: JSZip, path: string): Promise<Map<string, string>> {
   const dir = path.slice(0, path.lastIndexOf("/") + 1);
   const file = `${dir}_rels/${path.slice(dir.length)}.rels`;
-  const xml = await zip.file(file)?.async("string");
+  const xml = await readPart(zip, file);
   const out = new Map<string, string>();
   if (!xml) return out;
   for (const r of byTag(parse(xml), NS.pkgRel, "Relationship")) {
@@ -124,7 +130,7 @@ function showNumber(v: string, format: string | undefined): string {
 
 export async function readXlsx(bytes: Uint8Array): Promise<SheetData[]> {
   const zip = await openZip(bytes);
-  const wbXml = await zip.file("xl/workbook.xml")?.async("string");
+  const wbXml = await readPart(zip, "xl/workbook.xml");
   if (!wbXml) throw new Error("This does not look like an Excel workbook.");
   const wbRels = await rels(zip, "xl/workbook.xml");
   const shared: string[] = [];
@@ -132,7 +138,7 @@ export async function readXlsx(bytes: Uint8Array): Promise<SheetData[]> {
   if (ssXml) for (const si of byTag(parse(ssXml), NS.main, "si")) shared.push(byTag(si, NS.main, "t").map((t) => t.textContent ?? "").join(""));
   // Number formats by cell style, so dates, prices and percentages read as they are shown.
   const formats: (string | undefined)[] = [];
-  const stylesXml = await zip.file("xl/styles.xml")?.async("string");
+  const stylesXml = await readPart(zip, "xl/styles.xml");
   if (stylesXml) {
     const st = parse(stylesXml);
     const custom = new Map<number, string>();
@@ -218,7 +224,7 @@ function paragraphs(xml: string): string[] {
 
 export async function readPptx(bytes: Uint8Array): Promise<SlideText[]> {
   const zip = await openZip(bytes);
-  const presXml = await zip.file("ppt/presentation.xml")?.async("string");
+  const presXml = await readPart(zip, "ppt/presentation.xml");
   if (!presXml) throw new Error("This does not look like a PowerPoint presentation.");
   const presRels = await rels(zip, "ppt/presentation.xml");
   const out: SlideText[] = [];
@@ -235,7 +241,7 @@ export async function readPptx(bytes: Uint8Array): Promise<SlideText[]> {
     i++;
     const slideRels = await rels(zip, target);
     const notesPath = [...slideRels.values()].find((p) => p.includes("notesSlide"));
-    const notesXml = notesPath ? await zip.file(notesPath)?.async("string") : undefined;
+    const notesXml = notesPath ? await readPart(zip, notesPath) : undefined;
     out.push({ index: i, paragraphs: paragraphs(xml), notes: notesXml ? paragraphs(notesXml).filter((n) => !/^\d+$/.test(n)) : [] });
   }
   return out;
@@ -245,7 +251,7 @@ export async function readPptx(bytes: Uint8Array): Promise<SlideText[]> {
 
 export async function readDocxText(bytes: Uint8Array): Promise<{ style: string; text: string }[]> {
   const zip = await openZip(bytes);
-  const xml = await zip.file("word/document.xml")?.async("string");
+  const xml = await readPart(zip, "word/document.xml");
   if (!xml) throw new Error("This does not look like a Word document.");
   return byTag(parse(xml), NS.w, "p").map((p) => {
     const style = byTag(p, NS.w, "pStyle")[0]?.getAttributeNS(NS.w, "val") ?? "";

@@ -24,6 +24,9 @@ import { openMenu } from "../../shell/Menu";
 import { openPalette } from "../../app/commands";
 
 const LARGE = 5_000_000;
+/** Above this, a note is not parsed as Markdown while typing (re-parsing 1.5 MB on every key made
+ *  typing lag): it is edited as plain text, and its headings are listed from their # marks. */
+const HEAVY_MD = 1_500_000;
 const defaultEol = (): TextFormat["eol"] => (navigator.userAgent.includes("Windows") ? "\r\n" : "\n");
 
 const WORD = /[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu;
@@ -157,11 +160,21 @@ export default function TextEngine({ host }: { host: EngineHost }) {
     const indent = detectIndent(text, getState().settings.tabSize);
     const c = comps.current;
     const s = getState().settings;
-    const mdExt = isMd && !tooDeep ? [markdown({ base: markdownLanguage, codeLanguages: ALL_LANGUAGES })] : [];
+    const heavy = isMd && text.length > HEAVY_MD;
+    const mdExt = isMd && !tooDeep && !heavy ? [markdown({ base: markdownLanguage, codeLanguages: ALL_LANGUAGES })] : [];
 
     const updateOutline = (state: EditorState) => {
       if (!isMd) return;
       const items: OutlineItem[] = [];
+      if (!mdExt.length) {
+        // No syntax tree for a very large note: headings from lines that start with # marks.
+        for (let n = 1; n <= state.doc.lines && items.length < 2000; n++) {
+          const m = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(state.doc.line(n).text);
+          if (m) items.push({ level: m[1].length, text: m[2], loc: String(n) });
+        }
+        host.setOutline(items);
+        return;
+      }
       syntaxTree(state).iterate({
         enter: (n) => {
           const m = /^ATXHeading(\d)$/.exec(n.name) ?? /^SetextHeading(\d)$/.exec(n.name);

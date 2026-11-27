@@ -108,12 +108,16 @@ function FileTree({ workspace, refreshKey }: { workspace: string; refreshKey: nu
       const y = tree.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop + n * ROW_H;
       if (y < scroller.scrollTop) scroller.scrollTop = y;
       else if (y + ROW_H > scroller.scrollTop + scroller.clientHeight) scroller.scrollTop = y + ROW_H - scroller.clientHeight;
+      setWin({ top: scroller.getBoundingClientRect().top - tree.getBoundingClientRect().top, height: scroller.clientHeight });
     }
   };
   useEffect(() => {
     if (!focusAfter.current) return;
+    // The row may only be drawn once the list has scrolled to it: wait for it.
+    const el = treeRef.current?.querySelector<HTMLElement>(`[data-row="${at}"]`);
+    if (!el) return;
     focusAfter.current = false;
-    treeRef.current?.querySelector<HTMLElement>(`[data-row="${at}"]`)?.focus();
+    el.focus();
   });
   const onKey = (e: React.KeyboardEvent) => {
     const r = rows[at];

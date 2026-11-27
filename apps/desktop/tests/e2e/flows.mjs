@@ -1663,6 +1663,83 @@ const activeTab = async () => { const s = await appState(); return s.tabs.find((
     assert(times[times.length >> 1] < 150, `a key takes ${times[times.length >> 1]} ms (median)`);
   });
 
+  await check("A-16", "a flat folder of 20,000 files opens at once, and its tree works with the arrow keys", async () => {
+    const t0 = await page.evaluate(async () => {
+      const b = new TextEncoder().encode("x");
+      for (let i = 0; i < 20000; i++) window.__fs.write(`/flat/file-${String(i).padStart(5, "0")}.md`, b);
+      window.__fs.write("/flat/a-folder/inside.md", b);
+      const t = performance.now();
+      await window.__app.openFolder("/flat");
+      await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+      return performance.now() - t;
+    });
+    await page.waitForSelector('[role="tree"] [role="treeitem"]');
+    const drawn = await page.locator('[role="tree"] [role="treeitem"]').count();
+    assert(drawn < 200, `${drawn} rows drawn for 20,001 entries`);
+    assert(t0 < 1500, `opening the folder took ${Math.round(t0)} ms`);
+    // One Tab stop; Down moves, Right opens a folder, Down goes into it, Left goes back up.
+    assert((await page.locator('[role="treeitem"][tabindex="0"]').count()) === 1, "more than one Tab stop in the tree");
+    await page.locator('[role="treeitem"]', { hasText: "a-folder" }).focus();
+    await page.keyboard.press("ArrowRight");
+    await waitFor(async () => (await page.locator('[role="treeitem"]', { hasText: "a-folder" }).getAttribute("aria-expanded")) === "true", 2000, "folder opened with Right");
+    await page.keyboard.press("ArrowDown");
+    await waitFor(() => page.evaluate(() => document.activeElement?.textContent?.includes("inside.md")), 2000, "Down into the folder");
+    assert((await page.evaluate(() => document.activeElement?.getAttribute("aria-level"))) === "2", "the file inside has no level 2");
+    await page.keyboard.press("ArrowLeft");
+    await waitFor(() => page.evaluate(() => document.activeElement?.textContent?.includes("a-folder")), 2000, "Left back to the folder");
+    await page.keyboard.press("End");
+    await waitFor(() => page.evaluate(() => document.activeElement?.textContent?.includes("file-19999")), 2000, "End reaches the last file");
+    await page.keyboard.press("Enter");
+    await waitFor(async () => (await activeTab())?.name === "file-19999.md", 4000, "Enter opens the file");
+    await page.evaluate(() => window.__app.openFolder("/work"));
+  });
+
+  await check("U-19", "nothing typed is lost: a PDF text box saved straight away, Save As into another format refused, Enter adds a table row, F2 renames from the document", async () => {
+    const pane = "section.doc-pane:not([hidden])";
+    await page.evaluate((b) => window.__fs.write("/work/u19.pdf", new Uint8Array(b)), Array.from(readFileSync(join(corpus, "sample.pdf"))));
+    await open("/work/u19.pdf");
+    await waitFor(async () => (await page.locator(`${pane} .pdfViewer .page canvas:visible`).count()) > 0, 8000, "pages");
+    await page.getByRole("button", { name: "Add text" }).click();
+    const pg = page.locator(`${pane} .pdfViewer .page`).first();
+    const box = await pg.boundingBox();
+    await page.mouse.click(box.x + 120, box.y + 200);
+    await page.waitForTimeout(300);
+    await page.keyboard.type("Signed off by QA");
+    // No click elsewhere first: the text box is still open when saving.
+    await waitFor(async () => (await activeTab())?.dirty, 3000, "unsaved while typing");
+    await page.keyboard.press("Control+s");
+    await waitFor(async () => /\/FreeText/.test(Buffer.from(await fsRead("/work/u19.pdf")).toString("latin1")), 5000, "the text box is in the saved file");
+    await page.getByRole("button", { name: "Select text" }).click();
+
+    await page.evaluate(() => window.__fs.write("/work/u19.md", "# Shopping\n\n- milk"));
+    await open("/work/u19.md");
+    await page.waitForSelector(`${pane} .cm-content`);
+    await page.evaluate(() => window.__fs.queueSave("/work/u19.docx"));
+    await page.keyboard.press("Control+Shift+s");
+    await waitFor(() => page.locator(".toast", { hasText: "use Export" }).isVisible(), 3000, "Save As into .docx refused");
+    assert(!(await fsRead("/work/u19.docx")), "plain text was written into a .docx");
+
+    await page.locator(`${pane} .cm-content`).click();
+    await page.keyboard.press("F2");
+    await waitFor(() => page.locator(".tab-rename").isVisible(), 2000, "F2 from the document opens rename");
+    await page.keyboard.press("Escape");
+
+    await page.evaluate(() => window.__fs.write("/work/u19.csv", "Item,Qty\nApples,3\nPears,4\n"));
+    await open("/work/u19.csv");
+    await page.waitForSelector(`${pane} [role="grid"]`);
+    await page.locator(`${pane} [role="gridcell"]`, { hasText: "Pears" }).click();
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Control+a");
+    await page.keyboard.type("Pears");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Plums");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Control+s");
+    await waitFor(async () => (await page.evaluate(() => window.__fs.readText("/work/u19.csv"))).includes("Pears,4"), 4000, "saved");
+    const csv = await page.evaluate(() => window.__fs.readText("/work/u19.csv"));
+    assert(/Pears,4\r?\nPlums,/.test(csv), `Plums did not go into a new row: ${JSON.stringify(csv)}`);
+  });
+
   await check("A-15", "closing a large table gives its memory back (nothing keeps the closed document alive)", async () => {
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Performance.enable");

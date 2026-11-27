@@ -74,6 +74,36 @@ export function Toolbar() {
     return () => ro.disconnect();
   }, [activeId, toolSet, collapsed, tab?.error, tab?.loading]);
 
+  // One Tab stop for the whole toolbar; the arrow keys, Home and End move between its buttons
+  // (the usual toolbar keys). The stop stays on the button last used.
+  const barRef = useRef<HTMLDivElement>(null);
+  const lastFocused = useRef<string | null>(null);
+  const toolButtons = () =>
+    Array.from(barRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? []).filter((b) => !b.disabled && b.offsetParent !== null);
+  useLayoutEffect(() => {
+    const all = toolButtons();
+    if (!all.length) return;
+    const keep = all.find((b) => b.getAttribute("aria-label") === lastFocused.current) ?? all[0];
+    for (const b of Array.from(barRef.current?.querySelectorAll("button") ?? [])) b.tabIndex = b === keep ? 0 : -1;
+  });
+  const onBarKey = (e: React.KeyboardEvent) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const all = toolButtons();
+    const i = all.indexOf(document.activeElement as HTMLButtonElement);
+    if (i < 0) return;
+    const to = e.key === "ArrowRight" ? (i + 1) % all.length : e.key === "ArrowLeft" ? (i - 1 + all.length) % all.length : e.key === "Home" ? 0 : e.key === "End" ? all.length - 1 : -1;
+    if (to < 0) return;
+    e.preventDefault();
+    for (const b of all) b.tabIndex = -1;
+    all[to].tabIndex = 0;
+    all[to].focus();
+    all[to].scrollIntoView({ block: "nearest", inline: "nearest" });
+  };
+  const onBarFocus = (e: React.FocusEvent) => {
+    const b = (e.target as HTMLElement).closest("button");
+    if (b) lastFocused.current = b.getAttribute("aria-label");
+  };
+
   if (!activeId || !tab) return <div className="toolbar" />;
   // A file that could not be opened has nothing to edit or export.
   if (tab.error || tab.loading) return <div className="toolbar empty" aria-hidden />;
@@ -89,7 +119,7 @@ export function Toolbar() {
   const overflow = items.filter((i) => i.overflow);
 
   return (
-    <div className={`toolbar ${collapsed ? "collapsed" : ""}`} role="toolbar" aria-label={`${tab.name} tools`}>
+    <div className={`toolbar ${collapsed ? "collapsed" : ""}`} role="toolbar" aria-label={`${tab.name} tools`} ref={barRef} onKeyDown={onBarKey} onFocus={onBarFocus}>
       <div
         className={`tools ${edges.left ? "fade-left" : ""} ${edges.right ? "fade-right" : ""}`}
         ref={toolsRef}

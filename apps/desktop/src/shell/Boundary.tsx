@@ -10,6 +10,8 @@ interface Props {
   children: ReactNode;
   /** "inline" for bars and panels; "page" for the whole window. */
   variant?: "inline" | "page" | "silent";
+  /** For silent overlays that keep failing: put things back (close the overlay) before trying once more. */
+  onGiveUp?: () => void;
 }
 
 export class Boundary extends Component<Props, { error: Error | null; key: number }> {
@@ -39,6 +41,12 @@ export class Boundary extends Component<Props, { error: Error | null; key: numbe
     // Overlays (palette, dialogs, menus) have no room for a notice: try again quietly, a few times
     // in a row; a later, unrelated failure starts the count again.
     if (this.props.variant === "silent" && this.failures <= 3) window.setTimeout(this.retry, 400);
+    else if (this.props.variant === "silent" && this.props.onGiveUp) {
+      // Still failing: close it and start afresh, so it opens again next time.
+      this.props.onGiveUp();
+      this.failures = 0;
+      window.setTimeout(this.retry, 400);
+    }
   }
 
   retry = () => this.setState((s) => ({ error: null, key: s.key + 1 }));

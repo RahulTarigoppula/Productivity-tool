@@ -64,4 +64,26 @@ describe("PDF to Markdown", () => {
     d.addPage([595, 842]);
     await expect(pdfToMarkdown(await load(await d.save()))).rejects.toThrow(/no text/);
   });
+
+  it("a bold list number leaves no stray markers; slide titles near the top are kept", async () => {
+    const d = await PDFDocument.create();
+    const reg = await d.embedFont(StandardFonts.Helvetica);
+    const bold = await d.embedFont(StandardFonts.HelveticaBold);
+    const p = d.addPage([595, 842]);
+    p.drawText("Plan", { x: 50, y: 750, size: 11, font: reg });
+    p.drawText("1.", { x: 60, y: 720, size: 11, font: bold });
+    p.drawText("Hire a manager", { x: 75, y: 720, size: 11, font: reg });
+    p.drawText("2.", { x: 60, y: 705, size: 11, font: bold });
+    p.drawText("Open in March", { x: 75, y: 705, size: 11, font: reg });
+    const md = await pdfToMarkdown(await load(await d.save()));
+    expect(md).toContain("1. Hire a manager\n2. Open in March");
+    expect(md).not.toContain("**");
+
+    const slides = await PDFDocument.create();
+    const f = await slides.embedFont(StandardFonts.Helvetica);
+    for (let n = 1; n <= 3; n++) slides.addPage([842, 595]).drawText(`Slide ${n}: Results for region ${n}`, { x: 40, y: 570, size: 20, font: f });
+    const smd = await pdfToMarkdown(await load(await slides.save()));
+    expect(smd).toContain("Results for region 2");
+  });
 });
+

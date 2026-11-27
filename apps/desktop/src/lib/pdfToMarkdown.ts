@@ -151,6 +151,28 @@ function runsToMarkdown(runs: { text: string; bold: boolean; italic: boolean; li
   return out;
 }
 
+/** A list item's text without its number ("1.", "a)"), taken off the pieces before they become
+ *  Markdown, so a number set in bold leaves no stray "**" behind. */
+function withoutMarker(para: Line[], marker: string): string {
+  const [first, ...rest] = para;
+  const pieces = first.pieces.map((p) => ({ ...p }));
+  let left = marker;
+  for (const p of pieces) {
+    if (!left) break;
+    const t = p.text.trimStart();
+    const n = Math.min(t.length, left.length);
+    if (t.slice(0, n) !== left.slice(0, n)) break;
+    p.text = t.slice(n);
+    left = left.slice(n);
+  }
+  const lines = [{ ...first, pieces: pieces.filter((p) => p.text.length) }, ...rest].filter((l) => l.pieces.length);
+  return lines
+    .map((l) => runsToMarkdown(lineRuns(l), false))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export async function pdfToMarkdown(doc: PdfDoc): Promise<string> {
   const pages: Line[][] = [];
   for (let n = 1; n <= doc.numPages; n++) pages.push(await readPage(await doc.getPage(n), n));
@@ -163,7 +185,12 @@ export async function pdfToMarkdown(doc: PdfDoc): Promise<string> {
   const counts = new Map<string, Set<number>>();
   for (const l of all) if (margin(l)) counts.set(norm(l), (counts.get(norm(l)) ?? new Set()).add(l.page));
   const repeated = (l: Line) => margin(l) && ((counts.get(norm(l))?.size ?? 0) >= Math.max(2, pages.length * 0.5) || /^(page\s*)?#(\s*(of|\/)\s*#)?$/.test(norm(l)));
-  const lines = pages.length > 1 ? all.filter((l) => !repeated(l)) : all.filter((l) => !(margin(l) && /^(page\s*)?#(\s*(of|\/)\s*#)?$/.test(norm(l))));
+  const pageNumber = (l: Line) => margin(l) && /^(page\s*)?#(\s*(of|\/)\s*#)?$/.test(norm(l));
+  let lines = pages.length > 1 ? all.filter((l) => !repeated(l)) : all.filter((l) => !pageNumber(l));
+  // Slides and forms can put most of their text near the top of every page in the same pattern
+  // ("Slide 1: ...", "Slide 2: ..."): that is content, not a running header.
+  if (lines.length < all.length * 0.5) lines = all.filter((l) => !pageNumber(l));
+  if (!lines.length) throw new Error("This PDF has no text to convert. It may be a scanned picture of pages.");
 
   // The body size is the one most text is set in; larger sizes become heading levels.
   const weight = new Map<number, number>();
@@ -201,7 +228,7 @@ export async function pdfToMarkdown(doc: PdfDoc): Promise<string> {
     else if (BULLET.test(text)) blocks.push(`- ${escapeLineStart(md.replace(/^\s*(\\?[•●▪◦‣∙·○■□➢►–—-])\s+/, ""))}`);
     else if (NUMBERED.test(text)) {
       const m = NUMBERED.exec(text)!;
-      blocks.push(/^\d/.test(m[2]) ? `${m[2]}. ${md.slice(md.indexOf(m[1].slice(-1)) + 1).trim()}` : md);
+      blocks.push(/^\d/.test(m[2]) ? `${m[2]}. ${withoutMarker(para, m[1])}` : md);
     } else blocks.push(escapeLineStart(md));
     para = [];
   };

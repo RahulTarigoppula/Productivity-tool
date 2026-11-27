@@ -186,7 +186,8 @@ export function createBrowserPlatform(): Platform {
       const f = files.get(path);
       if (!f) throw new Error("The file was not found. It may have been moved or deleted.");
       const to = path.slice(0, path.lastIndexOf("/") + 1) + name;
-      if (files.has(to) && to.toLowerCase() !== path.toLowerCase()) throw new Error(`There is already a file named ${name} in this folder.`);
+      // Paths here are case-sensitive, so another spelling is another file.
+      if (files.has(to) && to !== path) throw new Error(`There is already a file named ${name} in this folder.`);
       files.delete(path);
       files.set(to, f);
       if (snapshots.has(path) && !snapshots.has(to)) {

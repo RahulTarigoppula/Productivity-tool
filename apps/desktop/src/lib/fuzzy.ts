@@ -9,13 +9,26 @@ export interface Match {
 
 const SEPARATORS = new Set([..." \t\n-_./\\:()[]"]);
 /** A word start: after a separator, or an upper-case letter after a lower-case one ("camelCase"). */
-const isBoundary = (prev: string, cur: string) =>
+const isBoundary = (prev: string, cur = "") =>
   prev === "" || SEPARATORS.has(prev) || (cur !== cur.toLowerCase() && prev === prev.toLowerCase() && prev !== prev.toUpperCase());
 
+/** Lower case with the same length, so positions found in it are positions in the original
+ *  ("İ" lower-cases to two units; such characters are kept as they are). */
+export function lowerSameLength(s: string): string {
+  const l = s.toLowerCase();
+  if (l.length === s.length) return l;
+  let out = "";
+  for (const ch of s) {
+    const c = ch.toLowerCase();
+    out += c.length === ch.length ? c : ch;
+  }
+  return out;
+}
+
 export function fuzzyMatch(query: string, target: string): Match | null {
-  const q = query.trim().toLowerCase();
+  const q = lowerSameLength(query.trim());
   if (!q) return { score: 0, positions: [] };
-  const t = target.toLowerCase();
+  const t = lowerSameLength(target);
   // Fast path: contiguous substring.
   const idx = t.indexOf(q);
   if (idx >= 0) {

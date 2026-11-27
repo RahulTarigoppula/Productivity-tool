@@ -18,4 +18,12 @@ describe("fuzzy matching", () => {
     const r = rank(["notes.md", "notes-old.md"], "notes", (s) => s, (s) => (s === "notes-old.md" ? 2000 : 0));
     expect(r[0].item).toBe("notes-old.md");
   });
+
+  it("names whose lower case is longer (İstanbul) and emoji match without shifting or crashing", () => {
+    for (const q of ["bud", "nd", "id", "smd", "imd", "stan"]) expect(() => fuzzyMatch(q, "İstanbul notları.md")).not.toThrow();
+    const m = fuzzyMatch("stan", "İstanbul.md")!;
+    expect(m.positions.map((p) => "İstanbul.md"[p]).join("")).toBe("stan");
+    const e = fuzzyMatch("plan", "🎉 plan.md")!;
+    expect(e.positions.map((p) => "🎉 plan.md"[p]).join("")).toBe("plan");
+  });
 });

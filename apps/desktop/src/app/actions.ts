@@ -498,6 +498,7 @@ async function saveTabNow(id: string, opts: { as?: boolean; explicit?: boolean }
       else void reloadFromDisk(t.id, false);
     }
     void addRecent(path, newKind);
+    if (pathChanged) filesChanged();
     updateTitle();
     // An earlier "Could not save" message for this file is out of date now.
     setState((s) => ({ toasts: s.toasts.filter((x) => !x.text.startsWith(`Could not save ${tab.name}:`)) }));
@@ -601,11 +602,25 @@ export async function flushAll() {
  *  Typed without an extension, the old one is kept.
  *  Tabs on the same file, the recent and pinned lists, and the file's version history follow it. */
 export async function renameTab(id: string, typed: string): Promise<boolean> {
+  // A save already running for this file finishes first (it writes to the old name), and saves
+  // asked for meanwhile wait until the file has its new name.
+  const run = (saveChains.get(id) ?? Promise.resolve(true)).then(
+    () => renameNow(id, typed),
+    () => renameNow(id, typed),
+  );
+  saveChains.set(id, run.then(() => true, () => true));
+  return run;
+}
+
+/** Whether what follows the last dot is an extension ("notes v1.2" has none: "2" is part of the name). */
+const looksLikeExtension = (e: string) => /^[a-z0-9]{1,8}$/i.test(e) && /[a-z]/i.test(e);
+
+async function renameNow(id: string, typed: string): Promise<boolean> {
   const tab = getState().tabs.find((t) => t.id === id);
   if (!tab) return false;
   let name = typed.trim();
   const ext = extname(tab.name);
-  if (name && ext && !extname(name)) name = `${name}.${ext}`;
+  if (name && ext && !looksLikeExtension(extname(name))) name = `${name}.${ext}`;
   if (!name || name === tab.name) return true;
   if (!tab.path) {
     // Not saved yet: the name is what the first save suggests.
@@ -618,6 +633,8 @@ export async function renameTab(id: string, typed: string): Promise<boolean> {
     return true;
   }
   const from = tab.path;
+  // Other tabs on the same file finish their saves too.
+  await Promise.all(getState().tabs.filter((t) => t.id !== id && t.path && samePath(t.path, from)).map((t) => saveChains.get(t.id)?.catch(() => false)));
   // As File Explorer does: a different extension can make the file unusable, so it is asked about.
   if (extname(name) !== ext) {
     const choice = await ask(
@@ -638,12 +655,14 @@ export async function renameTab(id: string, typed: string): Promise<boolean> {
   if (known) knownMeta.set(metaKey(to), known);
   void platform.unwatch(from).catch(() => {});
   void platform.watch(to).catch(() => {});
+  const oldKind = kindFromName(from);
   const kind = kindFromName(to);
   for (const t of getState().tabs) {
     if (!t.path || !samePath(t.path, from)) continue;
     updateTab(t.id, { path: to, name: basename(to) });
-    // A text file renamed to another text kind (notes.txt → notes.md) is shown as its new kind.
-    if (!t.dirty && kind !== t.kind && isTextual(kind) && isTextual(t.kind)) {
+    // A text file renamed to another text kind (notes.txt → notes.md) is shown as its new kind;
+    // a tab that was reopened as something else on purpose keeps that.
+    if (!t.dirty && t.kind === oldKind && kind !== t.kind && isTextual(kind) && isTextual(t.kind)) {
       const bytes = await platform.readFile(to).catch(() => null);
       if (bytes) {
         tabBytes.set(t.id, bytes);
@@ -656,9 +675,15 @@ export async function renameTab(id: string, typed: string): Promise<boolean> {
   setState({ recent, pinned });
   void platform.stateSet("recent", JSON.stringify(recent)).catch(() => {});
   void platform.stateSet("pinned", JSON.stringify(pinned)).catch(() => {});
+  filesChanged();
   updateTitle();
   toast(`Renamed to ${basename(to)}`);
   return true;
+}
+
+/** Lists of a folder's files kept elsewhere (the palette's) are out of date. */
+export function filesChanged() {
+  window.dispatchEvent(new Event("app:files-changed"));
 }
 
 export async function closeTab(id: string, opts: { discard?: boolean } = {}): Promise<boolean> {

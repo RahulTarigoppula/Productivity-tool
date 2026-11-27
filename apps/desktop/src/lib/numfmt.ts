@@ -75,7 +75,8 @@ function group(int: string): string {
 /** A number shown with an Excel format code. */
 export function formatNumber(value: number, code: string | undefined): string {
   if (!Number.isFinite(value)) return String(value);
-  if (!code || /^general$/i.test(code.trim())) return general(value);
+  // Excel's codes are at most 255 characters; anything longer is not a real format.
+  if (!code || code.length > 255 || /^general$/i.test(code.trim())) return general(value);
   const sections = code.split(/;(?=(?:[^"]*"[^"]*")*[^"]*$)/);
   let section = sections[0];
   let negative = value < 0;
@@ -89,6 +90,9 @@ export function formatNumber(value: number, code: string | undefined): string {
   if (isDateFormat(section)) return value >= 0 && value < 2958466 ? formatDate(value, section) : general(value);
   const b = bare(section);
   if (!/[0#?]/.test(b)) return general(value);
+  // Fractions ("# ?/?") and scaling by thousands ("0.0," or "#,##0,,") are not drawn here: the
+  // plain number is shown rather than a wrong one.
+  if (/\?\/|\/\s*[0-9?#]/.test(b) || /[0#?.],+(?![0#?])/.test(b.replace(/[%E+-]/gi, ""))) return general(value);
   const { prefix, suffix } = literals(section);
   let v = Math.abs(value);
   if (b.includes("%")) v *= 100;
@@ -97,7 +101,7 @@ export function formatNumber(value: number, code: string | undefined): string {
   const decimals = (/\.([0#?]+)/.exec(numPart)?.[1] ?? "").length;
   let body: string;
   if (sci) {
-    const [m, e] = v.toExponential(decimals).split("e");
+    const [m, e] = v.toExponential(Math.min(decimals, 20)).split("e");
     body = `${m}E${Number(e) < 0 ? "-" : "+"}${pad(Math.abs(Number(e)))}`;
   } else {
     body = v.toFixed(Math.min(decimals, 20));
@@ -147,6 +151,18 @@ export function asNumberCell(v: string): NumberCell | null {
     const value = Number((Number(m[1]) / 100).toPrecision(15));
     return formatNumber(value, format) === v ? { value, format } : null;
   }
+  // Amounts with a currency sign or thousands separators ($1,200.50, €300, 12,000): stored as
+  // numbers so sums work in Excel, with a format that shows them exactly as typed.
+  m = /^(-?)([$€£¥₹])?((?:[1-9]\d{0,2})(?:,\d{3})+|0|[1-9]\d*)(?:\.(\d{1,10}))?$/.exec(v);
+  if (m && (m[2] || m[3].includes(","))) {
+    const [, sign, cur = "", int, frac = ""] = m;
+    const digits = int.replace(/,/g, "");
+    if (digits.length > 11) return null;
+    const value = Number(`${sign}${digits}${frac ? "." + frac : ""}`);
+    const grouping = int.includes(",") || (cur !== "" && digits.length > 3) ? "#,##0" : "0";
+    const format = `${cur ? `"${cur}"` : ""}${grouping}${frac ? "." + "0".repeat(frac.length) : ""}`;
+    if (Number.isFinite(value) && !(sign && value === 0) && formatNumber(value, format) === v) return { value, format };
+  }
   m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
   if (m) {
     const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
@@ -156,4 +172,27 @@ export function asNumberCell(v: string): NumberCell | null {
     if (y <= 9999 && t >= Date.UTC(1900, 2, 1) && back.getUTCMonth() === mo - 1 && back.getUTCDate() === d) return { value: (t - EPOCH) / DAY_MS, format: "yyyy-mm-dd" };
   }
   return null;
+}
+
+/** A cell read as an amount, for sorting and sums: currency signs, thousands separators, spaces,
+ *  a trailing % and accounting-style (500) negatives are allowed. With decimalComma (files that
+ *  separate values with ";", as in much of Europe) "1.234,50" is 1234.5. Null when it is not a
+ *  number. */
+export function parseAmount(v: string, decimalComma = false): number | null {
+  let t = v.trim();
+  if (!t || t.length > 40) return null;
+  let neg = false;
+  if (/^\(.*\)$/.test(t)) {
+    neg = true;
+    t = t.slice(1, -1).trim();
+  }
+  t = t.replace(/[$€£¥₹₩₽¢\s\u00a0\u202f]/g, "").replace(/%$/, "");
+  if (t.startsWith("-")) {
+    neg = !neg;
+    t = t.slice(1);
+  } else if (t.startsWith("+")) t = t.slice(1);
+  t = decimalComma ? t.replace(/\.(?=\d{3}(\D|$))/g, "").replace(",", ".") : t.replace(/,(?=\d{3}(\D|$))/g, "");
+  if (!/^(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(t)) return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? (neg ? -n : n) : null;
 }

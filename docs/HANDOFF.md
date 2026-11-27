@@ -76,7 +76,7 @@ The app is one window with tabs. Four things are always there: **tabs** at the t
 - Very large tables (over about 1.15 million rows) show their first rows; Filter finds the rest.
 
 ### Export and print
-- **Ctrl+E** lists what people usually want first (a note: Word, then a formatted PDF; a table: Excel) and the rest under **More formats**, with a **Text only** label where formatting is lost. Notes become **Word documents** and tables become **Excel workbooks**: numbers, prices like 1.10, percentages and dates stay numbers that look exactly as typed; IDs with leading zeros and barcodes stay text. **Word → Markdown** keeps headings, bold/italic, links, numbered and nested lists, tables, quotes, code and footnotes. All offline; the original file is never changed, and the message says where the new file went.
+- **Ctrl+E** lists what people usually want first (a note: Word, then a formatted PDF; a table: Excel) and the rest under **More formats**, with a **Text only** label where formatting is lost. Notes become **Word documents** and tables become **Excel workbooks**: numbers, prices like 1.10, percentages and dates stay numbers that look exactly as typed; IDs with leading zeros and barcodes stay text. **Word → Markdown** keeps headings, bold/italic, links, numbered and nested lists, tables, quotes, code and footnotes. **PDF → Word / Markdown** rebuilds paragraphs, headings, lists, bold, italic and links from the page (running headers and page numbers are dropped; scanned PDFs have no text to convert). All offline; the original file is never changed, and the message says where the new file went.
 - **Print or save as a formatted PDF** opens the print window (choose *Save as PDF*).
 
 ### Safety nets
@@ -133,9 +133,9 @@ Note: a plain `cargo build --release` does not embed the interface (it points at
 
 | What | Command (in `apps/desktop`) | Count today |
 |---|---|---|
-| Unit tests | `pnpm test` | 127 |
+| Unit tests | `pnpm test` | 134 |
 | Rust tests | `cd src-tauri && cargo test --release` | 22 |
-| End-to-end flows (browser build) | `pnpm build && pnpm preview --port 1420 &` then `APP_URL=http://localhost:1420/ pnpm e2e` | 81 |
+| End-to-end flows (browser build) | `pnpm build && pnpm preview --port 1420 &` then `APP_URL=http://localhost:1420/ pnpm e2e` | 82 |
 | Office editing flows | `pnpm office-pack`, `node tests/office-server.mjs &`, then `OFFICE_URL=http://localhost:4180 pnpm e2e:office` (no trailing slash) | 15 |
 | Real-app self-test (Windows/Linux) | `PRODUCTIVITY_SELF_TEST=<folder with tests/corpus files> productivity.exe` → writes `selftest-report.json` there | 23 checks |
 | Real-app self-test (Android emulator) | `tests/android-smoke.sh <apk> <out-dir>` (needs USB debugging on) | 23 checks |
@@ -196,7 +196,7 @@ Design and decisions: `docs/plans/` (vision, architecture, UX, roadmap), `docs/f
 | Area | Gap | Where planned |
 |---|---|---|
 | All | Not yet used on real hardware | Section 4 checklist |
-| Windows | Exe not code-signed; native Mica title bar; PDF → Word conversion; language servers/terminal (light workbench) | W5–W6, convert pack |
-| Android | Office files are previews only; no folders; very old system WebViews may not draw PDF pages; files shared once cannot be reopened after a restart | `docs/decisions/0003-android.md` |
-| Office | Non-Latin scripts use a fallback font in the core pack (`--fonts=all` adds them); release-candidate editors pinned | `docs/decisions/0002-office-engine.md` |
+| Windows | Exe not code-signed; native Mica title bar; PDF → Word keeps text and structure but not page layout, pictures or table grids; language servers/terminal (light workbench) | W5–W6, convert pack |
+| Android | Office files are previews only; no folders; very old system WebViews may not draw PDF pages; a file shared for one visit (most chat and mail apps) cannot be reopened after a restart (file managers grant lasting access, which the app now keeps) | `docs/decisions/0003-android.md` |
+| Office | The core pack has one compact font per writing system (Chinese/Japanese, Korean, Indian scripts, Arabic, Hebrew, Khmer, Sinhala, Ethiopic, Myanmar, Mongolian; Thai through FreeSerif), so documents in those scripts read correctly but in a substitute typeface (`--fonts=all` adds the full set); Tibetan needs `--fonts=all`; release-candidate editors pinned | `docs/decisions/0002-office-engine.md` |
 | Next phase | Phase 3: macOS and iOS; Release 4: sync across devices | `docs/plans/03-roadmap.md`, `12-platforms-and-mobile.md`, `11-sync-and-continuity.md` |

@@ -100,6 +100,9 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
     // (The authority may carry a "user@" prefix, which Android ignores when it finds the provider.)
     val authority = uri.authority?.substringAfterLast('@') ?: return
     if (authority == activity.packageName || authority.startsWith(activity.packageName + ".")) return
+    // Keep access after a restart where the sending app allows it (file managers usually do), so the
+    // file can be reopened from Recent; otherwise it is usable for this visit only.
+    if ((intent.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0) persist(uri)
     val s = uri.toString()
     synchronized(opened) { if (!opened.contains(s)) opened.add(s) }
     // Handled: do not hand the same file over again when the activity is recreated.

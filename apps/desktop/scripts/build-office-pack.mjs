@@ -35,9 +35,12 @@ const PACKAGES = {
 const FONTS_REPO = { url: "https://github.com/ranuts/document", commit: "d1c9b03263aabe14789297f5c717fefff2fe4f0d", path: "public/fonts" };
 const DICT_REPO = { url: "https://github.com/ONLYOFFICE/dictionaries", commit: "d3223bbb777883db66ac3cd249f71c6ebdc992c7", path: "en_US" };
 
-// Fonts kept in the "core" set: Latin, Greek and Cyrillic families most documents use, plus
-// symbol and emoji fonts. Other scripts fall back to DejaVu Sans (served by the app).
-const CORE_FONTS = /^(Arial|Calibri|Carlito|Caladea|Comic Sans MS|Courier New|Andale Mono|Liberation.*|DejaVu.*|Noto Sans|Noto Emoji|Open Sans.*|Ubuntu.*|Free(Sans|Serif|Mono)|OpenSymbol|Symbola|ASCW3|Asana|Noto Sans (Armenian|Georgian|Hebrew)|Noto Naskh Arabic.*)$/;
+// Fonts kept in the "core" set: Latin, Greek and Cyrillic families most documents use, symbol and
+// emoji fonts, and one compact font for each other common writing system: Chinese and Japanese
+// (Droid Sans Fallback, about 4 MB), Korean (NanumSquare, 1.5 MB), the Indian scripts (Lohit,
+// about 1.3 MB together), Arabic, Hebrew, Armenian, Georgian, Khmer, Sinhala, Ethiopic, Myanmar and
+// Mongolian. scripts/office-fonts.mjs points the Windows and Mac font names of each script at them.
+const CORE_FONTS = /^(Arial|Calibri|Carlito|Caladea|Comic Sans MS|Courier New|Andale Mono|Liberation.*|DejaVu.*|Noto Sans|Noto Emoji|Open Sans.*|Ubuntu.*|Free(Sans|Serif|Mono)|OpenSymbol|Symbola|ASCW3|Asana|Noto Sans (Armenian|Georgian|Hebrew)|Noto Naskh Arabic.*|Droid Sans Fallback|NanumSquare|NanumSquare Bold|Lohit .*|Khmer OS|Noto Serif Sinhala|Abyssinica SIL|Padauk|Noto Sans Mongolian)$/;
 
 const run = (cmd, argv, opts = {}) => execFileSync(cmd, argv, { stdio: ["ignore", "pipe", "inherit"], ...opts }).toString();
 // On Windows npm is a .cmd script, which Node will not start without a shell; run npm's own

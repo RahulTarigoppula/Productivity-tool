@@ -235,7 +235,7 @@ export async function openPath(path: string, opts: OpenOptions = {}): Promise<st
     updateTitle();
     return id;
   } catch (e) {
-    updateTab(id, { loading: false, error: e instanceof Error ? e.message : String(e) });
+    updateTab(id, { loading: false, error: explainError(e instanceof Error ? e.message : String(e)) });
     return id;
   }
 }
@@ -491,6 +491,8 @@ async function saveTabNow(id: string, opts: { as?: boolean; explicit?: boolean }
 /** Messages from libraries, in plain words (they are written for programmers). */
 export function explainError(msg: string): string {
   const m = msg.toLowerCase();
+  // Android: a file shared for one visit cannot be opened again after the app restarts.
+  if (/permission denial|securityexception|no persistable permission|not have permission to access|requires that you obtain access/.test(m)) return "Android let the app open this file only once. Open it again from where it is (Files, Drive or the app that shared it).";
   if (/maximum call stack|too much recursion|excessive node nesting/.test(m)) return "This document is nested too deeply to read or convert.";
   if (/invalid string length|array buffer allocation|out of memory|allocation failed/.test(m)) return "This document is too large to convert here.";
   if (/uncompressed data size mismatch|invalid (length\/literal|distance|stored block|code lengths)|corrupted zip|end of central directory|crc32/.test(m)) return "This file is damaged: its packed contents cannot be read.";
